@@ -1,0 +1,27 @@
+# Memora Core — code owners.
+#
+# Every PR requires review from at least one member of the matched team(s).
+# Default fallback to @axiom-studio/memora-maintainers.
+
+* @axiom-studio/memora-maintainers
+
+# Adapter contracts — the public OSS surface; needs careful review.
+/pkg/adapter/                @axiom-studio/memora-maintainers
+/pkg/types/                  @axiom-studio/memora-maintainers
+
+# Server + MCP — protocol-sensitive code.
+/internal/server/            @axiom-studio/memora-maintainers
+/internal/mcp/               @axiom-studio/memora-maintainers
+
+# Schema migrations — irreversible changes once shipped.
+/migrate/                    @axiom-studio/memora-maintainers
+
+# CI + build tooling.
+/.github/                    @axiom-studio/memora-maintainers
+/Makefile                    @axiom-studio/memora-maintainers
+/.golangci.yml               @axiom-studio/memora-maintainers
+
+# Documentation.
+/docs/                       @axiom-studio/memora-maintainers
+/README.md                   @axiom-studio/memora-maintainers
+/CONTRIBUTING.md             @axiom-studio/memora-maintainers
