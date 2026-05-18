@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/mcp"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -40,6 +41,11 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "serve" {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 		serve()
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runMCP()
 		return
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
@@ -184,4 +190,64 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// runMCP serves the bundled MCP transport over stdio. The Server uses
+// the same Service + adapter triple as `serve`, but bypasses the HTTP
+// router — agent loops attach via memora-core's stdin/stdout.
+func runMCP() {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory")
+	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
+	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
+	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
+	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
+	_ = fs.Parse(os.Args[1:])
+
+	logger := stdlog.New(os.Stderr, "memora-mcp ", stdlog.LstdFlags|stdlog.LUTC)
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		logger.Fatalf("mkdir data-dir: %v", err)
+	}
+	dbPath := filepath.Join(*dataDir, "memora.db")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
+	if err != nil {
+		logger.Fatalf("open primary: %v", err)
+	}
+	defer primary.Close()
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
+	if err != nil {
+		logger.Fatalf("open vector: %v", err)
+	}
+	defer vec.Close()
+	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: *ledgerDriver, DSN: dbPath})
+	if err != nil {
+		logger.Fatalf("open ledger: %v", err)
+	}
+	defer led.Close()
+
+	embedProvider, err := embedding.Open(*embedModel)
+	if err != nil {
+		logger.Fatalf("open embedding: %v", err)
+	}
+	identityMap := map[string]adapter.IdentityProvider{}
+	for _, name := range []string{string(types.IdentityProviderOpaque), string(types.IdentityProviderAnthropicSession)} {
+		p, _ := adapter.OpenIdentity(name)
+		identityMap[name] = p
+	}
+	svc := &service.Service{
+		Primary:  primary,
+		Vector:   vec,
+		Ledger:   led,
+		Embedder: embedProvider,
+		Identity: identityMap,
+	}
+	server := mcp.NewServer(svc, logger)
+	logger.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", *dataDir, embedProvider.ModelID())
+	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
+		logger.Fatalf("mcp serve: %v", err)
+	}
 }
