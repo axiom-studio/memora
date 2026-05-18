@@ -10,7 +10,10 @@ import (
 	"github.com/axiom-studio/memora/pkg/types"
 )
 
-// RegisterAgent upserts an Agent by agent_id.
+// RegisterAgent upserts an Agent by agent_id. The plaintext
+// identity_proof is hashed (SHA-256) before storage so a DB dump
+// never leaks the underlying secret (SECURITY-2102). Verifiers see
+// the raw proof at request time only; what persists is the digest.
 func (s *Store) RegisterAgent(ctx context.Context, a *types.Agent) error {
 	if err := a.Validate(); err != nil {
 		return err
@@ -19,7 +22,7 @@ func (s *Store) RegisterAgent(ctx context.Context, a *types.Agent) error {
 		a.RegisteredAt = time.Now().UTC()
 	}
 	a.Active = true
-	proofJSON, _ := json.Marshal(a.IdentityProof)
+	a.IdentityProofHash = types.HashIdentityProof(a.IdentityProof)
 	capsJSON, _ := json.Marshal(a.Capabilities)
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, identity_proof,
@@ -35,7 +38,7 @@ ON CONFLICT(agent_id) DO UPDATE SET
     last_seen_at=excluded.last_seen_at,
     active=1`,
 		a.AgentID, a.WorkspaceID, nullableStr(a.DisplayName), a.IdentityProvider,
-		nullableStr(string(proofJSON)), nullableStr(a.AgentType), nullableStr(a.Model),
+		nullableStr(a.IdentityProofHash), nullableStr(a.AgentType), nullableStr(a.Model),
 		nullableStr(string(capsJSON)), a.RegisteredAt, time.Now().UTC())
 	return err
 }
@@ -64,9 +67,8 @@ FROM memora_agents WHERE agent_id = ?`, id).Scan(
 	a.RegisteredAt = registeredAt.Time
 	a.LastSeenAt = nullableTime(lastSeen)
 	a.Active = active != 0
-	if proof.Valid && proof.String != "" {
-		_ = json.Unmarshal([]byte(proof.String), &a.IdentityProof)
-	}
+	// Stored column is the SHA-256 digest, not the original proof.
+	a.IdentityProofHash = proof.String
 	if caps.Valid && caps.String != "" {
 		_ = json.Unmarshal([]byte(caps.String), &a.Capabilities)
 	}
@@ -99,9 +101,7 @@ FROM memora_agents WHERE workspace_id = ? ORDER BY registered_at DESC`, workspac
 		a.RegisteredAt = registeredAt.Time
 		a.LastSeenAt = nullableTime(lastSeen)
 		a.Active = active != 0
-		if proof.Valid && proof.String != "" {
-			_ = json.Unmarshal([]byte(proof.String), &a.IdentityProof)
-		}
+		a.IdentityProofHash = proof.String
 		if caps.Valid && caps.String != "" {
 			_ = json.Unmarshal([]byte(caps.String), &a.Capabilities)
 		}

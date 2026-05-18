@@ -39,11 +39,16 @@ func (s *Store) Open(ctx context.Context, cfg adapter.PrimaryConfig) error {
 	if cfg.DSN == "" {
 		return errors.New("sqlite: DSN required (e.g. ./data/memora.db)")
 	}
-	// Append pragmas that have to live on the URI for modernc.org/sqlite.
+	// Always append our safety pragmas — even when the caller supplied
+	// a `?...` suffix in the DSN. Skipping them based on `strings.Contains`
+	// would silently disable foreign-key enforcement and WAL mode, which
+	// is a defense-in-depth gap (SECURITY-2101).
 	dsn := cfg.DSN
-	if !strings.Contains(dsn, "?") {
-		dsn += "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
 	}
+	dsn += sep + "_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("sqlite: open: %w", err)
