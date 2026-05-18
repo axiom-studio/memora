@@ -47,6 +47,26 @@ a remediation timeline.
 - Schema migrations.
 - CI workflows and release artifacts (binaries, Docker image, Helm chart).
 
+## Safe harbor
+
+Memora considers security research conducted in good faith and within
+the **In-scope** boundary above to be authorized activity, and will not
+pursue or support legal action against researchers who:
+
+- Make a good-faith effort to avoid privacy violations, data destruction,
+  service degradation, and disruption to non-test infrastructure.
+- Use the reporting channel above and avoid public disclosure until the
+  remediation timeline in the *Disclosure process* section is met (or a
+  90-day default elapses, whichever is sooner).
+- Do not exfiltrate more data than is necessary to demonstrate the
+  issue, and securely delete any retained copies after the report is
+  acknowledged.
+
+This authorization is limited to the **In-scope** artifacts above and
+does not extend to third-party adapters, operator deployments, or any
+system not controlled by the Memora project. Reference: ISO/IEC 29147,
+[disclose.io](https://github.com/disclose/disclose.io) template (CC0).
+
 ## Out of scope
 
 - Third-party adapter implementations (report to the adapter author).
