@@ -12,6 +12,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default token scope for every job. Workflow-level
+# permissions are read-only; any future job that needs write (release,
+# PR-comment, etc.) must opt in at the job level. OpenSSF Scorecard
+# Token-Permissions baseline; SOC2 CC7.1/CC8.1; ISO 27001 A.8.27.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build & Test
