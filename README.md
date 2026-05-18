@@ -26,23 +26,45 @@ versioned memory with vector + graph recall, callable from any MCP-aware agent.
 
 ## 60-second quickstart
 
-> **Coming soon** — the Docker image and binaries will land with the F12
-> packaging milestone. For now, build from source:
-
 ```bash
-# Build
-git clone https://github.com/axiom-studio/memora
-cd memora
+git clone https://github.com/axiom-studio/memora && cd memora
 make build
 
-# Run the server
-./bin/memora-core serve --mode single-tenant
+# 1) Start the server
+./bin/memora-core serve --addr=:7777 --data-dir=./data &
 
-# Imprint a memory
-./bin/memora-cli imprint --text "First memory"
+# 2) Create a workspace + remember it
+export MEMORA_ENDPOINT=http://localhost:7777
+WS=$(./bin/memora-cli workspaces create --name demo -o json | jq -r .id)
+export MEMORA_WORKSPACE=$WS
 
-# Recall it
-./bin/memora-cli recall "first" --mode keyword
+# 3) Imprint a memory
+./bin/memora-cli imprint --text "Customer wants the enterprise plan."
+
+# 4) Recall by keyword
+./bin/memora-cli recall enterprise
+
+# 5) Patch it — only the changed cell re-embeds (the moat)
+WMK=$(./bin/memora-cli lookup mem_XXXX -o json | jq -r .head_watermark)
+./bin/memora-cli patch mem_XXXX \
+    --patch '[{"old_string":"enterprise","new_string":"premium"}]' \
+    --if-match $WMK
+#   ✓ Patched mem_XXXX
+#     Cells re-embed: 1
+#     Cells skipped:  0 (the moat)
+```
+
+Docker:
+
+```bash
+docker run -p 7777:7777 -v memora-data:/data ghcr.io/axiomstudio/memora-core:latest
+```
+
+Attach via MCP (Claude Code, etc.):
+
+```bash
+./bin/memora-core mcp --data-dir=./data
+# JSON-RPC 2.0 over stdio; 25 OSS tools.
 ```
 
 ## Architecture

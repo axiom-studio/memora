@@ -42,6 +42,20 @@ SELECT COUNT(*) FROM memora_edges WHERE workspace_id = ? AND source_memory_id = 
 	if outDeg >= 1000 {
 		return types.Edge{}, fmt.Errorf("%w: out-degree limit (1000) reached for memory %s", types.ErrQuotaExceeded, e.SourceMemoryID)
 	}
+	// Synthetic-edge guard (F11.T2): when memora_edges_view exists and
+	// already carries a `parent_of` edge between (source, target) from
+	// the vibeflow_contexts shim, reject the explicit Link.
+	if e.EdgeType == types.EdgeTypeParentOf {
+		var seen int
+		err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM memora_edges_view
+WHERE workspace_id = ? AND source_memory_id = ? AND target_memory_id = ? AND edge_type = 'parent_of'
+  AND edge_id LIKE 'edg_synthetic_%'`,
+			e.WorkspaceID, e.SourceMemoryID, e.TargetMemoryID).Scan(&seen)
+		if err == nil && seen > 0 {
+			return types.Edge{}, types.ErrAlreadyLinked
+		}
+	}
 	propsJSON, _ := json.Marshal(e.PropertiesJSON)
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO memora_edges (edge_id, workspace_id, source_memory_id, target_memory_id, edge_type,

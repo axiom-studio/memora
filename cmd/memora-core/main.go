@@ -25,7 +25,11 @@ import (
 	"github.com/axiom-studio/memora/pkg/types"
 
 	// Register adapters in init().
+	_ "github.com/axiom-studio/memora/internal/ledger/file"
+	_ "github.com/axiom-studio/memora/internal/ledger/postgres"
 	_ "github.com/axiom-studio/memora/internal/ledger/sqlite"
+	_ "github.com/axiom-studio/memora/internal/store/pgvector"
+	_ "github.com/axiom-studio/memora/internal/store/postgres"
 	_ "github.com/axiom-studio/memora/internal/store/sqlite"
 	_ "github.com/axiom-studio/memora/internal/store/sqlitevec"
 	_ "github.com/axiom-studio/memora/pkg/identity"

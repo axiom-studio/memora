@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "memora-core.fullname" . }}
+  labels:
+    {{- include "memora-core.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "memora-core.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "memora-core.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: memora-core
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --primary-driver={{ .Values.primary.driver }}
+            - --vector-driver={{ .Values.vector.driver }}
+            - --ledger-driver={{ .Values.ledger.driver }}
+            - --embedding-model={{ .Values.embeddingModel }}
+            - --data-dir=/data
+          env:
+            {{- if .Values.apiKey }}
+            - name: MEMORA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "memora-core.fullname" . }}-secret
+                  key: api_key
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 7777
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "memora-core.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

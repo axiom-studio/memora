@@ -63,6 +63,10 @@ func (s *Store) Open(ctx context.Context, cfg adapter.PrimaryConfig) error {
 		_ = db.Close()
 		return fmt.Errorf("sqlite: ensure legacy agent: %w", err)
 	}
+	if err := s.ensureLegacyShimView(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("sqlite: ensure legacy shim view: %w", err)
+	}
 	return nil
 }
 

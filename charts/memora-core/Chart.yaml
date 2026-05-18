@@ -1,0 +1,17 @@
+apiVersion: v2
+name: memora-core
+description: Memora Core — durable, multi-tenant, versioned memory with vector + graph recall.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/axiom-studio/memora
+sources:
+  - https://github.com/axiom-studio/memora
+keywords:
+  - memora
+  - memory
+  - mcp
+  - ai
+maintainers:
+  - name: Axiom Studio
+    email: opensource@axiomstudio.ai

@@ -1,0 +1,67 @@
+# Memora Core Helm values. The default values produce a single-replica
+# SQLite-backed deployment suitable for local-dev or small-team use.
+# For multi-replica deployments set primary.driver: postgres (which
+# lands in v0.5; OSS v0.1 supports only sqlite single-replica).
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/axiomstudio/memora-core
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 7777
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: memora.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Adapter selection. SQLite is the OSS-default zero-dependency triple.
+primary:
+  driver: sqlite
+vector:
+  driver: sqlite-vec
+ledger:
+  driver: sqlite
+
+# Embedding model. Set MEMORA_EMBEDDING_MODEL=openai:text-embedding-3-small
+# (and provide OPENAI_API_KEY in `extraEnv`) for real embeddings.
+embeddingModel: noop:default
+
+# API bearer key. Leave empty for local-dev (auth disabled). Set via a
+# Helm value or via `--set apiKey=...` for production deployments.
+apiKey: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClassName: ""
+
+# Extra environment variables passed through to memora-core.
+extraEnv: []
+# - name: OPENAI_API_KEY
+#   valueFrom:
+#     secretKeyRef:
+#       name: openai
+#       key: api_key
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
