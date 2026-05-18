@@ -1,12 +1,16 @@
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+
+# Built binaries
+/bin/
+/dist/
 
 # Test binary, built with `go test -c`
 *.test
@@ -26,7 +30,31 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
+
+# Memora local-dev data
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Local model cache (LLM weights)
+/models/
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Cobra/golangci-lint cache
+.golangci-cache/
+
+# Goreleaser artifacts
+dist/
+
+# Local agent state (vibeflow sessions; never commit)
+.vibeflow-session-*
