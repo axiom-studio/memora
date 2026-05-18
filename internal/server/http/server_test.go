@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"io"
 	stdlog "log"
 	"net/http"
@@ -53,6 +54,50 @@ func TestAuthMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMiddlewareBodySizeLimit guards issue #2113: the middleware wraps
+// r.Body with http.MaxBytesReader so handlers cannot drown the server
+// in arbitrarily-large JSON. A POST body strictly larger than the cap
+// must error on read; a body inside the cap reads cleanly.
+func TestMiddlewareBodySizeLimit(t *testing.T) {
+	const cap = 1024
+	var readErr error
+	var readN int
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Drain the body; ReadAll triggers the MaxBytesReader cap.
+		buf, err := io.ReadAll(r.Body)
+		readErr = err
+		readN = len(buf)
+		w.WriteHeader(http.StatusOK)
+	})
+	s := &Server{cfg: Config{APIKey: "", MaxBodyBytes: cap, Logger: testLogger()}}
+	h := s.middleware(next)
+
+	t.Run("under cap is fine", func(t *testing.T) {
+		body := bytes.Repeat([]byte("x"), cap-1)
+		req := httptest.NewRequest(http.MethodPost, "/workspaces", bytes.NewReader(body))
+		req.ContentLength = int64(len(body))
+		readErr, readN = nil, 0
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if readErr != nil {
+			t.Fatalf("under-cap read errored: %v", readErr)
+		}
+		if readN != len(body) {
+			t.Errorf("read %d bytes, want %d", readN, len(body))
+		}
+	})
+
+	t.Run("over cap errors", func(t *testing.T) {
+		body := bytes.Repeat([]byte("x"), cap+1)
+		req := httptest.NewRequest(http.MethodPost, "/workspaces", bytes.NewReader(body))
+		req.ContentLength = int64(len(body))
+		readErr, readN = nil, 0
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if readErr == nil {
+			t.Fatalf("over-cap read should have errored; got nil with %d bytes read", readN)
+		}
+	})
 }
 
 // TestAuthMiddlewareConstantTimeCompare guards against future refactors
