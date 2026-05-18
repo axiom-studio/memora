@@ -1,0 +1,32 @@
+# EditorConfig — https://editorconfig.org
+# Memora Core conventions.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Go convention: tab indent, no trailing whitespace trim inside strings.
+[*.go]
+indent_style = tab
+indent_size = 8
+
+# Makefiles require tabs.
+[Makefile]
+indent_style = tab
+indent_size = 8
+
+# Go modules / YAML / Markdown / JSON.
+[{go.mod,go.sum,*.yaml,*.yml,*.json,*.md}]
+indent_style = space
+indent_size = 2
+
+# Shell scripts.
+[*.sh]
+indent_style = space
+indent_size = 4

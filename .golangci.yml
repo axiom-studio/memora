@@ -1,0 +1,60 @@
+# Memora Core — golangci-lint configuration.
+# Tuned for OSS contributors: noisy linters off, security/correctness linters on.
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck       # unchecked errors
+    - gosec          # security issues
+    - govet          # standard vet
+    - ineffassign    # unused assignments
+    - staticcheck    # bug & style checks
+    - unused         # unused code
+    - gofmt          # formatting
+    - goimports      # import grouping
+    - misspell       # common typos
+    - revive         # replacement for golint
+    - bodyclose      # unclosed HTTP response bodies
+    - nilerr         # `return nil` after non-nil error
+    - copyloopvar    # loop-variable capture issues (Go 1.22+)
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment   # mostly noise; opt-in per package if needed
+  gosec:
+    excludes:
+      - G104          # unhandled errors (covered by errcheck with better signal)
+      - G304          # file path provided as taint input (false positives in CLI tools)
+  goimports:
+    local-prefixes: github.com/axiom-studio/memora
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+
+issues:
+  exclude-rules:
+    # Test files: relaxed rules.
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    # Generated files.
+    - path: \.pb\.go$
+      linters:
+        - all
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true
