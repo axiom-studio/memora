@@ -5,6 +5,7 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,12 +22,14 @@ import (
 
 // Config is the boot-time configuration for the HTTP server.
 type Config struct {
-	Addr         string
-	APIKey       string // single-tenant default key; "" disables auth (local dev)
-	Service      *service.Service
-	Logger       *stdlog.Logger
-	Timeout      time.Duration
-	Mode         string // single-tenant | multi-tenant
+	Addr            string
+	APIKey          string // single-tenant default key; "" disables auth (local dev)
+	Service         *service.Service
+	Logger          *stdlog.Logger
+	Timeout         time.Duration
+	Mode            string // single-tenant | multi-tenant
+	MaxBodyBytes    int64  // request body size limit (0 = 8 MiB default)
+	AllowNoAuth     bool   // explicit opt-in for empty MEMORA_API_KEY
 }
 
 // Server is the assembled HTTP server.
@@ -36,6 +39,11 @@ type Server struct {
 	srv *http.Server
 }
 
+// DefaultMaxBodyBytes caps request bodies at 8 MiB. Memora's largest
+// expected single-request payload is a full Memory body — anything
+// larger is almost certainly an abuse vector.
+const DefaultMaxBodyBytes = 8 * 1024 * 1024
+
 // New returns a ready Server bound to cfg.Addr.
 func New(cfg Config) *Server {
 	if cfg.Timeout == 0 {
@@ -43,6 +51,19 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = stdlog.Default()
+	}
+	if cfg.MaxBodyBytes <= 0 {
+		cfg.MaxBodyBytes = DefaultMaxBodyBytes
+	}
+	// No-auth mode requires explicit opt-in for non-localhost binds.
+	if cfg.APIKey == "" && !cfg.AllowNoAuth {
+		host := cfg.Addr
+		if i := strings.Index(host, ":"); i >= 0 {
+			host = host[:i]
+		}
+		if host != "" && host != "127.0.0.1" && host != "localhost" && host != "::1" {
+			cfg.Logger.Printf("WARNING: serving %s with NO API key — set MEMORA_API_KEY or pass --allow-no-auth to silence", cfg.Addr)
+		}
 	}
 	mux := http.NewServeMux()
 	s := &Server{cfg: cfg, mux: mux}
@@ -70,11 +91,20 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Request-ID", reqID)
 
+		// Body-size limit (defense against memory-pressure DoS via huge JSON).
+		if r.Body != nil && s.cfg.MaxBodyBytes > 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
+		}
 		// Auth: API key (skipped when no key configured — local-dev mode).
 		if s.cfg.APIKey != "" {
 			auth := r.Header.Get("Authorization")
-			if !strings.HasPrefix(auth, "Bearer ") || auth[len("Bearer "):] != s.cfg.APIKey {
-				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token", nil)
+			if !strings.HasPrefix(auth, "Bearer ") {
+				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
+				return
+			}
+			provided := auth[len("Bearer "):]
+			if subtle.ConstantTimeCompare([]byte(provided), []byte(s.cfg.APIKey)) != 1 {
+				s.writeError(w, http.StatusUnauthorized, "unauthorized", "invalid bearer token", nil)
 				return
 			}
 		}

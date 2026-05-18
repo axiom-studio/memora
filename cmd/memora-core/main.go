@@ -5,6 +5,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	stdlog "log"
@@ -78,7 +81,61 @@ Common flags for 'serve':
   --ledger-driver      ledger-store driver (default sqlite)
   --embedding-model    embedding model id (default noop:default)
   --api-key            API bearer key (default $MEMORA_API_KEY; empty disables auth — local dev)
+  --allow-no-auth      explicit opt-in to run with an empty API key on a non-loopback bind
   --mode               single-tenant | multi-tenant (default single-tenant)`)
+}
+
+// errNoAuthNonLoopback is returned by validateAuthMode when the operator
+// runs without an API key on an externally-reachable bind without the
+// explicit --allow-no-auth opt-in. The textbook silent-no-auth default
+// anti-pattern (CWE-1188) is replaced with a refuse-to-start.
+var errNoAuthNonLoopback = errors.New("AUTH DISABLED on a non-loopback bind")
+
+// validateAuthMode returns an error when running with an empty API key
+// against a non-loopback address without the explicit --allow-no-auth
+// opt-in. Pure function — exercised by main_test.go without spawning a
+// process.
+func validateAuthMode(addr, apiKey string, allowNoAuth bool) error {
+	if apiKey != "" {
+		return nil
+	}
+	if allowNoAuth {
+		return nil
+	}
+	if bindsToLoopback(addr) {
+		return nil
+	}
+	return fmt.Errorf("%w: --addr=%q is reachable beyond loopback; set MEMORA_API_KEY, pass --allow-no-auth, or bind 127.0.0.1:PORT for local dev", errNoAuthNonLoopback, addr)
+}
+
+// bindsToLoopback returns true when addr accepts only loopback traffic.
+// Recognizes the empty string, ":NNNN" (Go's "all interfaces" form is
+// rejected — it binds 0.0.0.0), 127.0.0.1, ::1, and the literal
+// "localhost". ":NNNN" alone (no host) is treated as non-loopback because
+// net.Listen interprets it as 0.0.0.0:NNNN.
+func bindsToLoopback(addr string) bool {
+	if addr == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// Could be a bare host with no port; treat conservatively.
+		host = addr
+	}
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
+}
+
+// hashTag returns the first 8 hex chars of sha256(key). 32 bits of
+// entropy lets an operator confirm which API key is loaded without
+// leaking material — a brute-force attacker would need 2^256 work to
+// recover the full key from this tag.
+func hashTag(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])[:8]
 }
 
 func serve() {
@@ -90,10 +147,19 @@ func serve() {
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
 	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "API bearer key (empty disables auth)")
+	allowNoAuth := fs.Bool("allow-no-auth", false, "explicit opt-in to run with an empty API key on a non-loopback bind")
 	mode := fs.String("mode", getenv("MEMORA_MODE", "single-tenant"), "single-tenant | multi-tenant")
 	_ = fs.Parse(os.Args[1:])
 
 	logger := stdlog.New(os.Stderr, "memora-core ", stdlog.LstdFlags|stdlog.LUTC)
+	if err := validateAuthMode(*addr, *apiKey, *allowNoAuth); err != nil {
+		logger.Fatalf("%v", err)
+	}
+	if *apiKey == "" {
+		logger.Printf("WARNING: AUTH DISABLED (no MEMORA_API_KEY) — bind=%s allow-no-auth=%t", *addr, *allowNoAuth)
+	} else {
+		logger.Printf("AUTH ENABLED via API key (sha256[:8]=%s)", hashTag(*apiKey))
+	}
 	logger.Printf("starting on %s (mode=%s, primary=%s, vector=%s, ledger=%s, embedding=%s)",
 		*addr, *mode, *primaryDriver, *vectorDriver, *ledgerDriver, *embedModel)
 
@@ -148,11 +214,12 @@ func serve() {
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{
-		Addr:    *addr,
-		APIKey:  *apiKey,
-		Service: svc,
-		Logger:  logger,
-		Mode:    *mode,
+		Addr:        *addr,
+		APIKey:      *apiKey,
+		Service:     svc,
+		Logger:      logger,
+		Mode:        *mode,
+		AllowNoAuth: *allowNoAuth,
 	})
 
 	go func() {
