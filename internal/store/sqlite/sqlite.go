@@ -185,13 +185,9 @@ func loadMigrations() ([]migration, error) {
 	return files, nil
 }
 
-// ensureLegacyAgent is part of the parent_context_id migration shim
-// (F11). The reserved agent_id is auto-registered so every workspace
-// that exists at startup carries the sentinel.
+// ensureLegacyAgent seeds all reserved sentinel agent_ids into every
+// existing workspace at startup. Idempotent via ON CONFLICT DO NOTHING.
 func (s *Store) ensureLegacyAgent(ctx context.Context) error {
-	// We can't register against a workspace that doesn't exist yet.
-	// For new installs this is a no-op; the first workspace creation
-	// re-runs this idempotent.
 	rows, err := s.db.QueryContext(ctx, "SELECT id FROM memora_workspaces")
 	if err != nil {
 		return err
@@ -207,12 +203,14 @@ func (s *Store) ensureLegacyAgent(ctx context.Context) error {
 	}
 	_ = rows.Close()
 	for _, wsID := range wsIDs {
-		_, err := s.db.ExecContext(ctx, `
+		for _, agentID := range types.ReservedAgentIDs {
+			_, err := s.db.ExecContext(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
 VALUES (?, ?, 'opaque', datetime('now'), 1)
-ON CONFLICT(agent_id) DO NOTHING`, types.AgentLegacyVibeflowID, wsID)
-		if err != nil {
-			return err
+ON CONFLICT(agent_id) DO NOTHING`, agentID, wsID)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

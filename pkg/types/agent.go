@@ -51,6 +51,24 @@ const (
 // workspace at server startup.
 const AgentLegacyVibeflowID = "agent_legacy_vibeflow"
 
+// AgentSystemAutoLinkID is the reserved sentinel agent_id used by the
+// auto-link feature (F14) for system-generated vector_neighbor edges.
+const AgentSystemAutoLinkID = "agent_system_auto_link"
+
+// ReservedAgentIDs lists all sentinel agent_ids that cannot be
+// assigned to user-created agents.
+var ReservedAgentIDs = []string{AgentLegacyVibeflowID, AgentSystemAutoLinkID}
+
+// IsReservedAgentID returns true if the given id is a system sentinel.
+func IsReservedAgentID(id string) bool {
+	for _, r := range ReservedAgentIDs {
+		if id == r {
+			return true
+		}
+	}
+	return false
+}
+
 // Agent is the entity that wrote a Memory, Cell, Edge, or Ledger entry.
 // Separate from user_id and api_key_id so we can attribute writes to
 // the agent loop responsible.

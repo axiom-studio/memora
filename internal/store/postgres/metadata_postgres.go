@@ -98,10 +98,12 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
-	_, _ = s.pool.Exec(ctx, `
+	for _, agentID := range types.ReservedAgentIDs {
+		_, _ = s.pool.Exec(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
 VALUES ($1, $2, 'opaque', now(), TRUE)
-ON CONFLICT(agent_id) DO NOTHING`, types.AgentLegacyVibeflowID, w.ID)
+ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID)
+	}
 	return nil
 }
 

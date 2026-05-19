@@ -44,11 +44,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
-	// Auto-register the legacy sentinel agent in every new workspace.
-	_, _ = s.db.ExecContext(ctx, `
+	// Auto-register reserved sentinel agents in every new workspace.
+	for _, agentID := range types.ReservedAgentIDs {
+		_, _ = s.db.ExecContext(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
 VALUES (?, ?, 'opaque', datetime('now'), 1)
-ON CONFLICT(agent_id) DO NOTHING`, types.AgentLegacyVibeflowID, w.ID)
+ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID)
+	}
 	return nil
 }
 
