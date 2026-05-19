@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	stdlog "log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -151,20 +152,22 @@ func serve() {
 	mode := fs.String("mode", getenv("MEMORA_MODE", "single-tenant"), "single-tenant | multi-tenant")
 	_ = fs.Parse(os.Args[1:])
 
-	logger := stdlog.New(os.Stderr, "memora-core ", stdlog.LstdFlags|stdlog.LUTC)
+	bootLog := stdlog.New(os.Stderr, "memora-core ", stdlog.LstdFlags|stdlog.LUTC)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	if err := validateAuthMode(*addr, *apiKey, *allowNoAuth); err != nil {
-		logger.Fatalf("%v", err)
+		bootLog.Fatalf("%v", err)
 	}
 	if *apiKey == "" {
-		logger.Printf("WARNING: AUTH DISABLED (no MEMORA_API_KEY) — bind=%s allow-no-auth=%t", *addr, *allowNoAuth)
+		logger.Warn("auth disabled", "addr", *addr, "allow_no_auth", *allowNoAuth)
 	} else {
-		logger.Printf("AUTH ENABLED via API key (sha256[:8]=%s)", hashTag(*apiKey))
+		logger.Info("auth enabled", "key_tag", hashTag(*apiKey))
 	}
-	logger.Printf("starting on %s (mode=%s, primary=%s, vector=%s, ledger=%s, embedding=%s)",
-		*addr, *mode, *primaryDriver, *vectorDriver, *ledgerDriver, *embedModel)
+	logger.Info("starting",
+		"addr", *addr, "mode", *mode, "primary", *primaryDriver,
+		"vector", *vectorDriver, "ledger", *ledgerDriver, "embedding", *embedModel)
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
-		logger.Fatalf("mkdir data-dir: %v", err)
+		bootLog.Fatalf("mkdir data-dir: %v", err)
 	}
 	dbPath := filepath.Join(*dataDir, "memora.db")
 
@@ -173,25 +176,25 @@ func serve() {
 
 	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
 	if err != nil {
-		logger.Fatalf("open primary: %v", err)
+		bootLog.Fatalf("open primary: %v", err)
 	}
 	defer primary.Close()
 	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
 	if err != nil {
-		logger.Fatalf("open vector: %v", err)
+		bootLog.Fatalf("open vector: %v", err)
 	}
 	defer vec.Close()
 	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: *ledgerDriver, DSN: dbPath})
 	if err != nil {
-		logger.Fatalf("open ledger: %v", err)
+		bootLog.Fatalf("open ledger: %v", err)
 	}
 	defer led.Close()
 
 	embedProvider, err := embedding.Open(*embedModel)
 	if err != nil {
-		logger.Fatalf("open embedding: %v", err)
+		bootLog.Fatalf("open embedding: %v", err)
 	}
-	logger.Printf("embedding provider: %s (dim=%d)", embedProvider.ModelID(), embedProvider.Dim())
+	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
 
 	// Pre-instantiate the identity providers Memora ships with.
 	identityMap := map[string]adapter.IdentityProvider{}
@@ -223,7 +226,6 @@ func serve() {
 	})
 
 	go func() {
-		// Confirm the port is actually listening before we log "ready".
 		host := *addr
 		if strings.HasPrefix(host, ":") {
 			host = "127.0.0.1" + host
@@ -232,7 +234,7 @@ func serve() {
 			c, err := net.Dial("tcp", host)
 			if err == nil {
 				_ = c.Close()
-				logger.Printf("HTTP API ready at http://%s", host)
+				logger.Info("HTTP API ready", "url", "http://"+host)
 				return
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -246,10 +248,10 @@ func serve() {
 	select {
 	case err := <-errCh:
 		if err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("server failed: %v", err)
+			bootLog.Fatalf("server failed: %v", err)
 		}
 	case sig := <-sigCh:
-		logger.Printf("signal %v — shutting down", sig)
+		logger.Info("shutting down", "signal", sig.String())
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		_ = httpsrv.Shutdown(shutdownCtx)

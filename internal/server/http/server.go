@@ -1,6 +1,6 @@
 // Package http hosts the Memora REST surface. It wires the service
 // layer to net/http endpoints with a small middleware chain
-// (request-id, structured log, recover, auth, agent identity).
+// (request-id, CORS, body-size, structured log, recover, auth, agent identity).
 package http
 
 import (
@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	stdlog "log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -25,11 +25,14 @@ type Config struct {
 	Addr            string
 	APIKey          string // single-tenant default key; "" disables auth (local dev)
 	Service         *service.Service
-	Logger          *stdlog.Logger
+	Logger          *slog.Logger
 	Timeout         time.Duration
 	Mode            string // single-tenant | multi-tenant
 	MaxBodyBytes    int64  // request body size limit (0 = 8 MiB default)
 	AllowNoAuth     bool   // explicit opt-in for empty MEMORA_API_KEY
+	AllowedOrigins  []string // CORS: origins that may call the API; empty = no CORS headers
+
+	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
 
 // Server is the assembled HTTP server.
@@ -50,19 +53,24 @@ func New(cfg Config) *Server {
 		cfg.Timeout = 30 * time.Second
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = stdlog.Default()
+		cfg.Logger = slog.Default()
 	}
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultMaxBodyBytes
 	}
-	// No-auth mode requires explicit opt-in for non-localhost binds.
 	if cfg.APIKey == "" && !cfg.AllowNoAuth {
 		host := cfg.Addr
 		if i := strings.Index(host, ":"); i >= 0 {
 			host = host[:i]
 		}
 		if host != "" && host != "127.0.0.1" && host != "localhost" && host != "::1" {
-			cfg.Logger.Printf("WARNING: serving %s with NO API key — set MEMORA_API_KEY or pass --allow-no-auth to silence", cfg.Addr)
+			cfg.Logger.Warn("serving with no API key", "addr", cfg.Addr)
+		}
+	}
+	if len(cfg.AllowedOrigins) > 0 {
+		cfg.allowedOriginSet = make(map[string]bool, len(cfg.AllowedOrigins))
+		for _, o := range cfg.AllowedOrigins {
+			cfg.allowedOriginSet[strings.ToLower(o)] = true
 		}
 	}
 	mux := http.NewServeMux()
@@ -72,6 +80,8 @@ func New(cfg Config) *Server {
 		Addr:              cfg.Addr,
 		Handler:           s.middleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       cfg.Timeout,
+		WriteTimeout:      cfg.Timeout + 5*time.Second,
 	}
 	return s
 }
@@ -91,10 +101,26 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Request-ID", reqID)
 
+		// CORS (outermost — must run before auth so preflight succeeds).
+		if len(s.cfg.allowedOriginSet) > 0 {
+			origin := r.Header.Get("Origin")
+			if s.cfg.allowedOriginSet["*"] || s.cfg.allowedOriginSet[strings.ToLower(origin)] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Memora-Agent-Id, Memora-Identity-Provider, X-Request-ID, X-Memora-Workspace, If-Match")
+				w.Header().Set("Access-Control-Max-Age", "86400")
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+
 		// Body-size limit (defense against memory-pressure DoS via huge JSON).
 		if r.Body != nil && s.cfg.MaxBodyBytes > 0 {
 			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 		}
+
 		// Auth: API key (skipped when no key configured — local-dev mode).
 		if s.cfg.APIKey != "" {
 			auth := r.Header.Get("Authorization")
@@ -108,8 +134,20 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		// Agent identity: enforce on write verbs.
+
+		// Per-request timeout from Config.Timeout.
 		ctx := r.Context()
+		ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
+		defer cancel()
+
+		// Multi-tenant: resolve workspace from header when in multi-tenant mode.
+		if s.cfg.Mode == "multi-tenant" {
+			if ws := r.Header.Get("X-Memora-Workspace"); ws != "" {
+				ctx = context.WithValue(ctx, ctxKeyWorkspace, ws)
+			}
+		}
+
+		// Agent identity: enforce on write verbs.
 		if isWriteVerb(r.Method, r.URL.Path) {
 			agentID := r.Header.Get("Memora-Agent-Id")
 			if agentID == "" {
@@ -126,6 +164,18 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				return
 			}
 			ctx = context.WithValue(ctx, ctxKeyAgent, agentID)
+
+			// Auto-register agent after successful verification.
+			if s.cfg.Service != nil && s.cfg.Service.Primary != nil {
+				wsID := workspaceFromPath(r.URL.Path)
+				if wsID != "" {
+					_ = s.cfg.Service.Primary.RegisterAgent(ctx, &types.Agent{
+						AgentID:          agentID,
+						WorkspaceID:      wsID,
+						IdentityProvider: provName,
+					})
+				}
+			}
 		}
 		ctx = context.WithValue(ctx, ctxKeyRequestID, reqID)
 
@@ -133,13 +183,12 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		rw := &recorder{ResponseWriter: w, status: 200}
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.cfg.Logger.Printf("PANIC %s %s req=%s: %v", r.Method, r.URL.Path, reqID, rec)
+				s.cfg.Logger.Error("panic recovered", "method", r.Method, "path", r.URL.Path, "req_id", reqID, "panic", rec)
 				if !rw.wroteHeader {
 					s.writeError(w, http.StatusInternalServerError, "internal_error", fmt.Sprint(rec), nil)
 				}
 			}
-			s.cfg.Logger.Printf("%s %s status=%d dur=%dms req=%s",
-				r.Method, r.URL.Path, rw.status, time.Since(start).Milliseconds(), reqID)
+			s.cfg.Logger.Info("request", "method", r.Method, "path", r.URL.Path, "status", rw.status, "dur_ms", time.Since(start).Milliseconds(), "req_id", reqID)
 		}()
 		next.ServeHTTP(rw, r.WithContext(ctx))
 	})
@@ -150,6 +199,7 @@ type ctxKey int
 const (
 	ctxKeyRequestID ctxKey = iota
 	ctxKeyAgent
+	ctxKeyWorkspace
 )
 
 func agentFrom(ctx context.Context) string {
@@ -185,6 +235,19 @@ func isWriteVerb(method, path string) bool {
 		return true
 	}
 	return false
+}
+
+// workspaceFromPath extracts the workspace ID from /v1/workspaces/{ws_id}/...
+func workspaceFromPath(path string) string {
+	const prefix = "/v1/workspaces/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	rest := path[len(prefix):]
+	if i := strings.IndexByte(rest, '/'); i > 0 {
+		return rest[:i]
+	}
+	return rest
 }
 
 func (s *Server) writeError(w http.ResponseWriter, status int, code, message string, details map[string]any) {
