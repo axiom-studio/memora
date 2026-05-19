@@ -68,6 +68,11 @@ type PoolConfig struct {
 	// attempts use exponential backoff (base * 2^(attempt-1)). Default
 	// = 2 * time.Second.
 	RetryBaseDelay time.Duration
+
+	// PostEmbedHook is called per-memory after the recall_ready flip
+	// succeeds (flipped from false → true). Used by auto-link to
+	// create vector_neighbor edges for async-embedded memories.
+	PostEmbedHook func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32)
 }
 
 func (c PoolConfig) withDefaults() PoolConfig {
@@ -191,6 +196,12 @@ func (p *Pool) worker() {
 	}
 }
 
+type memCtx struct {
+	workspaceID string
+	cells       []types.Cell
+	embeddings  [][]float32
+}
+
 // runBatch processes one batch end-to-end: skip-check (per-memory
 // dedup'd GetCells), in-flight cell dedup, batched Provider.Embed with
 // retry, per-cell persistence, and conditional recall_ready flip.
@@ -201,9 +212,11 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 	// Every memory touched by this batch is a flip candidate; the SQL
 	// guard inside FlipRecallReadyIfAllEmbedded is the source of truth
 	// for whether the row actually mutates.
-	candidates := make(map[string]struct{}, len(jobs))
+	candidates := make(map[string]*memCtx, len(jobs))
 	for _, j := range jobs {
-		candidates[j.MemoryID] = struct{}{}
+		if _, ok := candidates[j.MemoryID]; !ok {
+			candidates[j.MemoryID] = &memCtx{workspaceID: j.WorkspaceID}
+		}
 	}
 
 	// Per-memory cell cache for the moat skip-check.
@@ -292,6 +305,10 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 			continue
 		}
 		p.inFlight.Delete(j.Cell.CellID)
+		if mc := candidates[j.MemoryID]; mc != nil {
+			mc.cells = append(mc.cells, j.Cell)
+			mc.embeddings = append(mc.embeddings, vecs[i])
+		}
 	}
 	p.flipCandidates(ctx, candidates)
 }
@@ -327,9 +344,12 @@ func (p *Pool) embedWithRetry(ctx context.Context, texts []string) ([][]float32,
 	return nil, lastErr
 }
 
-func (p *Pool) flipCandidates(ctx context.Context, ids map[string]struct{}) {
-	for memID := range ids {
-		_, _ = p.deps.Metadata.FlipRecallReadyIfAllEmbedded(ctx, memID)
+func (p *Pool) flipCandidates(ctx context.Context, mcs map[string]*memCtx) {
+	for memID, mc := range mcs {
+		flipped, _ := p.deps.Metadata.FlipRecallReadyIfAllEmbedded(ctx, memID)
+		if flipped && p.cfg.PostEmbedHook != nil && mc != nil && len(mc.embeddings) > 0 {
+			p.cfg.PostEmbedHook(ctx, mc.workspaceID, memID, mc.cells, mc.embeddings)
+		}
 	}
 }
 

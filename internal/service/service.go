@@ -41,6 +41,22 @@ type Service struct {
 	Pool     *embedqueue.Pool
 }
 
+// PostEmbedAutoLinkHook returns a closure suitable for embedqueue.PoolConfig.PostEmbedHook.
+// It calls autolink.AutoLink for the given memory after the async embed pool flips recall_ready.
+func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
+	if s.Graph == nil {
+		return nil
+	}
+	return func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
+		mem := &types.Memory{ID: memoryID, WorkspaceID: workspaceID}
+		autolink.AutoLink(ctx, autolink.Deps{
+			Metadata: s.Metadata, Vector: s.Vector,
+			Graph: s.Graph, Ledger: s.Ledger,
+			Logger: slog.Default(),
+		}, workspaceID, mem, cells, embeddings, s.Embedder.ModelID())
+	}
+}
+
 // GraphLink delegates to the configured GraphStore.
 func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
 	if s.Graph == nil {
