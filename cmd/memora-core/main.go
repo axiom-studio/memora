@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/mcp"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/service"
@@ -76,6 +77,7 @@ Usage:
   memora-core version         print version info
 
 Common flags for 'serve':
+  --config             path to TOML config file (search: $MEMORA_CONFIG → ~/.memora/config.toml → ./memora.toml)
   --addr               listen address (default :7777; can also be set via MEMORA_ADDR)
   --data-dir           directory for the SQLite database file (default ./data)
   --metadata-driver    metadata-store driver (default sqlite)
@@ -143,66 +145,91 @@ func hashTag(key string) string {
 
 func serve() {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", getenv("MEMORA_ADDR", ":7777"), "listen address")
-	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory for SQLite")
-	metadataDriver := fs.String("metadata-driver", getenv("MEMORA_METADATA_DRIVER", "sqlite"), "metadata-store driver")
-	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
-	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
-	graphDriver := fs.String("graph-driver", getenv("MEMORA_GRAPH_DRIVER", "sqlite_graph"), "graph-store driver")
-	contentDriver := fs.String("content-driver", os.Getenv("MEMORA_CONTENT_DRIVER"), "content-store driver (empty = disabled; file | sqlite)")
-	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN (e.g. /var/lib/memora/content for file driver)")
-	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
-	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "API bearer key (empty disables auth)")
+	configPath := fs.String("config", "", "path to TOML config file")
+	addr := fs.String("addr", "", "listen address")
+	dataDir := fs.String("data-dir", "", "data directory for SQLite")
+	metadataDriver := fs.String("metadata-driver", "", "metadata-store driver")
+	vectorDriver := fs.String("vector-driver", "", "vector-store driver")
+	ledgerDriver := fs.String("ledger-driver", "", "ledger-store driver")
+	graphDriver := fs.String("graph-driver", "", "graph-store driver")
+	contentDriver := fs.String("content-driver", "", "content-store driver (empty = disabled; file | sqlite)")
+	contentDSN := fs.String("content-dsn", "", "content-store DSN")
+	embedModel := fs.String("embedding-model", "", "embedding model id")
+	apiKey := fs.String("api-key", "", "API bearer key (empty disables auth)")
 	allowNoAuth := fs.Bool("allow-no-auth", false, "explicit opt-in to run with an empty API key on a non-loopback bind")
-	mode := fs.String("mode", getenv("MEMORA_MODE", "single-tenant"), "single-tenant | multi-tenant")
-	mcpEnable := fs.Bool("mcp-enable", os.Getenv("MEMORA_MCP_ENABLE") == "true", "mount MCP WebSocket endpoint at /mcp on the HTTP server")
+	mode := fs.String("mode", "", "single-tenant | multi-tenant")
+	mcpEnable := fs.Bool("mcp-enable", false, "mount MCP WebSocket endpoint at /mcp on the HTTP server")
 	_ = fs.Parse(os.Args[1:])
 
 	bootLog := stdlog.New(os.Stderr, "memora-core ", stdlog.LstdFlags|stdlog.LUTC)
+
+	// Load config: file defaults → env overlay → CLI flag overlay.
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		bootLog.Fatalf("config: %v", err)
+	}
+	cfg.ApplyEnv()
+	applyServeFlags(fs, &cfg, *addr, *dataDir, *metadataDriver, *vectorDriver,
+		*ledgerDriver, *graphDriver, *contentDriver, *contentDSN,
+		*embedModel, *apiKey, *mode, *allowNoAuth, *mcpEnable)
+
+	if err := cfg.Validate(); err != nil {
+		bootLog.Fatalf("config validation failed (exit %d): %v", config.EX_CONFIG, err)
+		os.Exit(config.EX_CONFIG)
+	}
+
+	resolvedKey, err := cfg.ResolveAPIKey()
+	if err != nil {
+		bootLog.Fatalf("config: %v", err)
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := validateAuthMode(*addr, *apiKey, *allowNoAuth); err != nil {
+	if err := validateAuthMode(cfg.Server.Addr, resolvedKey, cfg.Server.AllowNoAuth); err != nil {
 		bootLog.Fatalf("%v", err)
 	}
-	if *apiKey == "" {
-		logger.Warn("auth disabled", "addr", *addr, "allow_no_auth", *allowNoAuth)
+	if resolvedKey == "" {
+		logger.Warn("auth disabled", "addr", cfg.Server.Addr, "allow_no_auth", cfg.Server.AllowNoAuth)
 	} else {
-		logger.Info("auth enabled", "key_tag", hashTag(*apiKey))
+		logger.Info("auth enabled", "key_tag", hashTag(resolvedKey))
+	}
+	if cfg.Source != "" {
+		logger.Info("config loaded", "source", cfg.Source)
 	}
 	logger.Info("starting",
-		"addr", *addr, "mode", *mode, "metadata", *metadataDriver,
-		"vector", *vectorDriver, "ledger", *ledgerDriver, "embedding", *embedModel)
+		"addr", cfg.Server.Addr, "mode", cfg.Server.Mode,
+		"metadata", cfg.Storage.MetadataDriver, "vector", cfg.Storage.VectorDriver,
+		"ledger", cfg.Storage.LedgerDriver, "embedding", cfg.Embedding.Model)
 
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.Storage.DataDir, 0o755); err != nil {
 		bootLog.Fatalf("mkdir data-dir: %v", err)
 	}
-	dbPath := filepath.Join(*dataDir, "memora.db")
+	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dbPath})
 	if err != nil {
 		bootLog.Fatalf("open metadata: %v", err)
 	}
 	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dbPath, Dim: 384})
 	if err != nil {
 		bootLog.Fatalf("open vector: %v", err)
 	}
 	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: *ledgerDriver, DSN: dbPath})
+	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dbPath})
 	if err != nil {
 		bootLog.Fatalf("open ledger: %v", err)
 	}
 	defer led.Close()
 
-	embedProvider, err := embedding.Open(*embedModel)
+	embedProvider, err := embedding.Open(cfg.Embedding.Model)
 	if err != nil {
 		bootLog.Fatalf("open embedding: %v", err)
 	}
 	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
 
-	// Pre-instantiate the identity providers Memora ships with.
 	identityMap := map[string]adapter.IdentityProvider{}
 	for _, name := range []string{
 		string(types.IdentityProviderOpaque),
@@ -221,32 +248,31 @@ func serve() {
 		Embedder: embedProvider,
 		Identity: identityMap,
 	}
-	if *contentDriver != "" {
-		cdsn := *contentDSN
+	if cfg.Storage.ContentDriver != "" {
+		cdsn := cfg.Storage.ContentDSN
 		if cdsn == "" {
-			if *contentDriver == "sqlite" {
+			if cfg.Storage.ContentDriver == "sqlite" {
 				cdsn = dbPath
 			} else {
-				cdsn = filepath.Join(*dataDir, "content")
+				cdsn = filepath.Join(cfg.Storage.DataDir, "content")
 			}
 		}
-		cs, err := adapter.OpenContent(ctx, adapter.ContentConfig{Driver: *contentDriver, DSN: cdsn})
+		cs, err := adapter.OpenContent(ctx, adapter.ContentConfig{Driver: cfg.Storage.ContentDriver, DSN: cdsn})
 		if err != nil {
 			bootLog.Fatalf("open content: %v", err)
 		}
 		defer cs.Close()
 		svc.Content = cs
-		logger.Info("content store enabled", "driver", *contentDriver, "dsn", cdsn)
+		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", cdsn)
 	}
-	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: *graphDriver, DSN: dbPath})
+	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: dbPath})
 	if err != nil {
 		bootLog.Fatalf("open graph: %v", err)
 	}
 	defer gs.Close()
 	svc.Graph = gs
-	logger.Info("graph store enabled", "driver", *graphDriver)
+	logger.Info("graph store enabled", "driver", cfg.Storage.GraphDriver)
 
-	// Boot-time compatibility check (§7.7).
 	var ccaps *adapter.ContentCapabilities
 	if svc.Content != nil {
 		c := svc.Content.Capabilities()
@@ -258,21 +284,21 @@ func serve() {
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{
-		Addr:        *addr,
-		APIKey:      *apiKey,
+		Addr:        cfg.Server.Addr,
+		APIKey:      resolvedKey,
 		Service:     svc,
 		Logger:      logger,
-		Mode:        *mode,
-		AllowNoAuth: *allowNoAuth,
+		Mode:        cfg.Server.Mode,
+		AllowNoAuth: cfg.Server.AllowNoAuth,
 	})
 
-	if *mcpEnable {
-		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: *apiKey})
+	if cfg.Server.MCPEnable {
+		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: resolvedKey})
 		logger.Info("MCP WebSocket endpoint enabled", "path", "/mcp")
 	}
 
 	go func() {
-		host := *addr
+		host := cfg.Server.Addr
 		if strings.HasPrefix(host, ":") {
 			host = "127.0.0.1" + host
 		}
@@ -304,11 +330,57 @@ func serve() {
 	}
 }
 
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+// applyServeFlags overlays explicitly-set CLI flags onto the config.
+// Only flags the user actually passed on the command line win; flags
+// left at their zero-value are skipped so the config-file / env layer
+// is preserved.
+func applyServeFlags(fs *flag.FlagSet, cfg *config.Config,
+	addr, dataDir, metaDriver, vecDriver, ledgerDriver, graphDriver,
+	contentDriver, contentDSN, embedModel, apiKey, mode string,
+	allowNoAuth, mcpEnable bool,
+) {
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	if set["addr"] {
+		cfg.Server.Addr = addr
 	}
-	return def
+	if set["data-dir"] {
+		cfg.Storage.DataDir = dataDir
+	}
+	if set["metadata-driver"] {
+		cfg.Storage.MetadataDriver = metaDriver
+	}
+	if set["vector-driver"] {
+		cfg.Storage.VectorDriver = vecDriver
+	}
+	if set["ledger-driver"] {
+		cfg.Storage.LedgerDriver = ledgerDriver
+	}
+	if set["graph-driver"] {
+		cfg.Storage.GraphDriver = graphDriver
+	}
+	if set["content-driver"] {
+		cfg.Storage.ContentDriver = contentDriver
+	}
+	if set["content-dsn"] {
+		cfg.Storage.ContentDSN = contentDSN
+	}
+	if set["embedding-model"] {
+		cfg.Embedding.Model = embedModel
+	}
+	if set["api-key"] {
+		cfg.Server.APIKey = apiKey
+	}
+	if set["mode"] {
+		cfg.Server.Mode = mode
+	}
+	if set["allow-no-auth"] {
+		cfg.Server.AllowNoAuth = allowNoAuth
+	}
+	if set["mcp-enable"] {
+		cfg.Server.MCPEnable = mcpEnable
+	}
 }
 
 // runMCP serves the bundled MCP transport over stdio. The Server uses
@@ -316,47 +388,81 @@ func getenv(key, def string) string {
 // router — agent loops attach via memora-core's stdin/stdout.
 func runMCP() {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
-	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory")
-	metadataDriver := fs.String("metadata-driver", getenv("MEMORA_METADATA_DRIVER", "sqlite"), "metadata-store driver")
-	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
-	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
-	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
-	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "MCP API bearer key (empty disables auth — single-tenant local-dev only)")
+	configPath := fs.String("config", "", "path to TOML config file")
+	dataDir := fs.String("data-dir", "", "data directory")
+	metadataDriver := fs.String("metadata-driver", "", "metadata-store driver")
+	vectorDriver := fs.String("vector-driver", "", "vector-store driver")
+	ledgerDriver := fs.String("ledger-driver", "", "ledger-store driver")
+	embedModel := fs.String("embedding-model", "", "embedding model id")
+	apiKey := fs.String("api-key", "", "MCP API bearer key")
 	_ = fs.Parse(os.Args[1:])
 
-	logger := stdlog.New(os.Stderr, "memora-mcp ", stdlog.LstdFlags|stdlog.LUTC)
-	if *apiKey == "" {
-		logger.Printf("WARNING: MCP AUTH DISABLED (no MEMORA_API_KEY) — stdio is local-only but any process with stdin access can call write tools")
+	bootLog := stdlog.New(os.Stderr, "memora-mcp ", stdlog.LstdFlags|stdlog.LUTC)
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		bootLog.Fatalf("config: %v", err)
+	}
+	cfg.ApplyEnv()
+
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["data-dir"] {
+		cfg.Storage.DataDir = *dataDir
+	}
+	if set["metadata-driver"] {
+		cfg.Storage.MetadataDriver = *metadataDriver
+	}
+	if set["vector-driver"] {
+		cfg.Storage.VectorDriver = *vectorDriver
+	}
+	if set["ledger-driver"] {
+		cfg.Storage.LedgerDriver = *ledgerDriver
+	}
+	if set["embedding-model"] {
+		cfg.Embedding.Model = *embedModel
+	}
+	if set["api-key"] {
+		cfg.Server.APIKey = *apiKey
+	}
+
+	resolvedKey, err := cfg.ResolveAPIKey()
+	if err != nil {
+		bootLog.Fatalf("config: %v", err)
+	}
+
+	if resolvedKey == "" {
+		bootLog.Printf("WARNING: MCP AUTH DISABLED (no MEMORA_API_KEY) — stdio is local-only but any process with stdin access can call write tools")
 	} else {
-		logger.Printf("MCP AUTH ENABLED via API key (sha256[:8]=%s)", hashTag(*apiKey))
+		bootLog.Printf("MCP AUTH ENABLED via API key (sha256[:8]=%s)", hashTag(resolvedKey))
 	}
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
-		logger.Fatalf("mkdir data-dir: %v", err)
+	if err := os.MkdirAll(cfg.Storage.DataDir, 0o755); err != nil {
+		bootLog.Fatalf("mkdir data-dir: %v", err)
 	}
-	dbPath := filepath.Join(*dataDir, "memora.db")
+	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dbPath})
 	if err != nil {
-		logger.Fatalf("open metadata: %v", err)
+		bootLog.Fatalf("open metadata: %v", err)
 	}
 	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dbPath, Dim: 384})
 	if err != nil {
-		logger.Fatalf("open vector: %v", err)
+		bootLog.Fatalf("open vector: %v", err)
 	}
 	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: *ledgerDriver, DSN: dbPath})
+	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dbPath})
 	if err != nil {
-		logger.Fatalf("open ledger: %v", err)
+		bootLog.Fatalf("open ledger: %v", err)
 	}
 	defer led.Close()
 
-	embedProvider, err := embedding.Open(*embedModel)
+	embedProvider, err := embedding.Open(cfg.Embedding.Model)
 	if err != nil {
-		logger.Fatalf("open embedding: %v", err)
+		bootLog.Fatalf("open embedding: %v", err)
 	}
 	identityMap := map[string]adapter.IdentityProvider{}
 	for _, name := range []string{string(types.IdentityProviderOpaque), string(types.IdentityProviderAnthropicSession)} {
@@ -370,9 +476,9 @@ func runMCP() {
 		Embedder: embedProvider,
 		Identity: identityMap,
 	}
-	server := mcp.NewServerWithConfig(svc, logger, mcp.Config{APIKey: *apiKey})
-	logger.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", *dataDir, embedProvider.ModelID())
+	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey})
+	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, embedProvider.ModelID())
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
-		logger.Fatalf("mcp serve: %v", err)
+		bootLog.Fatalf("mcp serve: %v", err)
 	}
 }
