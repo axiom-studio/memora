@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS memora_edges (
     source_memory_id     TEXT NOT NULL REFERENCES memora_memories(id) ON DELETE CASCADE,
     target_memory_id     TEXT NOT NULL REFERENCES memora_memories(id) ON DELETE CASCADE,
     edge_type            TEXT NOT NULL CHECK (edge_type IN
-        ('parent_of','derived_from','supersedes','references','session_of','mentions')),
+        ('parent_of','derived_from','supersedes','references','session_of','mentions','vector_neighbor')),
     properties_json      TEXT,
     created_by_agent_id  TEXT NOT NULL,
     created_at           TEXT NOT NULL,

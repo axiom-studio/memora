@@ -7,14 +7,18 @@ CREATE TABLE IF NOT EXISTS memora_schema_migrations (
 );
 
 CREATE TABLE IF NOT EXISTS memora_workspaces (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    region          TEXT,
-    chunker_id      TEXT,
-    embedding_model TEXT,
-    meta_json       JSONB,
-    created_at      TIMESTAMPTZ NOT NULL,
-    updated_at      TIMESTAMPTZ NOT NULL
+    id                          TEXT PRIMARY KEY,
+    name                        TEXT NOT NULL,
+    region                      TEXT,
+    chunker_id                  TEXT,
+    embedding_model             TEXT,
+    meta_json                   JSONB,
+    auto_link_enabled           BOOLEAN NOT NULL DEFAULT FALSE,
+    auto_link_threshold         DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+    auto_link_max_edges         INTEGER NOT NULL DEFAULT 10,
+    auto_link_max_incoming_per_day INTEGER NOT NULL DEFAULT 100,
+    created_at                  TIMESTAMPTZ NOT NULL,
+    updated_at                  TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS memora_collections (

@@ -81,15 +81,20 @@ func (s *MetadataStore) CreateWorkspace(ctx context.Context, w *types.Workspace)
 		w.CreatedAt = now
 	}
 	w.UpdatedAt = now
+	w.AutoLinkDefaults()
 	var metaJSON []byte
 	if w.Meta != nil {
 		metaJSON, _ = json.Marshal(w.Meta)
 	}
 	_, err := s.pool.Exec(ctx, `
-INSERT INTO memora_workspaces (id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+INSERT INTO memora_workspaces (id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		w.ID, w.Name, nullableStr(w.Region), nullableStr(w.ChunkerID),
-		nullableStr(w.EmbeddingModel), nullableJSON(metaJSON), w.CreatedAt, w.UpdatedAt)
+		nullableStr(w.EmbeddingModel), nullableJSON(metaJSON),
+		w.AutoLinkEnabled, w.AutoLinkThreshold, w.AutoLinkMaxEdges, w.AutoLinkMaxIncomingPerDay,
+		w.CreatedAt, w.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
@@ -105,9 +110,13 @@ func (s *MetadataStore) GetWorkspace(ctx context.Context, id string) (*types.Wor
 	var region, chunker, embed *string
 	var metaJSON []byte
 	err := s.pool.QueryRow(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces WHERE id = $1`, id).Scan(
-		&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &w.CreatedAt, &w.UpdatedAt)
+		&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON,
+		&w.AutoLinkEnabled, &w.AutoLinkThreshold, &w.AutoLinkMaxEdges, &w.AutoLinkMaxIncomingPerDay,
+		&w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, types.ErrNotFound
 	}
@@ -134,7 +143,9 @@ func (s *MetadataStore) ListWorkspaces(ctx context.Context, limit int) ([]types.
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces ORDER BY created_at DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -142,23 +153,9 @@ FROM memora_workspaces ORDER BY created_at DESC LIMIT $1`, limit)
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
-		var w types.Workspace
-		var region, chunker, embed *string
-		var metaJSON []byte
-		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		w, err := scanWorkspacePg(rows)
+		if err != nil {
 			return nil, err
-		}
-		if region != nil {
-			w.Region = *region
-		}
-		if chunker != nil {
-			w.ChunkerID = *chunker
-		}
-		if embed != nil {
-			w.EmbeddingModel = *embed
-		}
-		if len(metaJSON) > 0 {
-			_ = json.Unmarshal(metaJSON, &w.Meta)
 		}
 		out = append(out, w)
 	}
@@ -169,7 +166,9 @@ func (s *MetadataStore) ListWorkspacesPaged(ctx context.Context, cursor string, 
 	if limit <= 0 {
 		limit = 1000
 	}
-	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces`
 	args := []any{}
 	argN := 1
@@ -187,23 +186,9 @@ FROM memora_workspaces`
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
-		var w types.Workspace
-		var region, chunker, embed *string
-		var metaJSON []byte
-		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &w.CreatedAt, &w.UpdatedAt); err != nil {
+		w, err := scanWorkspacePg(rows)
+		if err != nil {
 			return nil, "", err
-		}
-		if region != nil {
-			w.Region = *region
-		}
-		if chunker != nil {
-			w.ChunkerID = *chunker
-		}
-		if embed != nil {
-			w.EmbeddingModel = *embed
-		}
-		if len(metaJSON) > 0 {
-			_ = json.Unmarshal(metaJSON, &w.Meta)
 		}
 		out = append(out, w)
 	}
@@ -221,15 +206,20 @@ func (s *MetadataStore) UpdateWorkspace(ctx context.Context, w *types.Workspace)
 	if err := w.Validate(); err != nil {
 		return err
 	}
+	w.AutoLinkDefaults()
 	w.UpdatedAt = time.Now().UTC()
 	var metaJSON []byte
 	if w.Meta != nil {
 		metaJSON, _ = json.Marshal(w.Meta)
 	}
 	tag, err := s.pool.Exec(ctx, `
-UPDATE memora_workspaces SET name=$1, region=$2, chunker_id=$3, embedding_model=$4, meta_json=$5, updated_at=$6
-WHERE id=$7`, w.Name, nullableStr(w.Region), nullableStr(w.ChunkerID),
-		nullableStr(w.EmbeddingModel), nullableJSON(metaJSON), w.UpdatedAt, w.ID)
+UPDATE memora_workspaces SET name=$1, region=$2, chunker_id=$3, embedding_model=$4, meta_json=$5,
+    auto_link_enabled=$6, auto_link_threshold=$7, auto_link_max_edges=$8, auto_link_max_incoming_per_day=$9,
+    updated_at=$10
+WHERE id=$11`, w.Name, nullableStr(w.Region), nullableStr(w.ChunkerID),
+		nullableStr(w.EmbeddingModel), nullableJSON(metaJSON),
+		w.AutoLinkEnabled, w.AutoLinkThreshold, w.AutoLinkMaxEdges, w.AutoLinkMaxIncomingPerDay,
+		w.UpdatedAt, w.ID)
 	if err != nil {
 		return err
 	}
@@ -256,6 +246,34 @@ func (s *MetadataStore) DeleteWorkspace(ctx context.Context, id string) error {
 		return types.ErrNotFound
 	}
 	return nil
+}
+
+type pgScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanWorkspacePg(row pgScanner) (types.Workspace, error) {
+	var w types.Workspace
+	var region, chunker, embed *string
+	var metaJSON []byte
+	if err := row.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON,
+		&w.AutoLinkEnabled, &w.AutoLinkThreshold, &w.AutoLinkMaxEdges, &w.AutoLinkMaxIncomingPerDay,
+		&w.CreatedAt, &w.UpdatedAt); err != nil {
+		return w, err
+	}
+	if region != nil {
+		w.Region = *region
+	}
+	if chunker != nil {
+		w.ChunkerID = *chunker
+	}
+	if embed != nil {
+		w.EmbeddingModel = *embed
+	}
+	if len(metaJSON) > 0 {
+		_ = json.Unmarshal(metaJSON, &w.Meta)
+	}
+	return w, nil
 }
 
 // --- Collection CRUD ---

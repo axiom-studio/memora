@@ -24,6 +24,7 @@ func (s *Store) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 		w.CreatedAt = now
 	}
 	w.UpdatedAt = now
+	w.AutoLinkDefaults()
 	metaJSON := ""
 	if w.Meta != nil {
 		b, err := json.Marshal(w.Meta)
@@ -33,9 +34,13 @@ func (s *Store) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 		metaJSON = string(b)
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO memora_workspaces (id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJSON), w.CreatedAt, w.UpdatedAt)
+INSERT INTO memora_workspaces (id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJSON),
+		w.AutoLinkEnabled, w.AutoLinkThreshold, w.AutoLinkMaxEdges, w.AutoLinkMaxIncomingPerDay,
+		w.CreatedAt, w.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
@@ -50,12 +55,16 @@ ON CONFLICT(agent_id) DO NOTHING`, types.AgentLegacyVibeflowID, w.ID)
 // GetWorkspace returns a single Workspace by id.
 func (s *Store) GetWorkspace(ctx context.Context, id string) (*types.Workspace, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces WHERE id = ?`, id)
 	w := &types.Workspace{}
 	var region, chunker, embed, metaJSON sql.NullString
 	var createdAt, updatedAt sqliteTime
-	if err := row.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON,
+		&w.AutoLinkEnabled, &w.AutoLinkThreshold, &w.AutoLinkMaxEdges, &w.AutoLinkMaxIncomingPerDay,
+		&createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, types.ErrNotFound
 		}
@@ -78,7 +87,9 @@ func (s *Store) ListWorkspaces(ctx context.Context, limit int) ([]types.Workspac
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -86,19 +97,9 @@ FROM memora_workspaces ORDER BY created_at DESC LIMIT ?`, limit)
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
-		var w types.Workspace
-		var region, chunker, embed, metaJSON sql.NullString
-		var createdAt, updatedAt sqliteTime
-		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &createdAt, &updatedAt); err != nil {
+		w, err := scanWorkspaceSqlite(rows)
+		if err != nil {
 			return nil, err
-		}
-		w.Region = region.String
-		w.ChunkerID = chunker.String
-		w.EmbeddingModel = embed.String
-		w.CreatedAt = createdAt.Time
-		w.UpdatedAt = updatedAt.Time
-		if metaJSON.Valid && metaJSON.String != "" {
-			_ = json.Unmarshal([]byte(metaJSON.String), &w.Meta)
 		}
 		out = append(out, w)
 	}
@@ -111,7 +112,9 @@ func (s *Store) ListWorkspacesPaged(ctx context.Context, cursor string, limit in
 	if limit <= 0 {
 		limit = 1000
 	}
-	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json,
+    auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
+    created_at, updated_at
 FROM memora_workspaces`
 	var args []any
 	if cursor != "" {
@@ -127,19 +130,9 @@ FROM memora_workspaces`
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
-		var w types.Workspace
-		var region, chunker, embed, metaJSON sql.NullString
-		var createdAt, updatedAt sqliteTime
-		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &createdAt, &updatedAt); err != nil {
+		w, err := scanWorkspaceSqlite(rows)
+		if err != nil {
 			return nil, "", err
-		}
-		w.Region = region.String
-		w.ChunkerID = chunker.String
-		w.EmbeddingModel = embed.String
-		w.CreatedAt = createdAt.Time
-		w.UpdatedAt = updatedAt.Time
-		if metaJSON.Valid && metaJSON.String != "" {
-			_ = json.Unmarshal([]byte(metaJSON.String), &w.Meta)
 		}
 		out = append(out, w)
 	}
@@ -158,6 +151,7 @@ func (s *Store) UpdateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if err := w.Validate(); err != nil {
 		return err
 	}
+	w.AutoLinkDefaults()
 	w.UpdatedAt = time.Now().UTC()
 	metaJSON := ""
 	if w.Meta != nil {
@@ -168,8 +162,12 @@ func (s *Store) UpdateWorkspace(ctx context.Context, w *types.Workspace) error {
 		metaJSON = string(b)
 	}
 	res, err := s.db.ExecContext(ctx, `
-UPDATE memora_workspaces SET name=?, region=?, chunker_id=?, embedding_model=?, meta_json=?, updated_at=?
-WHERE id=?`, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJSON), w.UpdatedAt, w.ID)
+UPDATE memora_workspaces SET name=?, region=?, chunker_id=?, embedding_model=?, meta_json=?,
+    auto_link_enabled=?, auto_link_threshold=?, auto_link_max_edges=?, auto_link_max_incoming_per_day=?,
+    updated_at=?
+WHERE id=?`, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJSON),
+		w.AutoLinkEnabled, w.AutoLinkThreshold, w.AutoLinkMaxEdges, w.AutoLinkMaxIncomingPerDay,
+		w.UpdatedAt, w.ID)
 	if err != nil {
 		return err
 	}
@@ -273,6 +271,30 @@ func (s *Store) DeleteCollection(ctx context.Context, id string) error {
 		return types.ErrNotFound
 	}
 	return nil
+}
+
+type sqlScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanWorkspaceSqlite(row sqlScanner) (types.Workspace, error) {
+	var w types.Workspace
+	var region, chunker, embed, metaJSON sql.NullString
+	var createdAt, updatedAt sqliteTime
+	if err := row.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON,
+		&w.AutoLinkEnabled, &w.AutoLinkThreshold, &w.AutoLinkMaxEdges, &w.AutoLinkMaxIncomingPerDay,
+		&createdAt, &updatedAt); err != nil {
+		return w, err
+	}
+	w.Region = region.String
+	w.ChunkerID = chunker.String
+	w.EmbeddingModel = embed.String
+	w.CreatedAt = createdAt.Time
+	w.UpdatedAt = updatedAt.Time
+	if metaJSON.Valid && metaJSON.String != "" {
+		_ = json.Unmarshal([]byte(metaJSON.String), &w.Meta)
+	}
+	return w, nil
 }
 
 func nullableStr(s string) any {
