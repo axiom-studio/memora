@@ -84,7 +84,8 @@ Common flags for 'serve':
   --embedding-model    embedding model id (default noop:default)
   --api-key            API bearer key (default $MEMORA_API_KEY; empty disables auth — local dev)
   --allow-no-auth      explicit opt-in to run with an empty API key on a non-loopback bind
-  --mode               single-tenant | multi-tenant (default single-tenant)`)
+  --mode               single-tenant | multi-tenant (default single-tenant)
+  --mcp-enable         mount MCP WebSocket endpoint at /mcp on the HTTP server (default false)`)
 }
 
 // errNoAuthNonLoopback is returned by validateAuthMode when the operator
@@ -153,6 +154,7 @@ func serve() {
 	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "API bearer key (empty disables auth)")
 	allowNoAuth := fs.Bool("allow-no-auth", false, "explicit opt-in to run with an empty API key on a non-loopback bind")
 	mode := fs.String("mode", getenv("MEMORA_MODE", "single-tenant"), "single-tenant | multi-tenant")
+	mcpEnable := fs.Bool("mcp-enable", os.Getenv("MEMORA_MCP_ENABLE") == "true", "mount MCP WebSocket endpoint at /mcp on the HTTP server")
 	_ = fs.Parse(os.Args[1:])
 
 	bootLog := stdlog.New(os.Stderr, "memora-core ", stdlog.LstdFlags|stdlog.LUTC)
@@ -244,6 +246,11 @@ func serve() {
 		Mode:        *mode,
 		AllowNoAuth: *allowNoAuth,
 	})
+
+	if *mcpEnable {
+		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: *apiKey})
+		logger.Info("MCP WebSocket endpoint enabled", "path", "/mcp")
+	}
 
 	go func() {
 		host := *addr

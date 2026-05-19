@@ -90,6 +90,11 @@ func New(cfg Config) *Server {
 // use with httptest.NewServer in integration tests.
 func (s *Server) Handler() http.Handler { return s.srv.Handler }
 
+// Mux returns the underlying ServeMux so callers can register
+// additional handlers (e.g. the MCP WebSocket endpoint) before the
+// server starts listening.
+func (s *Server) Mux() *http.ServeMux { return s.mux }
+
 // ListenAndServe blocks until the server fails or Shutdown is called.
 func (s *Server) ListenAndServe() error { return s.srv.ListenAndServe() }
 
