@@ -641,3 +641,102 @@ func TestGraphLink_OutDegreeCap(t *testing.T) {
 		t.Fatalf("expected ErrQuotaExceeded on 1001st edge, got %v", err)
 	}
 }
+
+func TestGraphTraverse_LayerOrdering(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "traverse"}
+	_ = s.CreateWorkspace(ctx, ws)
+
+	ids := map[string]string{}
+	for _, name := range []string{"A", "B", "C", "D", "E", "F", "G"} {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: name, WrittenByAgentID: "agent_opaque_t"}
+		_, _ = s.ImprintMemory(ctx, m)
+		ids[name] = m.ID
+	}
+	for _, link := range [][2]string{
+		{"A", "B"}, {"A", "C"},
+		{"B", "D"}, {"B", "E"},
+		{"C", "E"}, {"C", "F"},
+		{"D", "G"},
+	} {
+		_, _ = s.GraphLink(ctx, types.Edge{
+			WorkspaceID: ws.ID, SourceMemoryID: ids[link[0]], TargetMemoryID: ids[link[1]],
+			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_t",
+		})
+	}
+
+	res, err := s.GraphTraverse(ctx, ws.ID, ids["A"], adapter.TraverseOpts{Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Layers) != 3 {
+		t.Fatalf("expected 3 layers, got %d", len(res.Layers))
+	}
+	if len(res.Layers[0]) != 2 {
+		t.Errorf("layer 1: want 2 (B, C), got %d", len(res.Layers[0]))
+	}
+	if len(res.Layers[1]) != 3 {
+		t.Errorf("layer 2: want 3 (D, E, F), got %d", len(res.Layers[1]))
+	}
+	if len(res.Layers[2]) != 1 {
+		t.Errorf("layer 3: want 1 (G), got %d", len(res.Layers[2]))
+	}
+}
+
+func TestGraphTraverse_CycleDoesNotLoop(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "cycle"}
+	_ = s.CreateWorkspace(ctx, ws)
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_c"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_c"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_c"}
+	_, _ = s.ImprintMemory(ctx, a)
+	_, _ = s.ImprintMemory(ctx, b)
+	_, _ = s.ImprintMemory(ctx, c)
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: c.ID, TargetMemoryID: a.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
+
+	res, err := s.GraphTraverse(ctx, ws.ID, a.ID, adapter.TraverseOpts{Depth: 3, Direction: api.GraphDirOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stats.NodesVisited != 2 {
+		t.Errorf("expected 2 visited nodes (B, C); A revisit dropped; got %d", res.Stats.NodesVisited)
+	}
+}
+
+func TestGraphTraverse_FilterPrunes_DescendantsExplored(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "filter"}
+	_ = s.CreateWorkspace(ctx, ws)
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_alice"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_bob"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_alice"}
+	_, _ = s.ImprintMemory(ctx, a)
+	_, _ = s.ImprintMemory(ctx, b)
+	_, _ = s.ImprintMemory(ctx, c)
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_alice"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_alice"})
+
+	res, _ := s.GraphTraverse(ctx, ws.ID, a.ID, adapter.TraverseOpts{
+		Depth:     2,
+		Direction: api.GraphDirOut,
+		Filter:    map[string]any{"agent_id": "agent_opaque_alice"},
+	})
+
+	foundC := false
+	for _, layer := range res.Layers {
+		for _, hit := range layer {
+			if hit.Memory.MemoryID == c.ID {
+				foundC = true
+			}
+			if hit.Memory.MemoryID == b.ID {
+				t.Errorf("B was pruned by filter but still appeared in layer %d", hit.Layer)
+			}
+		}
+	}
+	if !foundC {
+		t.Errorf("descendant C of pruned B was not explored")
+	}
+}
