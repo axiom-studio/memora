@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/mcp"
@@ -64,6 +65,16 @@ func main() {
 		runInitCert()
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "print-config" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runPrintConfig()
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "check-config" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runCheckConfig()
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
 		fmt.Printf("memora-core %s (commit=%s built=%s)\n", version, commit, buildDate)
 		return
@@ -81,6 +92,8 @@ func printHelp() {
 Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
+  memora-core print-config        print resolved config (secrets redacted)
+  memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
 
 Common flags for 'serve':
@@ -533,6 +546,44 @@ func runInitCert() {
 	fmt.Println()
 	fmt.Println("Add to your config.toml:")
 	fmt.Println(res.ConfigSnippet())
+}
+
+func runPrintConfig() {
+	fs := flag.NewFlagSet("print-config", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to TOML config file")
+	_ = fs.Parse(os.Args[1:])
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.ApplyEnv()
+
+	redacted := cfg.Redacted()
+	if err := toml.NewEncoder(os.Stdout).Encode(redacted); err != nil {
+		fmt.Fprintf(os.Stderr, "error encoding config: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCheckConfig() {
+	fs := flag.NewFlagSet("check-config", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to TOML config file")
+	_ = fs.Parse(os.Args[1:])
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(config.EX_CONFIG)
+	}
+	cfg.ApplyEnv()
+
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "config validation failed: %v\n", err)
+		os.Exit(config.EX_CONFIG)
+	}
+	fmt.Println("config ok")
 }
 
 type stringSlice []string

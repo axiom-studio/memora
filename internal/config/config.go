@@ -260,3 +260,20 @@ func setIfEnv(dst *string, key string) {
 		*dst = v
 	}
 }
+
+// Redacted returns a copy of the config with secrets replaced by "***".
+func (c *Config) Redacted() Config {
+	r := *c
+	if r.Server.APIKey != "" {
+		r.Server.APIKey = "***"
+	}
+	if r.Server.APIKeyFile != "" {
+		r.Server.APIKeyFile = "***"
+	}
+	for i := range r.Federation.Peers {
+		if r.Federation.Peers[i].APIKey != "" {
+			r.Federation.Peers[i].APIKey = "***"
+		}
+	}
+	return r
+}
