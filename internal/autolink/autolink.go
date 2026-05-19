@@ -109,6 +109,41 @@ func AutoLink(
 		candidates = candidates[:maxEdges]
 	}
 
+	// Per-target incoming throttle: skip targets that already received
+	// too many auto-link edges in the last 24h.
+	maxIncoming := ws.AutoLinkMaxIncomingPerDay
+	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	throttled := candidates[:0]
+	for _, c := range candidates {
+		edges, _, err := deps.Graph.Neighbors(ctx, workspaceID, c.MemoryID, adapter.NeighborsOpts{
+			Direction: api.GraphDirIn,
+			EdgeTypes: []string{string(types.EdgeTypeVectorNeighbor)},
+			K:         maxIncoming + 1,
+		})
+		if err != nil {
+			throttled = append(throttled, c)
+			continue
+		}
+		recent := 0
+		for _, e := range edges {
+			if !e.CreatedAt.Before(cutoff) {
+				recent++
+			}
+		}
+		if recent >= maxIncoming {
+			deps.Logger.Info("auto_link_throttled",
+				"workspace", workspaceID, "source", newMemory.ID,
+				"target", c.MemoryID, "recent_incoming", recent, "limit", maxIncoming)
+			continue
+		}
+		throttled = append(throttled, c)
+	}
+	candidates = throttled
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
 	// Build edges.
 	edges := make([]types.Edge, 0, len(candidates))
 	for _, c := range candidates {
