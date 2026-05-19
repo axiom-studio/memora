@@ -148,6 +148,7 @@ func serve() {
 	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
+	graphDriver := fs.String("graph-driver", os.Getenv("MEMORA_GRAPH_DRIVER"), "graph-store driver (empty = use PrimaryStore; sqlite_graph)")
 	contentDriver := fs.String("content-driver", os.Getenv("MEMORA_CONTENT_DRIVER"), "content-store driver (empty = disabled; file | sqlite)")
 	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN (e.g. /var/lib/memora/content for file driver)")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
@@ -236,6 +237,15 @@ func serve() {
 		defer cs.Close()
 		svc.Content = cs
 		logger.Info("content store enabled", "driver", *contentDriver, "dsn", cdsn)
+	}
+	if *graphDriver != "" {
+		gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: *graphDriver, DSN: dbPath})
+		if err != nil {
+			bootLog.Fatalf("open graph: %v", err)
+		}
+		defer gs.Close()
+		svc.Graph = gs
+		logger.Info("graph store enabled", "driver", *graphDriver)
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{

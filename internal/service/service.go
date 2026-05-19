@@ -32,9 +32,66 @@ type Service struct {
 	Vector   adapter.VectorStore
 	Ledger   adapter.LedgerStore
 	Content  adapter.ContentStore // nil = legacy-only (no dual-write)
+	Graph    adapter.GraphStore   // nil = fall back to Primary.Graph* (deprecated)
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
 	Pool     *embedqueue.Pool
+}
+
+// GraphLink routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
+	if s.Graph != nil {
+		return s.Graph.Link(ctx, e)
+	}
+	return s.Primary.GraphLink(ctx, e)
+}
+
+// GraphUnlink routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphUnlink(ctx context.Context, edgeID, agentID string) error {
+	if s.Graph != nil {
+		return s.Graph.Unlink(ctx, edgeID, agentID)
+	}
+	return s.Primary.GraphUnlink(ctx, edgeID, agentID)
+}
+
+// GraphLinkBatch routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]adapter.LinkResult, error) {
+	if s.Graph != nil {
+		return s.Graph.LinkBatch(ctx, edges)
+	}
+	return s.Primary.GraphLinkBatch(ctx, edges)
+}
+
+// GraphCascadeForget routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphCascadeForget(ctx context.Context, memoryID, agentID string) (int, error) {
+	if s.Graph != nil {
+		return s.Graph.CascadeForget(ctx, memoryID, agentID)
+	}
+	return s.Primary.GraphCascadeForget(ctx, memoryID, agentID)
+}
+
+// GraphNeighbors routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphNeighbors(ctx context.Context, workspaceID, memoryID string, opts adapter.NeighborsOpts) ([]types.Edge, []types.MemoryHeader, error) {
+	if s.Graph != nil {
+		return s.Graph.Neighbors(ctx, workspaceID, memoryID, opts)
+	}
+	return s.Primary.GraphNeighbors(ctx, workspaceID, memoryID, opts)
+}
+
+// GraphTraverse routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphTraverse(ctx context.Context, workspaceID, seedMemoryID string, opts adapter.TraverseOpts) (adapter.TraverseResult, error) {
+	if s.Graph != nil {
+		return s.Graph.Traverse(ctx, workspaceID, seedMemoryID, opts)
+	}
+	return s.Primary.GraphTraverse(ctx, workspaceID, seedMemoryID, opts)
+}
+
+// GraphStats routes to Graph if configured, else falls back to Primary.
+func (s *Service) GraphStats(ctx context.Context, workspaceID string) (int, map[string]int, error) {
+	if s.Graph != nil {
+		return s.Graph.Stats(ctx, workspaceID)
+	}
+	return s.Primary.GraphStats(ctx, workspaceID)
 }
 
 // IdentityFor returns the configured provider or falls back to "opaque".
@@ -332,7 +389,7 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 	if s.Content != nil {
 		_ = s.Content.DeleteAllForMemory(ctx, workspaceID, memoryID)
 	}
-	n, _ := s.Primary.GraphCascadeForget(ctx, memoryID, agentID)
+	n, _ := s.GraphCascadeForget(ctx, memoryID, agentID)
 	wmk := types.NewWatermark()
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
 		WorkspaceID: workspaceID, Op: "forget", Target: memoryID, AgentID: agentID,
@@ -675,7 +732,7 @@ func (s *Service) graphExpand(ctx context.Context, workspaceID string, seeds []a
 		visited[seed.MemoryID] = true
 	}
 	for _, seed := range seeds {
-		tr, err := s.Primary.GraphTraverse(ctx, workspaceID, seed.MemoryID, adapter.TraverseOpts{
+		tr, err := s.GraphTraverse(ctx, workspaceID, seed.MemoryID, adapter.TraverseOpts{
 			Depth:     exp.Depth,
 			Direction: dir,
 			EdgeTypes: exp.EdgeTypes,

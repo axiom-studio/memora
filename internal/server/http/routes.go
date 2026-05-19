@@ -464,7 +464,7 @@ func (s *Server) handleMemoryEdges(w http.ResponseWriter, r *http.Request, wsID,
 		if typesParam != "" {
 			et = strings.Split(typesParam, ",")
 		}
-		edges, headers, err := s.cfg.Service.Primary.GraphNeighbors(r.Context(), wsID, memID,
+		edges, headers, err := s.cfg.Service.GraphNeighbors(r.Context(), wsID, memID,
 			adapter.NeighborsOpts{Direction: api.GraphDirection(direction), EdgeTypes: et})
 		if err != nil {
 			s.writeErrorFromService(w, err)
@@ -485,7 +485,7 @@ func (s *Server) handleMemoryEdges(w http.ResponseWriter, r *http.Request, wsID,
 			PropertiesJSON:   req.Properties,
 			CreatedByAgentID: agentFrom(r.Context()),
 		}
-		out, err := s.cfg.Service.Primary.GraphLink(r.Context(), e)
+		out, err := s.cfg.Service.GraphLink(r.Context(), e)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -529,7 +529,7 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 				CreatedByAgentID: agent,
 			}
 		}
-		results, err := s.cfg.Service.Primary.GraphLinkBatch(r.Context(), edges)
+		results, err := s.cfg.Service.GraphLinkBatch(r.Context(), edges)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -554,7 +554,7 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
-	if err := s.cfg.Service.Primary.GraphUnlink(r.Context(), seg, agentFrom(r.Context())); err != nil {
+	if err := s.cfg.Service.GraphUnlink(r.Context(), seg, agentFrom(r.Context())); err != nil {
 		s.writeErrorFromService(w, err)
 		return
 	}
@@ -578,7 +578,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
 		}
-		edges, headers, err := s.cfg.Service.Primary.GraphNeighbors(r.Context(), wsID, req.MemoryID,
+		edges, headers, err := s.cfg.Service.GraphNeighbors(r.Context(), wsID, req.MemoryID,
 			adapter.NeighborsOpts{Direction: req.Direction, EdgeTypes: req.EdgeTypes, K: req.K})
 		if err != nil {
 			s.writeErrorFromService(w, err)
@@ -595,7 +595,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
 		}
-		tr, err := s.cfg.Service.Primary.GraphTraverse(r.Context(), wsID, req.SeedMemoryID,
+		tr, err := s.cfg.Service.GraphTraverse(r.Context(), wsID, req.SeedMemoryID,
 			adapter.TraverseOpts{Depth: req.Depth, Direction: req.Direction, EdgeTypes: req.EdgeTypes, Filter: req.Filter})
 		if err != nil {
 			s.writeErrorFromService(w, err)
@@ -616,7 +616,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 405, "method_not_allowed", "", nil)
 			return
 		}
-		n, byType, err := s.cfg.Service.Primary.GraphStats(r.Context(), wsID)
+		n, byType, err := s.cfg.Service.GraphStats(r.Context(), wsID)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return

@@ -265,7 +265,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if pinned != "" {
 			in.AgentID = pinned
 		}
-		out, err := s.svc.Primary.GraphLink(ctx, types.Edge{
+		out, err := s.svc.GraphLink(ctx, types.Edge{
 			WorkspaceID:      in.WorkspaceID,
 			SourceMemoryID:   in.SourceMemoryID,
 			TargetMemoryID:   in.TargetMemoryID,
@@ -292,7 +292,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if pinned != "" {
 			in.AgentID = pinned
 		}
-		if err := s.svc.Primary.GraphUnlink(ctx, in.EdgeID, in.AgentID); err != nil {
+		if err := s.svc.GraphUnlink(ctx, in.EdgeID, in.AgentID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"edge_id": in.EdgeID, "unlinked": true}, nil
@@ -307,7 +307,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		edges, headers, err := s.svc.Primary.GraphNeighbors(ctx, in.WorkspaceID, in.MemoryID,
+		edges, headers, err := s.svc.GraphNeighbors(ctx, in.WorkspaceID, in.MemoryID,
 			adapter.NeighborsOpts{Direction: api.GraphDirection(in.Direction), EdgeTypes: in.EdgeTypes, K: in.K})
 		if err != nil {
 			return nil, err
@@ -325,7 +325,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.GraphTraverse(ctx, in.WorkspaceID, in.SeedMemoryID,
+		return s.svc.GraphTraverse(ctx, in.WorkspaceID, in.SeedMemoryID,
 			adapter.TraverseOpts{Depth: in.Depth, Direction: api.GraphDirection(in.Direction), EdgeTypes: in.EdgeTypes, Filter: in.Filter})
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
