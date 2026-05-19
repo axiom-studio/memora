@@ -191,3 +191,86 @@ func TestDID_UniversalResolverWrapper(t *testing.T) {
 		t.Fatalf("expected success with wrapped response, got: %v", err)
 	}
 }
+
+func TestDID_VMNotInAuthenticationPurpose(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	agentID := "agent_did_purpose"
+	did := "did:agent:purpose"
+	vmID := did + "#key-agreement"
+	sig := ed25519.Sign(priv, []byte(agentID))
+
+	// VM exists but is only in keyAgreement, not authentication.
+	doc := DIDDocument{
+		ID: did,
+		VerificationMethod: []VerificationMethod{{
+			ID:              vmID,
+			Type:            "Ed25519VerificationKey2020",
+			PublicKeyBase64: base64.StdEncoding.EncodeToString(pub),
+		}},
+		Authentication: []json.RawMessage{
+			json.RawMessage(`"` + did + `#key-auth"`),
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(doc)
+	}))
+	defer srv.Close()
+
+	d := &DID{ResolverURL: srv.URL + "/", Client: srv.Client()}
+	err := d.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: agentID,
+		IdentityProof: map[string]any{
+			"did": did,
+			"proof": map[string]any{
+				"type":               "Ed25519Signature2020",
+				"verificationMethod": vmID,
+				"signatureValue":     base64.StdEncoding.EncodeToString(sig),
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for VM not in authentication purpose")
+	}
+}
+
+func TestDID_VMInAuthenticationPurposeAccepted(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	agentID := "agent_did_auth"
+	did := "did:agent:auth"
+	vmID := did + "#key-1"
+	sig := ed25519.Sign(priv, []byte(agentID))
+
+	doc := DIDDocument{
+		ID: did,
+		VerificationMethod: []VerificationMethod{{
+			ID:              vmID,
+			Type:            "Ed25519VerificationKey2020",
+			PublicKeyBase64: base64.StdEncoding.EncodeToString(pub),
+		}},
+		Authentication: []json.RawMessage{
+			json.RawMessage(`"` + vmID + `"`),
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(doc)
+	}))
+	defer srv.Close()
+
+	d := &DID{ResolverURL: srv.URL + "/", Client: srv.Client()}
+	err := d.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: agentID,
+		IdentityProof: map[string]any{
+			"did": did,
+			"proof": map[string]any{
+				"type":               "Ed25519Signature2020",
+				"verificationMethod": vmID,
+				"signatureValue":     base64.StdEncoding.EncodeToString(sig),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected success for VM in authentication purpose, got: %v", err)
+	}
+}

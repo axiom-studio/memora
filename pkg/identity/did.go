@@ -19,6 +19,7 @@ import (
 type DIDDocument struct {
 	ID                 string               `json:"id"`
 	VerificationMethod []VerificationMethod `json:"verificationMethod"`
+	Authentication     []json.RawMessage    `json:"authentication,omitempty"`
 }
 
 // VerificationMethod is a single key in a DID Document.
@@ -88,6 +89,13 @@ func (d *DID) Verify(ctx context.Context, in adapter.IdentityVerifyInput) error 
 	}
 	if vm == nil {
 		return fmt.Errorf("did: verificationMethod %q not found in DID document", vmID)
+	}
+
+	authIDs := authenticationVMIDs(doc)
+	if len(authIDs) > 0 {
+		if !authIDs[vmID] {
+			return fmt.Errorf("did: verificationMethod %q is not listed under authentication proof purpose", vmID)
+		}
 	}
 
 	pubKeyBytes, err := base64.StdEncoding.DecodeString(vm.PublicKeyBase64)
@@ -179,4 +187,28 @@ func (d *DID) resolve(ctx context.Context, did string) (DIDDocument, error) {
 	d.mu.Unlock()
 
 	return doc, nil
+}
+
+// authenticationVMIDs extracts VM IDs allowed for authentication purpose.
+// Per W3C DID Core, authentication entries can be string references or
+// embedded verification method objects.
+func authenticationVMIDs(doc DIDDocument) map[string]bool {
+	if len(doc.Authentication) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(doc.Authentication))
+	for _, raw := range doc.Authentication {
+		var ref string
+		if json.Unmarshal(raw, &ref) == nil {
+			ids[ref] = true
+			continue
+		}
+		var embedded struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(raw, &embedded) == nil && embedded.ID != "" {
+			ids[embedded.ID] = true
+		}
+	}
+	return ids
 }

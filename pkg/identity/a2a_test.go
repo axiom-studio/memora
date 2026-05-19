@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestA2A_VerifySuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := &A2A{Client: srv.Client()}
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
 	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
 		AgentID: agentID,
 		IdentityProof: map[string]any{
@@ -57,7 +58,7 @@ func TestA2A_VerifyBadSignature(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := &A2A{Client: srv.Client()}
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
 	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
 		AgentID: agentID,
 		IdentityProof: map[string]any{
@@ -84,7 +85,7 @@ func TestA2A_VerifyAgentIDMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := &A2A{Client: srv.Client()}
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
 	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
 		AgentID: "agent_wrong",
 		IdentityProof: map[string]any{
@@ -125,7 +126,7 @@ func TestA2A_CardCaching(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := &A2A{Client: srv.Client(), CacheTTL: 1 * time.Hour}
+	a := &A2A{Client: srv.Client(), CacheTTL: 1 * time.Hour, AllowHTTP: true}
 	proof := map[string]any{
 		"agent_card_url": srv.URL,
 		"signature":      base64.StdEncoding.EncodeToString(sig),
@@ -150,7 +151,7 @@ func TestA2A_FetchError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := &A2A{Client: srv.Client()}
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
 	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
 		AgentID: "agent_test",
 		IdentityProof: map[string]any{
@@ -160,5 +161,106 @@ func TestA2A_FetchError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestA2A_SSRFRejectsHTTP(t *testing.T) {
+	a := &A2A{}
+	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: "agent_test",
+		IdentityProof: map[string]any{
+			"agent_card_url": "http://example.com/card",
+			"signature":      "dGVzdA==",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for http:// URL when AllowHTTP=false")
+	}
+}
+
+func TestA2A_SSRFRejectsIMDS(t *testing.T) {
+	a := &A2A{AllowHTTP: true}
+	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: "agent_test",
+		IdentityProof: map[string]any{
+			"agent_card_url": "http://169.254.169.254/latest/meta-data/",
+			"signature":      "dGVzdA==",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for IMDS IP")
+	}
+}
+
+func TestA2A_SSRFRejectsLoopback(t *testing.T) {
+	a := &A2A{AllowHTTP: true}
+	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: "agent_test",
+		IdentityProof: map[string]any{
+			"agent_card_url": "http://127.0.0.1:8080/admin",
+			"signature":      "dGVzdA==",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for loopback IP")
+	}
+}
+
+func TestA2A_SSRFRejectsPrivateRFC1918(t *testing.T) {
+	a := &A2A{AllowHTTP: true}
+	for _, ip := range []string{"10.0.0.1", "172.16.0.1", "192.168.1.1"} {
+		err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+			AgentID: "agent_test",
+			IdentityProof: map[string]any{
+				"agent_card_url": "http://" + ip + "/card",
+				"signature":      "dGVzdA==",
+			},
+		})
+		if err == nil {
+			t.Fatalf("expected error for RFC 1918 IP %s", ip)
+		}
+	}
+}
+
+func TestA2A_SSRFRedirectToLoopback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://127.0.0.1:9999/card", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
+	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: "agent_test",
+		IdentityProof: map[string]any{
+			"agent_card_url": srv.URL,
+			"signature":      "dGVzdA==",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for redirect to loopback")
+	}
+}
+
+func TestA2A_SanitizedJSONError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<html><body>secret admin page</body></html>"))
+	}))
+	defer srv.Close()
+
+	a := &A2A{Client: srv.Client(), AllowHTTP: true}
+	err := a.Verify(context.Background(), adapter.IdentityVerifyInput{
+		AgentID: "agent_test",
+		IdentityProof: map[string]any{
+			"agent_card_url": srv.URL,
+			"signature":      "dGVzdA==",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for non-JSON response")
+	}
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "secret") || strings.Contains(errMsg, "html") || strings.Contains(errMsg, "offset") {
+		t.Fatalf("error message leaks response content: %q", errMsg)
 	}
 }
