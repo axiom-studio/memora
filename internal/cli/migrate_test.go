@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,5 +206,108 @@ func TestMigrateContent_ProgressNDJSON(t *testing.T) {
 	}
 	if first["event"] != "progress" {
 		t.Fatalf("event = %q, want %q", first["event"], "progress")
+	}
+}
+
+func TestMigrateContent_ResumeFromTypoErrors(t *testing.T) {
+	primary, content, ctx := openStores(t)
+
+	ws := &types.Workspace{Name: "migrate-resume-typo"}
+	_ = primary.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "agent"}
+	_, _ = primary.ImprintMemory(ctx, m)
+
+	_, err := MigrateContent(ctx, primary, content, MigrateContentConfig{
+		WorkspaceID: ws.ID,
+		ResumeFrom:  "mem_nonexistent_typo",
+	})
+	if err == nil {
+		t.Fatal("expected error for typo'd resume-from, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error = %q, want 'not found' substring", err.Error())
+	}
+}
+
+func TestMigrateContent_CellWriteFailureCounted(t *testing.T) {
+	primary, _, ctx := openStores(t)
+
+	ws := &types.Workspace{Name: "migrate-cellfail"}
+	_ = primary.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "cell test", WrittenByAgentID: "agent"}
+	_, _ = primary.ImprintMemory(ctx, m)
+
+	cells := []types.Cell{
+		{CellID: "cell_001", MemoryID: m.ID, Text: "chunk one", TextMD5: "abc", WrittenByAgentID: "agent"},
+		{CellID: "cell_002", MemoryID: m.ID, Text: "chunk two", TextMD5: "def", WrittenByAgentID: "agent"},
+	}
+	if err := primary.UpsertCells(ctx, m.ID, cells); err != nil {
+		t.Fatalf("upsert cells: %v", err)
+	}
+
+	failing := &failingCellContent{}
+	var buf bytes.Buffer
+	result, err := MigrateContent(ctx, primary, failing, MigrateContentConfig{
+		WorkspaceID: ws.ID,
+		Out:         &buf,
+	})
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if result.Migrated != 0 {
+		t.Fatalf("migrated = %d, want 0 (cell write failed)", result.Migrated)
+	}
+	if result.Errors == 0 {
+		t.Fatal("expected errors > 0 for cell write failures")
+	}
+}
+
+type failingCellContent struct {
+	adapter.ContentStore
+}
+
+func (f *failingCellContent) PutMemoryContent(context.Context, string, string, string, string) error {
+	return nil
+}
+func (f *failingCellContent) PutCellContent(context.Context, string, string, string, string, string) error {
+	return fmt.Errorf("injected cell write failure")
+}
+func (f *failingCellContent) GetMemoryContent(context.Context, string, string) (string, error) {
+	return "", types.ErrNotFound
+}
+func (f *failingCellContent) GetCellContent(context.Context, string, string, string) (string, error) {
+	return "", types.ErrNotFound
+}
+func (f *failingCellContent) Capabilities() adapter.ContentCapabilities {
+	return adapter.ContentCapabilities{}
+}
+
+func TestMigrateContent_VerifyChecksCells(t *testing.T) {
+	primary, content, ctx := openStores(t)
+
+	ws := &types.Workspace{Name: "migrate-verify-cells"}
+	_ = primary.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "verify cells", WrittenByAgentID: "agent"}
+	_, _ = primary.ImprintMemory(ctx, m)
+
+	// Migrate memory content only (not cells) by using PutMemoryContent directly.
+	_ = content.PutMemoryContent(ctx, ws.ID, m.ID, m.ContentMD5, m.Content)
+
+	// Verify should detect missing cell content if cells exist.
+	var buf bytes.Buffer
+	result, err := MigrateContent(ctx, primary, content, MigrateContentConfig{
+		WorkspaceID: ws.ID,
+		Verify:      true,
+		Out:         &buf,
+	})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+
+	cells, _ := primary.GetCells(ctx, m.ID)
+	if len(cells) > 0 {
+		if result.Mismatches == 0 {
+			t.Fatal("expected mismatches > 0 when cell content is missing from content store")
+		}
 	}
 }

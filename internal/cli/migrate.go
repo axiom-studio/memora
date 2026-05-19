@@ -41,12 +41,19 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 		return nil, fmt.Errorf("content store is nil — configure a content driver first")
 	}
 
-	mems, err := primary.ListMemories(ctx, cfg.WorkspaceID, cfg.CollectionID, 10000)
-	if err != nil {
-		return nil, fmt.Errorf("list memories: %w", err)
+	const pageSize = 1000
+	var mems []types.Memory
+	for {
+		page, err := primary.ListMemories(ctx, cfg.WorkspaceID, cfg.CollectionID, pageSize)
+		if err != nil {
+			return nil, fmt.Errorf("list memories: %w", err)
+		}
+		mems = append(mems, page...)
+		if len(page) < pageSize {
+			break
+		}
 	}
 
-	// Filter by resume token.
 	if cfg.ResumeFrom != "" {
 		filtered := make([]types.Memory, 0, len(mems))
 		found := false
@@ -60,7 +67,7 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 			}
 		}
 		if !found {
-			filtered = mems
+			return nil, fmt.Errorf("resume_from %q not found in workspace memories", cfg.ResumeFrom)
 		}
 		mems = filtered
 	}
@@ -91,7 +98,7 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 		}
 
 		if cfg.Verify {
-			err := verifyMemoryContent(ctx, content, m)
+			err := verifyMemoryContent(ctx, primary, content, m)
 			if err != nil {
 				result.Mismatches++
 				emitProgress(cfg.Out, "mismatch", i+1, result, m.ID, err.Error())
@@ -118,15 +125,23 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 		}
 
 		// Migrate cell content.
+		cellFailed := false
 		cells, err := primary.GetCells(ctx, m.ID)
 		if err == nil {
 			for _, cell := range cells {
 				if cell.Text != "" {
-					_ = content.PutCellContent(ctx, m.WorkspaceID, m.ID, cell.CellID, cell.TextMD5, cell.Text)
+					if cerr := content.PutCellContent(ctx, m.WorkspaceID, m.ID, cell.CellID, cell.TextMD5, cell.Text); cerr != nil {
+						cellFailed = true
+						result.Errors++
+						emitProgress(cfg.Out, "cell_error", i+1, result, m.ID, fmt.Sprintf("cell %s: %v", cell.CellID, cerr))
+					}
 				}
 			}
 		}
 
+		if cellFailed {
+			continue
+		}
 		result.Migrated++
 		if (i+1)%100 == 0 {
 			emitProgress(cfg.Out, "progress", i+1, result, m.ID, "")
@@ -137,16 +152,31 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 	return result, nil
 }
 
-func verifyMemoryContent(ctx context.Context, content adapter.ContentStore, m types.Memory) error {
-	if m.Content == "" {
+func verifyMemoryContent(ctx context.Context, primary adapter.MetadataStore, content adapter.ContentStore, m types.Memory) error {
+	if m.Content != "" {
+		got, err := content.GetMemoryContent(ctx, m.WorkspaceID, m.ID)
+		if err != nil {
+			return fmt.Errorf("memory not in content store: %w", err)
+		}
+		if got != m.Content {
+			return fmt.Errorf("memory content mismatch: primary md5=%s, content store has different bytes", m.ContentMD5)
+		}
+	}
+	cells, err := primary.GetCells(ctx, m.ID)
+	if err != nil {
 		return nil
 	}
-	got, err := content.GetMemoryContent(ctx, m.WorkspaceID, m.ID)
-	if err != nil {
-		return fmt.Errorf("not in content store: %w", err)
-	}
-	if got != m.Content {
-		return fmt.Errorf("content mismatch: primary md5=%s, content store has different bytes", m.ContentMD5)
+	for _, cell := range cells {
+		if cell.Text == "" {
+			continue
+		}
+		got, err := content.GetCellContent(ctx, m.WorkspaceID, m.ID, cell.CellID)
+		if err != nil {
+			return fmt.Errorf("cell %s not in content store: %w", cell.CellID, err)
+		}
+		if got != cell.Text {
+			return fmt.Errorf("cell %s content mismatch: md5=%s", cell.CellID, cell.TextMD5)
+		}
 	}
 	return nil
 }
