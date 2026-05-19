@@ -220,6 +220,59 @@ func TestMigrationIdempotence(t *testing.T) {
 	}
 }
 
+func TestMigrationSplit_NewObjects(t *testing.T) {
+	s, ctx := openStore(t)
+
+	// memora_workspace_meta table exists and accepts inserts.
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO memora_workspace_meta(workspace_id, hierarchy_labels, extra_json, updated_at)
+		 VALUES ('ws_test', '{}', NULL, datetime('now'))`)
+	if err != nil {
+		// Need a workspace to satisfy FK.
+		ws := &types.Workspace{Name: "meta_test"}
+		if err2 := s.CreateWorkspace(ctx, ws); err2 != nil {
+			t.Fatal(err2)
+		}
+		_, err = s.db.ExecContext(ctx,
+			`INSERT INTO memora_workspace_meta(workspace_id, hierarchy_labels, extra_json, updated_at)
+			 VALUES (?, '{}', NULL, datetime('now'))`, ws.ID)
+		if err != nil {
+			t.Fatalf("workspace_meta insert: %v", err)
+		}
+	}
+
+	// memora_edges_view exists and returns zero rows.
+	var n int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memora_edges_view").Scan(&n); err != nil {
+		t.Fatalf("edges_view query: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("edges_view should return 0 rows, got %d", n)
+	}
+
+	// Three migration files were applied.
+	rows, err := s.db.QueryContext(ctx, "SELECT version FROM memora_schema_migrations ORDER BY version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var versions []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			_ = rows.Close()
+			t.Fatal(err)
+		}
+		versions = append(versions, v)
+	}
+	_ = rows.Close()
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 migrations, got %v", versions)
+	}
+	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" {
+		t.Fatalf("unexpected migration versions: %v", versions)
+	}
+}
+
 func TestCapabilities(t *testing.T) {
 	s, _ := openStore(t)
 	caps := s.Capabilities()

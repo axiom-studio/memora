@@ -1,6 +1,7 @@
--- Memora Core — SQLite primary-store schema.
--- Idempotent (CREATE TABLE IF NOT EXISTS). Run by the modernc.org/sqlite
--- adapter at server startup via the embedded migration runner.
+-- Memora Core — SQLite primary-store schema (data-plane).
+-- Idempotent (CREATE TABLE/INDEX IF NOT EXISTS). Run by the
+-- modernc.org/sqlite adapter at server startup via the embedded
+-- migration runner.
 
 CREATE TABLE IF NOT EXISTS memora_schema_migrations (
     version    TEXT PRIMARY KEY,
@@ -18,6 +19,13 @@ CREATE TABLE IF NOT EXISTS memora_workspaces (
     updated_at      TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS memora_workspace_meta (
+    workspace_id      TEXT PRIMARY KEY REFERENCES memora_workspaces(id) ON DELETE CASCADE,
+    hierarchy_labels  TEXT,
+    extra_json        TEXT,
+    updated_at        TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS memora_collections (
     id            TEXT PRIMARY KEY,
     workspace_id  TEXT NOT NULL REFERENCES memora_workspaces(id) ON DELETE CASCADE,
@@ -25,21 +33,6 @@ CREATE TABLE IF NOT EXISTS memora_collections (
     created_at    TEXT NOT NULL,
     UNIQUE(workspace_id, name)
 );
-
-CREATE TABLE IF NOT EXISTS memora_agents (
-    agent_id           TEXT PRIMARY KEY,
-    workspace_id       TEXT NOT NULL,
-    display_name       TEXT,
-    identity_provider  TEXT NOT NULL,
-    identity_proof     TEXT,
-    agent_type         TEXT,
-    model              TEXT,
-    capabilities_json  TEXT,
-    registered_at      TEXT NOT NULL,
-    last_seen_at       TEXT,
-    active             INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX IF NOT EXISTS idx_agents_workspace ON memora_agents(workspace_id);
 
 CREATE TABLE IF NOT EXISTS memora_memories (
     id                         TEXT PRIMARY KEY,
@@ -62,7 +55,6 @@ CREATE INDEX IF NOT EXISTS idx_memories_ws_agent ON memora_memories(workspace_id
 CREATE INDEX IF NOT EXISTS idx_memories_ws_created ON memora_memories(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_recall_ready ON memora_memories(workspace_id, recall_ready);
 
--- Full-text search over memory content. Used by keyword + hybrid recall.
 CREATE VIRTUAL TABLE IF NOT EXISTS memora_memories_fts USING fts5(
     memory_id UNINDEXED,
     workspace_id UNINDEXED,
@@ -105,28 +97,6 @@ CREATE TABLE IF NOT EXISTS memora_watermark_history (
     PRIMARY KEY(target_id, watermark)
 );
 CREATE INDEX IF NOT EXISTS idx_wmk_history_target_ts ON memora_watermark_history(target_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS memora_edges (
-    edge_id              TEXT PRIMARY KEY,
-    workspace_id         TEXT NOT NULL,
-    source_memory_id     TEXT NOT NULL REFERENCES memora_memories(id) ON DELETE CASCADE,
-    target_memory_id     TEXT NOT NULL REFERENCES memora_memories(id) ON DELETE CASCADE,
-    edge_type            TEXT NOT NULL CHECK (edge_type IN
-        ('parent_of','derived_from','supersedes','references','session_of','mentions')),
-    properties_json      TEXT,
-    created_by_agent_id  TEXT NOT NULL,
-    created_at           TEXT NOT NULL,
-    deleted_at           TEXT,
-    watermark            TEXT NOT NULL,
-    CHECK (source_memory_id <> target_memory_id)
-);
-CREATE INDEX IF NOT EXISTS idx_edges_src ON memora_edges(workspace_id, source_memory_id, edge_type, deleted_at);
-CREATE INDEX IF NOT EXISTS idx_edges_tgt ON memora_edges(workspace_id, target_memory_id, edge_type, deleted_at);
-CREATE INDEX IF NOT EXISTS idx_edges_type_ts ON memora_edges(workspace_id, edge_type, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_edges_agent_ts ON memora_edges(workspace_id, created_by_agent_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_edges_live_triple
-    ON memora_edges(workspace_id, source_memory_id, target_memory_id, edge_type)
-    WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS memora_ledger (
     ledger_id        TEXT PRIMARY KEY,
