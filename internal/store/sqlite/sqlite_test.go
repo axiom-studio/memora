@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -290,5 +291,86 @@ func TestCapabilities(t *testing.T) {
 	}
 	if caps.MaxLinkBatchSize != 1000 {
 		t.Errorf("MaxLinkBatchSize = %d, want 1000", caps.MaxLinkBatchSize)
+	}
+}
+
+func TestTenantIsolation_GetAgent(t *testing.T) {
+	s, ctx := openStore(t)
+	w1 := &types.Workspace{Name: "w1"}
+	w2 := &types.Workspace{Name: "w2"}
+	_ = s.CreateWorkspace(ctx, w1)
+	_ = s.CreateWorkspace(ctx, w2)
+
+	a := &types.Agent{AgentID: "agent_iso_1", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
+	_ = s.RegisterAgent(ctx, a)
+
+	if _, err := s.GetAgent(ctx, w1.ID, "agent_iso_1"); err != nil {
+		t.Fatalf("same-workspace GetAgent failed: %v", err)
+	}
+	if _, err := s.GetAgent(ctx, w2.ID, "agent_iso_1"); err != types.ErrNotFound {
+		t.Fatalf("cross-workspace GetAgent: expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestTenantIsolation_DeactivateAgent(t *testing.T) {
+	s, ctx := openStore(t)
+	w1 := &types.Workspace{Name: "w1"}
+	w2 := &types.Workspace{Name: "w2"}
+	_ = s.CreateWorkspace(ctx, w1)
+	_ = s.CreateWorkspace(ctx, w2)
+
+	a := &types.Agent{AgentID: "agent_iso_2", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
+	_ = s.RegisterAgent(ctx, a)
+
+	if err := s.DeactivateAgent(ctx, w2.ID, "agent_iso_2"); err != types.ErrNotFound {
+		t.Fatalf("cross-workspace DeactivateAgent: expected ErrNotFound, got %v", err)
+	}
+	if err := s.DeactivateAgent(ctx, w1.ID, "agent_iso_2"); err != nil {
+		t.Fatalf("same-workspace DeactivateAgent failed: %v", err)
+	}
+}
+
+func TestTenantIsolation_UpsertTag(t *testing.T) {
+	s, ctx := openStore(t)
+	w1 := &types.Workspace{Name: "w1"}
+	w2 := &types.Workspace{Name: "w2"}
+	_ = s.CreateWorkspace(ctx, w1)
+	_ = s.CreateWorkspace(ctx, w2)
+
+	m := &types.Memory{WorkspaceID: w1.ID, Content: "tagged", WrittenByAgentID: "agent_opaque_t"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	if err := s.UpsertTag(ctx, w1.ID, m.ID, "env", "prod"); err != nil {
+		t.Fatalf("same-workspace UpsertTag failed: %v", err)
+	}
+	if err := s.UpsertTag(ctx, w2.ID, m.ID, "env", "prod"); err != types.ErrNotFound {
+		t.Fatalf("cross-workspace UpsertTag: expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestTenantIsolation_GetWatermarkHistory(t *testing.T) {
+	s, ctx := openStore(t)
+	w1 := &types.Workspace{Name: "w1"}
+	w2 := &types.Workspace{Name: "w2"}
+	_ = s.CreateWorkspace(ctx, w1)
+	_ = s.CreateWorkspace(ctx, w2)
+
+	m := &types.Memory{WorkspaceID: w1.ID, Content: "wmk", WrittenByAgentID: "agent_opaque_w"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	hist, err := s.GetWatermarkHistory(ctx, w1.ID, m.ID, time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("same-workspace history: %v", err)
+	}
+	if len(hist) == 0 {
+		t.Fatal("expected at least one watermark entry")
+	}
+
+	hist2, err := s.GetWatermarkHistory(ctx, w2.ID, m.ID, time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("cross-workspace history error: %v", err)
+	}
+	if len(hist2) != 0 {
+		t.Fatalf("cross-workspace history should be empty, got %d entries", len(hist2))
 	}
 }

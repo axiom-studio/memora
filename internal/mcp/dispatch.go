@@ -185,7 +185,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		hist, err := s.svc.Primary.GetWatermarkHistory(ctx, in.MemoryID, sevenDaysAgo())
+		hist, err := s.svc.Primary.GetWatermarkHistory(ctx, in.WorkspaceID, in.MemoryID, sevenDaysAgo())
 		if err != nil {
 			return nil, err
 		}

@@ -43,8 +43,8 @@ ON CONFLICT(agent_id) DO UPDATE SET
 	return err
 }
 
-// GetAgent fetches a single Agent.
-func (s *Store) GetAgent(ctx context.Context, id string) (*types.Agent, error) {
+// GetAgent fetches a single Agent scoped to a workspace.
+func (s *Store) GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error) {
 	a := &types.Agent{}
 	var dn, proof, at, model, caps, lastSeen sql.NullString
 	var registeredAt sqliteTime
@@ -52,7 +52,7 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*types.Agent, error) {
 	err := s.db.QueryRowContext(ctx, `
 SELECT agent_id, workspace_id, display_name, identity_provider, identity_proof, agent_type, model,
     capabilities_json, registered_at, last_seen_at, active
-FROM memora_agents WHERE agent_id = ?`, id).Scan(
+FROM memora_agents WHERE agent_id = ? AND workspace_id = ?`, id, workspaceID).Scan(
 		&a.AgentID, &a.WorkspaceID, &dn, &a.IdentityProvider, &proof, &at, &model, &caps,
 		&registeredAt, &lastSeen, &active)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -111,8 +111,8 @@ FROM memora_agents WHERE workspace_id = ? ORDER BY registered_at DESC`, workspac
 }
 
 // DeactivateAgent flips active=false; preserves all attribution history.
-func (s *Store) DeactivateAgent(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, "UPDATE memora_agents SET active = 0 WHERE agent_id = ?", id)
+func (s *Store) DeactivateAgent(ctx context.Context, workspaceID, id string) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE memora_agents SET active = 0 WHERE agent_id = ? AND workspace_id = ?", id, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -123,12 +123,14 @@ func (s *Store) DeactivateAgent(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetWatermarkHistory returns history rows for a Memory or Edge.
-func (s *Store) GetWatermarkHistory(ctx context.Context, targetID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {
+// GetWatermarkHistory returns history rows for a Memory or Edge scoped to a workspace.
+func (s *Store) GetWatermarkHistory(ctx context.Context, workspaceID, targetID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT target_id, watermark, op, agent_id, created_at, content_md5_before, content_md5_after
-FROM memora_watermark_history WHERE target_id = ? AND created_at >= ? ORDER BY created_at DESC`,
-		targetID, since.UTC())
+SELECT wh.target_id, wh.watermark, wh.op, wh.agent_id, wh.created_at, wh.content_md5_before, wh.content_md5_after
+FROM memora_watermark_history wh
+INNER JOIN memora_memories m ON m.id = wh.target_id AND m.workspace_id = ?
+WHERE wh.target_id = ? AND wh.created_at >= ? ORDER BY wh.created_at DESC`,
+		workspaceID, targetID, since.UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -158,16 +160,29 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 	return err
 }
 
-// UpsertTag adds or replaces a tag.
-func (s *Store) UpsertTag(ctx context.Context, memoryID, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO memora_tags(memory_id, key, value) VALUES (?, ?, ?)
-ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`, memoryID, key, value)
-	return err
+// UpsertTag adds or replaces a tag, scoped to a workspace via the memory's workspace_id.
+func (s *Store) UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error {
+	res, err := s.db.ExecContext(ctx, `
+INSERT INTO memora_tags(memory_id, key, value)
+SELECT ?, ?, ?
+WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)
+ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
+		memoryID, key, value, memoryID, workspaceID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return types.ErrNotFound
+	}
+	return nil
 }
 
-// DeleteTag removes a tag.
-func (s *Store) DeleteTag(ctx context.Context, memoryID, key string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM memora_tags WHERE memory_id = ? AND key = ?", memoryID, key)
+// DeleteTag removes a tag, scoped to a workspace via the memory's workspace_id.
+func (s *Store) DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error {
+	_, err := s.db.ExecContext(ctx, `
+DELETE FROM memora_tags WHERE memory_id = ? AND key = ?
+AND EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)`,
+		memoryID, key, memoryID, workspaceID)
 	return err
 }

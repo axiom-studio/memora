@@ -257,9 +257,9 @@ func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request, wsID str
 		case "edges":
 			s.handleMemoryEdges(w, r, wsID, memID, rest[2:])
 		case "watermarks":
-			s.handleWatermarks(w, r, memID)
+			s.handleWatermarks(w, r, wsID, memID)
 		case "tags":
-			s.handleTags(w, r, memID, rest[2:])
+			s.handleTags(w, r, wsID, memID, rest[2:])
 		default:
 			s.writeError(w, 404, "not_found", "unknown memory sub-resource", nil)
 		}
@@ -434,14 +434,14 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 		}
 		s.writeJSON(w, 201, a)
 	case len(rest) == 1 && r.Method == http.MethodGet:
-		a, err := s.cfg.Service.Primary.GetAgent(r.Context(), rest[0])
+		a, err := s.cfg.Service.Primary.GetAgent(r.Context(), wsID, rest[0])
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 200, a)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeactivateAgent(r.Context(), rest[0]); err != nil {
+		if err := s.cfg.Service.Primary.DeactivateAgent(r.Context(), wsID, rest[0]); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -628,12 +628,12 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 }
 
 // /v1/workspaces/{ws_id}/memories/{mem_id}/watermarks
-func (s *Server) handleWatermarks(w http.ResponseWriter, r *http.Request, memID string) {
+func (s *Server) handleWatermarks(w http.ResponseWriter, r *http.Request, wsID, memID string) {
 	if r.Method != http.MethodGet {
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
-	hist, err := s.cfg.Service.Primary.GetWatermarkHistory(r.Context(), memID, time.Now().AddDate(0, 0, -7))
+	hist, err := s.cfg.Service.Primary.GetWatermarkHistory(r.Context(), wsID, memID, time.Now().AddDate(0, 0, -7))
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
@@ -641,7 +641,7 @@ func (s *Server) handleWatermarks(w http.ResponseWriter, r *http.Request, memID 
 	s.writeJSON(w, 200, map[string]any{"watermarks": hist})
 }
 
-func (s *Server) handleTags(w http.ResponseWriter, r *http.Request, memID string, rest []string) {
+func (s *Server) handleTags(w http.ResponseWriter, r *http.Request, wsID, memID string, rest []string) {
 	if len(rest) != 1 {
 		s.writeError(w, 404, "not_found", "tag key required", nil)
 		return
@@ -653,13 +653,13 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request, memID string
 			Value string `json:"value"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if err := s.cfg.Service.Primary.UpsertTag(r.Context(), memID, key, body.Value); err != nil {
+		if err := s.cfg.Service.Primary.UpsertTag(r.Context(), wsID, memID, key, body.Value); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		w.WriteHeader(204)
 	case http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeleteTag(r.Context(), memID, key); err != nil {
+		if err := s.cfg.Service.Primary.DeleteTag(r.Context(), wsID, memID, key); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}

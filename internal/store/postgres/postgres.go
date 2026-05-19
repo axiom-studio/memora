@@ -79,20 +79,20 @@ func (s *Store) UpdateCellVectorKey(context.Context, string, string, string) err
 func (s *Store) FlipRecallReadyIfAllEmbedded(context.Context, string) (bool, error) {
 	return false, types.ErrCapability
 }
-func (s *Store) GetWatermarkHistory(context.Context, string, time.Time) ([]types.WatermarkHistoryEntry, error) {
+func (s *Store) GetWatermarkHistory(context.Context, string, string, time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return nil, types.ErrCapability
 }
 func (s *Store) AppendWatermarkHistory(context.Context, types.WatermarkHistoryEntry) error {
 	return types.ErrCapability
 }
-func (s *Store) UpsertTag(context.Context, string, string, string) error { return types.ErrCapability }
-func (s *Store) DeleteTag(context.Context, string, string) error         { return types.ErrCapability }
+func (s *Store) UpsertTag(context.Context, string, string, string, string) error { return types.ErrCapability }
+func (s *Store) DeleteTag(context.Context, string, string, string) error         { return types.ErrCapability }
 func (s *Store) RegisterAgent(context.Context, *types.Agent) error       { return types.ErrCapability }
-func (s *Store) GetAgent(context.Context, string) (*types.Agent, error)  { return nil, types.ErrCapability }
+func (s *Store) GetAgent(context.Context, string, string) (*types.Agent, error) { return nil, types.ErrCapability }
 func (s *Store) ListAgents(context.Context, string) ([]types.Agent, error) {
 	return nil, types.ErrCapability
 }
-func (s *Store) DeactivateAgent(context.Context, string) error { return types.ErrCapability }
+func (s *Store) DeactivateAgent(context.Context, string, string) error { return types.ErrCapability }
 func (s *Store) GraphLink(context.Context, types.Edge) (types.Edge, error) {
 	return types.Edge{}, types.ErrCapability
 }

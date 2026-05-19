@@ -139,24 +139,24 @@ type PrimaryStore interface {
 	// against each other.
 	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (flipped bool, err error)
 
-	// GetWatermarkHistory returns watermark entries for a target since the given time. OSS retains 7 days.
-	GetWatermarkHistory(ctx context.Context, targetID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
+	// GetWatermarkHistory returns watermark entries for a target since the given time. OSS retains 7 days. The workspaceID scopes the query for tenant isolation.
+	GetWatermarkHistory(ctx context.Context, workspaceID, targetID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
 	// AppendWatermarkHistory records a new watermark transition for auditing.
 	AppendWatermarkHistory(ctx context.Context, entry types.WatermarkHistoryEntry) error
 
-	// UpsertTag sets a key-value tag on a memory. Creates or overwrites.
-	UpsertTag(ctx context.Context, memoryID, key, value string) error
-	// DeleteTag removes a tag by key. No-op if not present.
-	DeleteTag(ctx context.Context, memoryID, key string) error
+	// UpsertTag sets a key-value tag on a memory. Creates or overwrites. The workspaceID scopes the mutation for tenant isolation.
+	UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error
+	// DeleteTag removes a tag by key. No-op if not present. The workspaceID scopes the mutation for tenant isolation.
+	DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error
 
 	// RegisterAgent upserts an Agent by agent_id (idempotent). Used by identity middleware on first write.
 	RegisterAgent(ctx context.Context, a *types.Agent) error
-	// GetAgent returns the Agent by ID. Returns ErrNotFound if absent.
-	GetAgent(ctx context.Context, id string) (*types.Agent, error)
+	// GetAgent returns the Agent by ID within a workspace. Returns ErrNotFound if absent or belongs to a different workspace.
+	GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error)
 	// ListAgents returns all agents registered in a workspace.
 	ListAgents(ctx context.Context, workspaceID string) ([]types.Agent, error)
-	// DeactivateAgent soft-deletes an agent. Returns ErrNotFound if absent.
-	DeactivateAgent(ctx context.Context, id string) error
+	// DeactivateAgent soft-deletes an agent within a workspace. Returns ErrNotFound if absent or belongs to a different workspace.
+	DeactivateAgent(ctx context.Context, workspaceID, id string) error
 
 	// GraphLink creates a typed directed edge. Returns ErrAlreadyLinked if a non-deleted edge already connects the pair with the same type.
 	GraphLink(ctx context.Context, edge types.Edge) (types.Edge, error)
