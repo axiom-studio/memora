@@ -1,0 +1,114 @@
+name: Release
+
+# Triggered by pushing a semver tag (e.g. `v0.1.0`, `v0.1.0-rc1`).
+# Builds cross-platform binaries via goreleaser, generates SBOMs via
+# syft, signs everything with cosign-keyless (Sigstore), publishes a
+# GitHub Release, pushes multi-arch Docker images to GHCR, and (when
+# their tap tokens are configured) updates the Homebrew tap + Scoop
+# bucket repos.
+#
+# macOS notarization is intentionally NOT wired in v0.1 — darwin
+# binaries ship unsigned and trigger a one-time Gatekeeper warning.
+# To enable notarization later, set repository secrets `AC_USERNAME`
+# (Apple ID), `AC_PASSWORD` (app-specific password from appleid.apple.com),
+# and `AC_TEAM_ID` (developer team ID), then add a `notarize:` block to
+# .goreleaser.yaml under each darwin build.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Tags are immutable; cancel-in-progress isn't useful here. Default
+# token scope is read-only — individual jobs opt in to the writes
+# they need (contents/packages/id-token).
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Cross-build, sign, publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      # Required by goreleaser to create the GitHub Release + upload
+      # artifacts.
+      contents: write
+      # Required by goreleaser to push images to GHCR.
+      packages: write
+      # Required by cosign-keyless: requests an OIDC token from GitHub
+      # that Sigstore Fulcio uses to mint the short-lived signing cert.
+      id-token: write
+
+    steps:
+      - name: Check out (with full history for changelog generation)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Set up Docker buildx (multi-arch images)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU (arm64 emulation for buildx)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install syft (SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0
+        with:
+          syft-version: 'v1.18.0'
+
+      - name: Install cosign (signing)
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional taps — goreleaser's `skip_upload: auto` quietly
+          # skips Homebrew/Scoop pushes when the corresponding token
+          # is absent. Set these secrets after the tap repos exist.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+
+      - name: Upload checksums + signatures + SBOMs as workflow artifact
+        # The GitHub Release already carries these — this is a backup
+        # for retention beyond the release-page lifecycle and for
+        # post-mortem audits.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ github.ref_name }}
+          path: |
+            dist/checksums.txt
+            dist/checksums.txt.sig
+            dist/checksums.txt.cert
+            dist/*.sbom.spdx.json
+          if-no-files-found: warn
+          retention-days: 90

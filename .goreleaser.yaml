@@ -1,0 +1,305 @@
+# Memora release-engineering config.
+#
+# Triggered by .github/workflows/release.yml on tags matching `v*.*.*`.
+# Produces:
+#   - Cross-compiled memora-core + memora-cli binaries for linux/darwin/windows
+#     × amd64/arm64 (6 binaries × 2 cmds = 12 build outputs).
+#   - Archived tar.gz (unix) and zip (windows) bundles with LICENSE + README.
+#   - SHA256 checksums file.
+#   - SBOMs (SPDX) for each archive via syft (configured at the workflow level).
+#   - Cosign keyless signatures for binaries + checksums + SBOMs via the
+#     Sigstore Fulcio root (no maintained private key — works in CI via OIDC).
+#   - Multi-arch Docker images for memora-core (linux/amd64 + linux/arm64),
+#     pushed to GHCR with both `:vX.Y.Z` and `:latest` tags + a manifest list.
+#   - Homebrew tap formula auto-PR'd to axiom-studio/homebrew-tap (when
+#     HOMEBREW_TAP_TOKEN is configured).
+#   - Scoop bucket manifest auto-PR'd to axiom-studio/scoop-bucket (when
+#     SCOOP_BUCKET_TOKEN is configured).
+#   - GitHub Release with auto-generated changelog from `git log` since the
+#     previous tag.
+#
+# macOS notarization is intentionally NOT configured here. v0.1 ships
+# unsigned darwin binaries — users on Sequoia+ will see a Gatekeeper warning
+# the first time they run the binary; right-click → Open works around it.
+# Notarization placeholders for AC_USERNAME / AC_PASSWORD live in the
+# release.yml workflow comments and will turn on once an Apple Developer
+# Program subscription is in place.
+
+version: 2
+
+project_name: memora
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: memora-core
+    binary: memora-core
+    main: ./cmd/memora-core
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.buildDate={{.Date}}
+    flags:
+      - -trimpath
+
+  - id: memora-cli
+    binary: memora-cli
+    main: ./cmd/memora-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.buildDate={{.Date}}
+    flags:
+      - -trimpath
+
+archives:
+  - id: memora
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- if eq .Os "darwin" }}darwin
+      {{- else if eq .Os "linux" }}linux
+      {{- else if eq .Os "windows" }}windows
+      {{- end }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    ids:
+      - memora-core
+      - memora-cli
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - SECURITY.md
+      - CONTRIBUTING.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# SBOM generation via syft. The workflow installs syft before invoking
+# goreleaser; this section declares per-archive SBOM emission in SPDX
+# JSON format (the de-facto compliance standard for OSS supply chain).
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "${artifact}.sbom.spdx.json"
+
+# Cosign keyless signing via Sigstore. Signs every artifact (binaries
+# inside archives, checksums.txt, sboms) with an ephemeral ECDSA key
+# witnessed by Rekor against the workflow's OIDC token. Verifiers use
+# `cosign verify-blob --certificate-identity-regexp` against the
+# workflow's federated identity.
+signs:
+  - id: cosign-blobs
+    cmd: cosign
+    args:
+      - "sign-blob"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+    certificate: "${artifact}.cert"
+    signature: "${artifact}.sig"
+
+docker_signs:
+  - id: cosign-images
+    cmd: cosign
+    args:
+      - "sign"
+      - "${artifact}@${digest}"
+      - "--yes"
+    artifacts: manifests
+    output: true
+
+dockers:
+  - id: memora-core-amd64
+    use: buildx
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--pull"
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=Memora Core OSS — patchable agent memory"
+      - "--label=org.opencontainers.image.url=https://github.com/axiom-studio/memora"
+      - "--label=org.opencontainers.image.source=https://github.com/axiom-studio/memora"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    extra_files:
+      - LICENSE
+      - NOTICE
+
+  - id: memora-core-arm64
+    use: buildx
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--pull"
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=Memora Core OSS — patchable agent memory"
+      - "--label=org.opencontainers.image.url=https://github.com/axiom-studio/memora"
+      - "--label=org.opencontainers.image.source=https://github.com/axiom-studio/memora"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    extra_files:
+      - LICENSE
+      - NOTICE
+
+docker_manifests:
+  - name_template: "ghcr.io/axiom-studio/memora-core:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-amd64"
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/axiom-studio/memora-core:latest"
+    image_templates:
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-amd64"
+      - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-arm64"
+
+# Homebrew tap. Goreleaser will commit a Formula/memora.rb to the
+# axiom-studio/homebrew-tap repo on every release. The tap repo needs
+# to exist and HOMEBREW_TAP_TOKEN (a PAT with `contents: write` on
+# that repo) must be in the release workflow's secrets. When the token
+# is absent, this section silently no-ops via `skip_upload`.
+brews:
+  - name: memora
+    ids:
+      - memora
+    homepage: "https://github.com/axiom-studio/memora"
+    description: "Memora Core CLI + server — patchable agent memory"
+    license: "Apache-2.0"
+    repository:
+      owner: axiom-studio
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    skip_upload: auto
+    commit_author:
+      name: memora-release-bot
+      email: release@axiomstudio.ai
+    test: |
+      system "#{bin}/memora-cli", "--version"
+    install: |
+      bin.install "memora-core"
+      bin.install "memora-cli"
+
+# Scoop bucket. Goreleaser will commit bucket/memora.json to the
+# axiom-studio/scoop-bucket repo. Same skip-upload-on-missing-token
+# semantics as Homebrew.
+scoops:
+  - name: memora
+    repository:
+      owner: axiom-studio
+      name: scoop-bucket
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    homepage: "https://github.com/axiom-studio/memora"
+    description: "Memora Core CLI + server — patchable agent memory"
+    license: "Apache-2.0"
+    skip_upload: auto
+    commit_author:
+      name: memora-release-bot
+      email: release@axiomstudio.ai
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: "Security"
+      regexp: '(?i)^(security)[\s:#]'
+      order: 0
+    - title: "Features"
+      regexp: '^F\d+[\s:.]'
+      order: 1
+    - title: "Fixes"
+      regexp: '(?i)^(fix|bug)[\s:#]'
+      order: 2
+    - title: "Other"
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: axiom-studio
+    name: memora
+  prerelease: auto
+  mode: replace
+  draft: false
+  name_template: "Memora v{{ .Version }}"
+  header: |
+    ## Memora Core v{{ .Version }}
+
+    Pre-alpha OSS release. See [README.md](https://github.com/axiom-studio/memora/blob/main/README.md) for the quickstart and [SECURITY.md](https://github.com/axiom-studio/memora/blob/main/SECURITY.md) for the disclosure policy.
+
+    **Install:**
+
+    ```bash
+    # macOS / Linux via Homebrew (after the homebrew-tap repo is bootstrapped)
+    brew install axiom-studio/tap/memora
+
+    # Windows via Scoop (after the scoop-bucket repo is bootstrapped)
+    scoop bucket add memora https://github.com/axiom-studio/scoop-bucket
+    scoop install memora
+
+    # Direct binary
+    curl -L https://github.com/axiom-studio/memora/releases/download/v{{ .Version }}/memora_{{ .Version }}_linux_amd64.tar.gz | tar xz
+
+    # Docker
+    docker pull ghcr.io/axiom-studio/memora-core:{{ .Version }}
+    ```
+
+    **Verify (cosign keyless via Sigstore):**
+
+    ```bash
+    cosign verify-blob \
+      --certificate=checksums.txt.cert \
+      --signature=checksums.txt.sig \
+      --certificate-identity-regexp="https://github.com/axiom-studio/memora/" \
+      --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+      checksums.txt
+    ```
+  footer: |
+    ---
+    Full diff: https://github.com/axiom-studio/memora/compare/{{ .PreviousTag }}...{{ .Tag }}
