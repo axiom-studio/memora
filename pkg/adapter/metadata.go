@@ -62,6 +62,7 @@ type MetadataStore interface {
 	GetMemory(ctx context.Context, id string) (*types.Memory, error)
 	GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error)
 	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
+	ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error)
 	UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
 	AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)
 	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (newWatermark string, deltas []types.CellDelta, newContent string, err error)

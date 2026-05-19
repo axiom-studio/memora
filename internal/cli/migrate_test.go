@@ -282,6 +282,33 @@ func (f *failingCellContent) Capabilities() adapter.ContentCapabilities {
 	return adapter.ContentCapabilities{}
 }
 
+func TestMigrateContent_PaginationExceedsOnePage(t *testing.T) {
+	primary, content, ctx := openStores(t)
+
+	ws := &types.Workspace{Name: "migrate-pagination"}
+	_ = primary.CreateWorkspace(ctx, ws)
+
+	total := 10
+	for i := 0; i < total; i++ {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("content-%d", i), WrittenByAgentID: "agent"}
+		_, _ = primary.ImprintMemory(ctx, m)
+	}
+
+	result, err := MigrateContent(ctx, primary, content, MigrateContentConfig{
+		WorkspaceID: ws.ID,
+		PageSize:    3,
+	})
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if result.Total != total {
+		t.Fatalf("total = %d, want %d (pagination should fetch all pages)", result.Total, total)
+	}
+	if result.Migrated != total {
+		t.Fatalf("migrated = %d, want %d", result.Migrated, total)
+	}
+}
+
 func TestMigrateContent_VerifyChecksCells(t *testing.T) {
 	primary, content, ctx := openStores(t)
 

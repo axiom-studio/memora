@@ -129,6 +129,47 @@ FROM memora_memories WHERE workspace_id = ? AND deleted_at IS NULL`
 	return out, rows.Err()
 }
 
+func (s *Store) ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	q := `SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE workspace_id = ? AND deleted_at IS NULL`
+	args := []any{workspaceID}
+	if collectionID != "" {
+		q += " AND collection_id = ?"
+		args = append(args, collectionID)
+	}
+	if cursor != "" {
+		q += " AND id > ?"
+		args = append(args, cursor)
+	}
+	q += " ORDER BY id ASC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var out []types.Memory
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, "", err
+		}
+		out = append(out, *m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(out) == limit {
+		nextCursor = out[len(out)-1].ID
+	}
+	return out, nextCursor, nil
+}
+
 // UpdateMemory replaces a Memory's content with CAS via expected watermark.
 func (s *Store) UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error) {
 	newWmk := types.NewWatermark()

@@ -418,6 +418,63 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 	return out, rows.Err()
 }
 
+func (s *MetadataStore) ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	q := `SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
+	args := []any{workspaceID}
+	argN := 2
+	if collectionID != "" {
+		q += fmt.Sprintf(" AND collection_id = $%d", argN)
+		args = append(args, collectionID)
+		argN++
+	}
+	if cursor != "" {
+		q += fmt.Sprintf(" AND id > $%d", argN)
+		args = append(args, cursor)
+		argN++
+	}
+	q += fmt.Sprintf(" ORDER BY id ASC LIMIT $%d", argN)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var out []types.Memory
+	for rows.Next() {
+		var m types.Memory
+		var coll *string
+		var tagsJSON []byte
+		var deletedAt *time.Time
+		if err := rows.Scan(&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5,
+			&m.HeadWatermark, &m.CreatedWatermark, &m.WrittenByAgentID, &m.LastModifiedByAgentID,
+			&tagsJSON, &m.RecallReady, &m.CreatedAt, &m.UpdatedAt, &deletedAt); err != nil {
+			return nil, "", err
+		}
+		if coll != nil {
+			m.CollectionID = *coll
+		}
+		m.DeletedAt = deletedAt
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &m.Tags)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(out) == limit {
+		nextCursor = out[len(out)-1].ID
+	}
+	return out, nextCursor, nil
+}
+
 func (s *MetadataStore) UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error) {
 	newWmk := types.NewWatermark()
 	contentMD5 := types.MD5Hex(m.Content)

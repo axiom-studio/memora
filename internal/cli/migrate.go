@@ -19,6 +19,7 @@ type MigrateContentConfig struct {
 	DryRun       bool
 	Verify       bool
 	MaxRate      int // memories per second (0 = unlimited)
+	PageSize     int // memories per page (0 = default 1000)
 	Out          io.Writer
 }
 
@@ -41,17 +42,22 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 		return nil, fmt.Errorf("content store is nil — configure a content driver first")
 	}
 
-	const pageSize = 1000
+	pageSize := cfg.PageSize
+	if pageSize <= 0 {
+		pageSize = 1000
+	}
 	var mems []types.Memory
+	cursor := ""
 	for {
-		page, err := primary.ListMemories(ctx, cfg.WorkspaceID, cfg.CollectionID, pageSize)
+		page, nextCursor, err := primary.ListMemoriesPaged(ctx, cfg.WorkspaceID, cfg.CollectionID, cursor, pageSize)
 		if err != nil {
 			return nil, fmt.Errorf("list memories: %w", err)
 		}
 		mems = append(mems, page...)
-		if len(page) < pageSize {
+		if nextCursor == "" {
 			break
 		}
+		cursor = nextCursor
 	}
 
 	if cfg.ResumeFrom != "" {
