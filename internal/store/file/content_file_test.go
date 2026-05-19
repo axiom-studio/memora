@@ -110,6 +110,30 @@ func TestFileContentStore_FilePermissions(t *testing.T) {
 	}
 }
 
+func TestFileContentStore_PathTraversalRejected(t *testing.T) {
+	cs := openTestFileStore(t)
+	ctx := context.Background()
+
+	cases := []struct{ ws, mem string }{
+		{"../../etc", "passwd"},
+		{"ws_a", "../mem_evil"},
+		{"ws_a/../escape", "mem_x"},
+		{"ws_a\x00null", "mem_x"},
+		{"ws a space", "mem_x"},
+		{"ws_a", "mem/slash"},
+	}
+	for _, c := range cases {
+		err := cs.PutMemoryContent(ctx, c.ws, c.mem, "", "x")
+		if err == nil {
+			t.Errorf("traversal not rejected for ws=%q mem=%q", c.ws, c.mem)
+		}
+	}
+
+	if err := cs.PutMemoryContent(ctx, "ws_abc", "mem_xyz", "", "hello"); err != nil {
+		t.Errorf("valid ids rejected: %v", err)
+	}
+}
+
 func TestFileContentStore_WorkspaceIsolation(t *testing.T) {
 	cs := openTestFileStore(t)
 	ctx := context.Background()

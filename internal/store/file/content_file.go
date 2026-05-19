@@ -6,8 +6,11 @@ package file
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -25,6 +28,10 @@ func init() {
 type ContentStore struct {
 	root string
 }
+
+var idSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_\-]{1,128}$`)
+
+func validIDSegment(s string) bool { return idSegmentRe.MatchString(s) }
 
 func (c *ContentStore) Open(_ context.Context, cfg adapter.ContentConfig) error {
 	if cfg.DSN == "" {
@@ -51,7 +58,10 @@ func (c *ContentStore) Capabilities() adapter.ContentCapabilities {
 }
 
 func (c *ContentStore) PutMemoryContent(_ context.Context, workspaceID, memoryID, _, content string) error {
-	dir := c.memoryDir(workspaceID, memoryID)
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -59,7 +69,11 @@ func (c *ContentStore) PutMemoryContent(_ context.Context, workspaceID, memoryID
 }
 
 func (c *ContentStore) GetMemoryContent(_ context.Context, workspaceID, memoryID string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(c.memoryDir(workspaceID, memoryID), "memory.txt"))
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "memory.txt"))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", types.ErrNotFound
 	}
@@ -70,8 +84,11 @@ func (c *ContentStore) GetMemoryContent(_ context.Context, workspaceID, memoryID
 }
 
 func (c *ContentStore) DeleteMemoryContent(_ context.Context, workspaceID, memoryID string) error {
-	p := filepath.Join(c.memoryDir(workspaceID, memoryID), "memory.txt")
-	err := os.Remove(p)
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(dir, "memory.txt"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -79,7 +96,13 @@ func (c *ContentStore) DeleteMemoryContent(_ context.Context, workspaceID, memor
 }
 
 func (c *ContentStore) PutCellContent(_ context.Context, workspaceID, memoryID, cellID, _, text string) error {
-	dir := c.memoryDir(workspaceID, memoryID)
+	if !validIDSegment(cellID) {
+		return fmt.Errorf("%w: invalid cell_id segment", types.ErrInvalidInput)
+	}
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -87,7 +110,14 @@ func (c *ContentStore) PutCellContent(_ context.Context, workspaceID, memoryID, 
 }
 
 func (c *ContentStore) GetCellContent(_ context.Context, workspaceID, memoryID, cellID string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(c.memoryDir(workspaceID, memoryID), cellID+".txt"))
+	if !validIDSegment(cellID) {
+		return "", fmt.Errorf("%w: invalid cell_id segment", types.ErrInvalidInput)
+	}
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, cellID+".txt"))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", types.ErrNotFound
 	}
@@ -98,9 +128,15 @@ func (c *ContentStore) GetCellContent(_ context.Context, workspaceID, memoryID, 
 }
 
 func (c *ContentStore) GetCellContentBatch(_ context.Context, workspaceID, memoryID string, cellIDs []string) (map[string]string, error) {
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return nil, err
+	}
 	out := make(map[string]string, len(cellIDs))
-	dir := c.memoryDir(workspaceID, memoryID)
 	for _, id := range cellIDs {
+		if !validIDSegment(id) {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join(dir, id+".txt"))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -114,8 +150,14 @@ func (c *ContentStore) GetCellContentBatch(_ context.Context, workspaceID, memor
 }
 
 func (c *ContentStore) DeleteCellContent(_ context.Context, workspaceID, memoryID, cellID string) error {
-	p := filepath.Join(c.memoryDir(workspaceID, memoryID), cellID+".txt")
-	err := os.Remove(p)
+	if !validIDSegment(cellID) {
+		return fmt.Errorf("%w: invalid cell_id segment", types.ErrInvalidInput)
+	}
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(dir, cellID+".txt"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -123,8 +165,11 @@ func (c *ContentStore) DeleteCellContent(_ context.Context, workspaceID, memoryI
 }
 
 func (c *ContentStore) DeleteAllForMemory(_ context.Context, workspaceID, memoryID string) error {
-	dir := c.memoryDir(workspaceID, memoryID)
-	err := os.RemoveAll(dir)
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return err
+	}
+	err = os.RemoveAll(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -132,6 +177,9 @@ func (c *ContentStore) DeleteAllForMemory(_ context.Context, workspaceID, memory
 }
 
 func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]string, error) {
+	if !validIDSegment(workspaceID) {
+		return nil, fmt.Errorf("%w: invalid workspace_id segment", types.ErrInvalidInput)
+	}
 	wsDir := filepath.Join(c.root, workspaceID)
 	entries, err := os.ReadDir(wsDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -149,6 +197,15 @@ func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]s
 	return ids, nil
 }
 
-func (c *ContentStore) memoryDir(workspaceID, memoryID string) string {
-	return filepath.Join(c.root, workspaceID, memoryID)
+func (c *ContentStore) memoryDir(workspaceID, memoryID string) (string, error) {
+	if !validIDSegment(workspaceID) || !validIDSegment(memoryID) {
+		return "", fmt.Errorf("%w: invalid id segment", types.ErrInvalidInput)
+	}
+	path := filepath.Join(c.root, workspaceID, memoryID)
+	clean := filepath.Clean(path)
+	rootClean := filepath.Clean(c.root)
+	if !strings.HasPrefix(clean+string(filepath.Separator), rootClean+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: path escapes root", types.ErrInvalidInput)
+	}
+	return clean, nil
 }
