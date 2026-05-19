@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -119,7 +118,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.LedgerID, e.WorkspaceID, e.Op, nullableStr(e.Target), e.AgentID,
 		nullableStr(e.APIKeyID), nullableStr(e.UserID),
 		nullableStr(e.WatermarkBefore), nullableStr(e.WatermarkAfter),
-		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp,
+		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp.UTC().Format(time.RFC3339Nano),
 		nullableStr(e.RequestID), e.LatencyMS, nullableStr(string(metaJSON)),
 		boolToInt(e.Redacted), nullableStr(string(redactedFieldsJSON)))
 	return err
@@ -157,7 +156,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.LedgerID, e.WorkspaceID, e.Op, nullableStr(e.Target), e.AgentID,
 		nullableStr(e.APIKeyID), nullableStr(e.UserID),
 		nullableStr(e.WatermarkBefore), nullableStr(e.WatermarkAfter),
-		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp,
+		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp.UTC().Format(time.RFC3339Nano),
 		nullableStr(e.RequestID), e.LatencyMS, nullableStr(string(metaJSON)),
 		boolToInt(e.Redacted), nullableStr(string(redactedFieldsJSON)))
 	return err
@@ -173,11 +172,11 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 	}
 	if q.Since != nil {
 		where = append(where, "ts >= ?")
-		args = append(args, q.Since.UTC())
+		args = append(args, q.Since.UTC().Format(time.RFC3339Nano))
 	}
 	if q.Until != nil {
 		where = append(where, "ts <= ?")
-		args = append(args, q.Until.UTC())
+		args = append(args, q.Until.UTC().Format(time.RFC3339Nano))
 	}
 	if q.Actor != "" {
 		where = append(where, "api_key_id = ?")
@@ -204,7 +203,7 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 		where = append(where, "op IN ("+strings.Join(ph, ",")+")")
 	}
 	if q.SinceLedgerID != "" {
-		where = append(where, "ledger_id > ?")
+		where = append(where, "ledger_id < ?")
 		args = append(args, q.SinceLedgerID)
 	}
 
@@ -229,12 +228,15 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 	for rows.Next() {
 		var e api.LedgerEntry
 		var (
-			target, apiKey, userID, wmkB, wmkA, ip, ua, reqID, metaJSON, redFields sql.NullString
-			latency, redacted                                                       sql.NullInt64
+			target, apiKey, userID, wmkB, wmkA, ip, ua, tsStr, reqID, metaJSON, redFields sql.NullString
+			latency, redacted                                                               sql.NullInt64
 		)
 		if err := rows.Scan(&e.LedgerID, &e.WorkspaceID, &e.Op, &target, &e.AgentID, &apiKey, &userID,
-			&wmkB, &wmkA, &ip, &ua, &e.Timestamp, &reqID, &latency, &metaJSON, &redacted, &redFields); err != nil {
+			&wmkB, &wmkA, &ip, &ua, &tsStr, &reqID, &latency, &metaJSON, &redacted, &redFields); err != nil {
 			return nil, "", err
+		}
+		if tsStr.Valid {
+			e.Timestamp, _ = time.Parse(time.RFC3339Nano, tsStr.String)
 		}
 		e.Target = target.String
 		e.APIKeyID = apiKey.String
@@ -257,6 +259,9 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 			} else {
 				e.Metadata = map[string]any{"_redacted": "[REDACTED]"}
 			}
+		}
+		if e.Redacted {
+			applyRedaction(&e)
 		}
 		out = append(out, e)
 	}
@@ -300,5 +305,38 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// Ensure the compiler keeps `fmt` warned about — used inside the migration runner only.
-var _ = fmt.Sprintf
+const redacted = "[REDACTED]"
+
+func applyRedaction(e *api.LedgerEntry) {
+	set := make(map[string]bool, len(e.RedactedFields))
+	for _, f := range e.RedactedFields {
+		set[f] = true
+	}
+	if set["ip"] {
+		e.IP = redacted
+	}
+	if set["user_agent"] {
+		e.UserAgent = redacted
+	}
+	if set["api_key_id"] {
+		e.APIKeyID = redacted
+	}
+	if set["user_id"] {
+		e.UserID = redacted
+	}
+	if set["target"] {
+		e.Target = redacted
+	}
+	if set["watermark_before"] {
+		e.WatermarkBefore = redacted
+	}
+	if set["watermark_after"] {
+		e.WatermarkAfter = redacted
+	}
+	if set["request_id"] {
+		e.RequestID = redacted
+	}
+	if set["metadata"] {
+		e.Metadata = map[string]any{"_redacted": redacted}
+	}
+}
