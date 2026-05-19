@@ -345,3 +345,135 @@ func unwrapToolContent(t *testing.T, r response) map[string]any {
 	}
 	return payload
 }
+
+func TestInitialize_OpaqueProvider_Accepts(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+
+	resps := roundtrip(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"agent_a","identityProvider":"opaque"}}`,
+	)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d", len(resps))
+	}
+	if resps[0].Error != nil {
+		t.Fatalf("opaque provider should accept: %+v", resps[0].Error)
+	}
+	if s.pinnedAgent != "agent_a" {
+		t.Fatalf("pinnedAgent = %q, want %q", s.pinnedAgent, "agent_a")
+	}
+}
+
+func TestInitialize_AnthropicSession_ValidProof(t *testing.T) {
+	svc := newTestService(t)
+	svc.Identity[string(types.IdentityProviderAnthropicSession)] = identity.AnthropicSession{}
+	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+
+	agentID := identity.DeriveAnthropicSessionID("sess-1", "claude-3", "my prompt")
+	proof := map[string]any{
+		"session_id":    "sess-1",
+		"model":         "claude-3",
+		"system_prompt": "my prompt",
+	}
+	proofJSON, _ := json.Marshal(proof)
+	frame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"` + agentID + `","identityProvider":"anthropic_session","identityProof":` + string(proofJSON) + `}}`
+
+	resps := roundtrip(t, s, frame)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d", len(resps))
+	}
+	if resps[0].Error != nil {
+		t.Fatalf("valid anthropic_session proof should accept: %+v", resps[0].Error)
+	}
+	if s.pinnedAgent != agentID {
+		t.Fatalf("pinnedAgent = %q, want %q", s.pinnedAgent, agentID)
+	}
+}
+
+func TestInitialize_AnthropicSession_BadProof(t *testing.T) {
+	svc := newTestService(t)
+	svc.Identity[string(types.IdentityProviderAnthropicSession)] = identity.AnthropicSession{}
+	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+
+	frame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"wrong_agent","identityProvider":"anthropic_session","identityProof":{"session_id":"s","model":"m"}}}`
+	resps := roundtrip(t, s, frame)
+	if len(resps) != 1 {
+		t.Fatalf("want 1 response, got %d", len(resps))
+	}
+	if resps[0].Error == nil || resps[0].Error.Code != ErrCodeUnauthorized {
+		t.Fatalf("bad proof should produce ErrCodeUnauthorized, got %+v", resps[0].Error)
+	}
+	if s.pinnedAgent != "" {
+		t.Fatalf("pinnedAgent should be empty after failed verify, got %q", s.pinnedAgent)
+	}
+}
+
+func TestDispatch_PinnedAgentIDOverridesClientParam(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+
+	// Initialize with pinned agent_X.
+	resps := roundtrip(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"agent_X","identityProvider":"opaque"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"pin-test"}}}`,
+	)
+	if len(resps) != 2 || resps[1].Error != nil {
+		t.Fatalf("setup failed: %+v", resps)
+	}
+	wsID := extractToolWorkspaceID(t, resps[1])
+
+	// Imprint with agent_id=agent_Y — pinned agent_X should override.
+	imprintArgs, _ := json.Marshal(map[string]any{
+		"workspace_id": wsID,
+		"agent_id":     "agent_Y",
+		"content":      "pinned override test",
+	})
+	frame := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":` + string(imprintArgs) + `}}`
+	resps2 := roundtrip(t, s, frame)
+	if len(resps2) != 1 || resps2[0].Error != nil {
+		t.Fatalf("imprint failed: %+v", resps2)
+	}
+	memID := extractToolMemoryID(t, resps2[0])
+
+	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	if err != nil {
+		t.Fatalf("GetMemory: %v", err)
+	}
+	if mem.WrittenByAgentID != "agent_X" {
+		t.Fatalf("WrittenByAgentID = %q, want %q (pinned override)", mem.WrittenByAgentID, "agent_X")
+	}
+}
+
+func TestDispatch_NoAuthMode_ClientAgentIDFlows(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+
+	resps := roundtrip(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"noauth-test"}}}`,
+	)
+	if len(resps) != 2 || resps[1].Error != nil {
+		t.Fatalf("setup failed: %+v", resps)
+	}
+	wsID := extractToolWorkspaceID(t, resps[1])
+
+	imprintArgs, _ := json.Marshal(map[string]any{
+		"workspace_id": wsID,
+		"agent_id":     "client_supplied",
+		"content":      "no auth mode test",
+	})
+	frame := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":` + string(imprintArgs) + `}}`
+	resps2 := roundtrip(t, s, frame)
+	if len(resps2) != 1 || resps2[0].Error != nil {
+		t.Fatalf("imprint failed: %+v", resps2)
+	}
+	memID := extractToolMemoryID(t, resps2[0])
+
+	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	if err != nil {
+		t.Fatalf("GetMemory: %v", err)
+	}
+	if mem.WrittenByAgentID != "client_supplied" {
+		t.Fatalf("WrittenByAgentID = %q, want %q (client pass-through)", mem.WrittenByAgentID, "client_supplied")
+	}
+}

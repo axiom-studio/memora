@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 
 	"github.com/axiom-studio/memora/internal/service"
+	"github.com/axiom-studio/memora/pkg/adapter"
 )
 
 // Config configures an MCP Server. Zero-valued Config disables auth
@@ -35,6 +36,7 @@ type Server struct {
 	apiKey      string
 	mu          sync.Mutex   // serializes writes to a single transport
 	initialized atomic.Bool  // flipped by a successful initialize handshake
+	pinnedAgent string       // set once at initialize when auth verifies identity; read-only thereafter
 }
 
 // NewServer returns a ready Server with auth disabled. Equivalent to
@@ -95,22 +97,33 @@ func (s *Server) ServeStdio(ctx context.Context, r io.Reader, w io.Writer) error
 }
 
 // initializeParams is the subset of MCP's initialize-method params
-// that this server cares about. Extra fields (clientInfo, capabilities,
-// protocolVersion) are accepted and ignored — JSON-RPC params may
-// carry anything the client wants to send.
+// that this server cares about.
 type initializeParams struct {
-	APIKey string `json:"apiKey"`
+	APIKey           string         `json:"apiKey"`
+	AgentID          string         `json:"agentId"`
+	IdentityProvider string         `json:"identityProvider"`
+	IdentityProof    map[string]any `json:"identityProof"`
 }
 
 func (s *Server) handle(ctx context.Context, req request) response {
 	if req.Method == methodInitialize {
+		var p initializeParams
+		if err := decodeParams(req.Params, &p); err != nil {
+			return errResponse(req.ID, -32602, err.Error(), nil)
+		}
 		if s.requireAuth() {
-			var p initializeParams
-			if err := decodeParams(req.Params, &p); err != nil {
-				return errResponse(req.ID, -32602, err.Error(), nil)
-			}
 			if subtle.ConstantTimeCompare([]byte(p.APIKey), []byte(s.apiKey)) != 1 {
 				return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: invalid api key", nil)
+			}
+			if p.AgentID != "" {
+				prov := s.svc.IdentityFor(p.IdentityProvider)
+				if err := prov.Verify(ctx, adapter.IdentityVerifyInput{
+					AgentID:       p.AgentID,
+					IdentityProof: p.IdentityProof,
+				}); err != nil {
+					return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: agent verification failed: "+err.Error(), nil)
+				}
+				s.pinnedAgent = p.AgentID
 			}
 		}
 		s.initialized.Store(true)
@@ -148,6 +161,9 @@ func (s *Server) handleToolCall(ctx context.Context, req request) response {
 	var p toolCallParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return errResponse(req.ID, -32602, err.Error(), nil)
+	}
+	if s.pinnedAgent != "" {
+		ctx = context.WithValue(ctx, ctxKeyAgent, s.pinnedAgent)
 	}
 	result, err := s.dispatchTool(ctx, p.Name, p.Arguments)
 	if err != nil {

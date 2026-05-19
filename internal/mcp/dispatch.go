@@ -11,9 +11,20 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
+type ctxKey int
+
+const ctxKeyAgent ctxKey = iota
+
+func agentFrom(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyAgent).(string)
+	return v
+}
+
 // dispatchTool routes a tool call to the corresponding service-layer
 // method. Returns a JSON-marshallable result or an error.
 func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	pinned := agentFrom(ctx)
+
 	switch name {
 	case "memora_imprint":
 		var in struct {
@@ -25,6 +36,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
+		}
+		if pinned != "" {
+			in.AgentID = pinned
 		}
 		return s.svc.Imprint(ctx, in.WorkspaceID, in.AgentID, api.ImprintRequest{
 			CollectionID: in.CollectionID, Content: in.Content, Tags: in.Tags,
@@ -53,6 +67,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
+		if pinned != "" {
+			in.AgentID = pinned
+		}
 		return s.svc.Update(ctx, in.WorkspaceID, in.MemoryID, in.AgentID, in.ExpectedWatermark, api.UpdateRequest{
 			Content: in.Content, ExpectedWatermark: in.ExpectedWatermark,
 		})
@@ -66,6 +83,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
+		}
+		if pinned != "" {
+			in.AgentID = pinned
 		}
 		return s.svc.Patch(ctx, in.WorkspaceID, in.MemoryID, in.AgentID, in.ExpectedWatermark, api.PatchRequest{
 			Patch: in.Patch, ExpectedWatermark: in.ExpectedWatermark,
@@ -81,6 +101,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
+		if pinned != "" {
+			in.AgentID = pinned
+		}
 		return s.svc.Append(ctx, in.WorkspaceID, in.MemoryID, in.AgentID, in.ExpectedWatermark, api.AppendRequest{
 			Content: in.Content, ExpectedWatermark: in.ExpectedWatermark,
 		})
@@ -92,6 +115,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
+		}
+		if pinned != "" {
+			in.AgentID = pinned
 		}
 		return s.svc.Forget(ctx, in.WorkspaceID, in.MemoryID, in.AgentID)
 	case "memora_recall":
@@ -199,6 +225,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			return nil, err
 		}
 		_ = json.Unmarshal(args, &wrapper)
+		if pinned != "" {
+			in.AgentID = pinned
+		}
 		a := &types.Agent{
 			AgentID:          in.AgentID,
 			WorkspaceID:      wrapper.WorkspaceID,
@@ -233,6 +262,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
+		if pinned != "" {
+			in.AgentID = pinned
+		}
 		out, err := s.svc.Primary.GraphLink(ctx, types.Edge{
 			WorkspaceID:      in.WorkspaceID,
 			SourceMemoryID:   in.SourceMemoryID,
@@ -256,6 +288,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
+		}
+		if pinned != "" {
+			in.AgentID = pinned
 		}
 		if err := s.svc.Primary.GraphUnlink(ctx, in.EdgeID, in.AgentID); err != nil {
 			return nil, err
