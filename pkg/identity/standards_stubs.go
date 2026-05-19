@@ -20,23 +20,7 @@ import (
 // deployer before it can accept writes.
 var ErrIdentityNotConfigured = errors.New("identity provider not configured (deployer must wire external infrastructure)")
 
-// A2A — Google AgentCard verifier.
-type A2A struct{}
-
-func (A2A) Name() string                                       { return string(types.IdentityProviderA2A) }
-func (A2A) Capabilities() adapter.IdentityCapabilities         { return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: true} }
-func (A2A) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error {
-	return ErrIdentityNotConfigured
-}
-
-// DID — W3C DID for agents.
-type DID struct{}
-
-func (DID) Name() string                                       { return string(types.IdentityProviderDID) }
-func (DID) Capabilities() adapter.IdentityCapabilities         { return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: true} }
-func (DID) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error {
-	return ErrIdentityNotConfigured
-}
+// A2A and DID are implemented in a2a.go and did.go respectively.
 
 // OAuthAgent — OAuth 2.0 Client Credentials with optional RAR.
 type OAuthAgent struct{}
@@ -57,8 +41,8 @@ func (OIDCAgent) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error 
 }
 
 func init() {
-	adapter.RegisterIdentity(string(types.IdentityProviderA2A), func() adapter.IdentityProvider { return A2A{} })
-	adapter.RegisterIdentity(string(types.IdentityProviderDID), func() adapter.IdentityProvider { return DID{} })
+	adapter.RegisterIdentity(string(types.IdentityProviderA2A), func() adapter.IdentityProvider { return &A2A{} })
+	adapter.RegisterIdentity(string(types.IdentityProviderDID), func() adapter.IdentityProvider { return &DID{} })
 	adapter.RegisterIdentity(string(types.IdentityProviderOAuthAgent), func() adapter.IdentityProvider { return OAuthAgent{} })
 	adapter.RegisterIdentity(string(types.IdentityProviderOIDCAgent), func() adapter.IdentityProvider { return OIDCAgent{} })
 }
