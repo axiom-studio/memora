@@ -93,8 +93,9 @@ func (c PoolConfig) withDefaults() PoolConfig {
 // synchronous EmbedNow helper. Async submissions write to the stores
 // directly and don't return a Result.
 type Result struct {
-	Reembed []string // cell_ids that produced a fresh vector
-	Skipped []string // cell_ids whose text_md5 was unchanged
+	Reembed    []string    // cell_ids that produced a fresh vector
+	Skipped    []string    // cell_ids whose text_md5 was unchanged
+	Embeddings [][]float32 // parallel to newCells; nil entry means cell was skipped
 }
 
 // Pool is an in-process worker pool. Submit() enqueues a job; the pool
@@ -368,6 +369,7 @@ func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string,
 		oldBySeq[c.Seq] = c
 	}
 
+	res.Embeddings = make([][]float32, len(newCells))
 	for i := range newCells {
 		nc := &newCells[i]
 		var match types.Cell
@@ -379,8 +381,6 @@ func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string,
 			match, matched = oldBySeq[nc.Seq]
 		}
 		if matched && match.TextMD5 == nc.TextMD5 && match.VectorKey != "" {
-			// Preserve the existing cell_id + vector_key so the embedded
-			// vector keeps pointing at the same row.
 			nc.CellID = match.CellID
 			nc.VectorKey = match.VectorKey
 			nc.EmbeddingModel = match.EmbeddingModel
@@ -401,6 +401,7 @@ func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string,
 		nc.VectorKey = nc.CellID
 		nc.EmbeddingModel = deps.Provider.ModelID()
 		res.Reembed = append(res.Reembed, nc.CellID)
+		res.Embeddings[i] = vecs[0]
 	}
 	return res, nil
 }

@@ -18,6 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
+	"github.com/axiom-studio/memora/internal/autolink"
 	"github.com/axiom-studio/memora/internal/chunker"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -176,11 +179,25 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 		_ = s.Metadata.UpsertCells(ctx, mem.ID, cells)
 	}
 	recallReady := err == nil
+
+	var autoLinked []types.Edge
+	if recallReady && s.Graph != nil {
+		autoLinked, _ = autolink.AutoLink(ctx, autolink.Deps{
+			Metadata: s.Metadata, Vector: s.Vector,
+			Graph: s.Graph, Ledger: s.Ledger,
+			Logger: slog.Default(),
+		}, workspaceID, mem, cells, embedRes.Embeddings, s.Embedder.ModelID())
+	}
+
+	ledgerMeta := map[string]any{"cells_created": len(cells), "cells_re_embedded": len(embedRes.Reembed)}
+	if len(autoLinked) > 0 {
+		ledgerMeta["auto_link_edges"] = len(autoLinked)
+	}
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
 		WorkspaceID: workspaceID, Op: "imprint", Target: mem.ID, AgentID: agentID,
 		WatermarkAfter: wmk,
 		LatencyMS:      int(time.Since(start).Milliseconds()),
-		Metadata:       map[string]any{"cells_created": len(cells), "cells_re_embedded": len(embedRes.Reembed)},
+		Metadata:       ledgerMeta,
 	})
 	return &api.ImprintResponse{
 		MemoryID:         mem.ID,
