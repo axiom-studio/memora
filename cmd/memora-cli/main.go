@@ -21,8 +21,13 @@ import (
 	"time"
 
 	mcli "github.com/axiom-studio/memora/internal/cli"
+	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/client"
 	"github.com/axiom-studio/memora/pkg/types/api"
+
+	// Register adapters for the migrate subcommand.
+	_ "github.com/axiom-studio/memora/internal/store/file"
+	_ "github.com/axiom-studio/memora/internal/store/sqlite"
 )
 
 var (
@@ -62,6 +67,9 @@ func main() {
 	defer cancel()
 
 	switch cmd {
+	case "migrate":
+		cmdMigrate(ctx, g)
+		return
 	case "workspaces":
 		cmdWorkspaces(ctx, c, g)
 	case "collections":
@@ -655,6 +663,76 @@ func cmdReady(ctx context.Context, c *client.Client, g globalFlags) {
 	emit(g, resp)
 }
 
+// ----- migrate -----
+
+func cmdMigrate(ctx context.Context, g globalFlags) {
+	if len(g.Args) == 0 || g.Args[0] != "content" {
+		fmt.Fprintln(os.Stderr, "usage: memora-cli migrate content [flags]")
+		os.Exit(exitUsage)
+	}
+	fs := flag.NewFlagSet("migrate content", flag.ExitOnError)
+	workspace := fs.String("workspace", g.Workspace, "workspace ID")
+	collection := fs.String("collection", "", "optional collection filter")
+	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory for SQLite")
+	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
+	contentDriver := fs.String("content-driver", getenv("MEMORA_CONTENT_DRIVER", "sqlite"), "content-store driver")
+	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN")
+	resumeFrom := fs.String("resume-from", "", "memory ID to resume from")
+	dryRun := fs.Bool("dry-run", false, "report counts without writing")
+	verify := fs.Bool("verify", false, "verify content matches between primary and content store")
+	maxRate := fs.Int("max-rate", 100, "max memories per second (0 = unlimited)")
+	_ = fs.Parse(g.Args[1:])
+
+	if *workspace == "" {
+		fmt.Fprintln(os.Stderr, "migrate content: --workspace required")
+		os.Exit(exitUsage)
+	}
+
+	dbPath := *dataDir + "/memora.db"
+	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open primary: %v\n", err)
+		os.Exit(exitClient)
+	}
+	defer primary.Close()
+
+	cdsn := *contentDSN
+	if cdsn == "" {
+		if *contentDriver == "sqlite" {
+			cdsn = dbPath
+		} else {
+			cdsn = *dataDir + "/content"
+		}
+	}
+	content, err := adapter.OpenContent(ctx, adapter.ContentConfig{Driver: *contentDriver, DSN: cdsn})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open content: %v\n", err)
+		os.Exit(exitClient)
+	}
+	defer content.Close()
+
+	result, err := mcli.MigrateContent(ctx, primary, content, mcli.MigrateContentConfig{
+		WorkspaceID:  *workspace,
+		CollectionID: *collection,
+		ResumeFrom:   *resumeFrom,
+		DryRun:       *dryRun,
+		Verify:       *verify,
+		MaxRate:      *maxRate,
+		Out:          os.Stdout,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
+		os.Exit(exitClient)
+	}
+
+	b, _ := json.Marshal(result)
+	fmt.Println(string(b))
+
+	if result.Mismatches > 0 {
+		os.Exit(exitClient)
+	}
+}
+
 // ----- helpers -----
 
 func requireWorkspace(g globalFlags) {
@@ -754,6 +832,7 @@ Commands:
   agents list|register --agent-id <id>
   health
   ready
+  migrate content [--workspace ...] [--dry-run|--verify] [--resume-from ...]
   version
 
 Global flags:
