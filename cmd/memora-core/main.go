@@ -297,6 +297,13 @@ func serve() {
 		Logger:      logger,
 		Mode:        cfg.Server.Mode,
 		AllowNoAuth: cfg.Server.AllowNoAuth,
+		TLS: httpserver.TLSConfig{
+			Enabled:        cfg.Server.TLS.Enabled,
+			CertFile:       cfg.Server.TLS.CertFile,
+			KeyFile:        cfg.Server.TLS.KeyFile,
+			AutoSelfSigned: cfg.Server.TLS.AutoSelfSigned,
+			Host:           cfg.Server.Addr,
+		},
 	})
 
 	if cfg.Server.MCPEnable {
@@ -313,7 +320,11 @@ func serve() {
 			c, err := net.Dial("tcp", host)
 			if err == nil {
 				_ = c.Close()
-				logger.Info("HTTP API ready", "url", "http://"+host)
+				scheme := "http"
+				if cfg.Server.TLS.Enabled {
+					scheme = "https"
+				}
+				logger.Info("HTTP API ready", "url", scheme+"://"+host)
 				return
 			}
 			time.Sleep(50 * time.Millisecond)

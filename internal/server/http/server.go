@@ -5,20 +5,34 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
+
+// TLSConfig holds TLS settings for the HTTP server.
+type TLSConfig struct {
+	Enabled        bool
+	CertFile       string
+	KeyFile        string
+	AutoSelfSigned bool
+	Host           string // used for auto-generated cert CN/SAN
+}
 
 // Config is the boot-time configuration for the HTTP server.
 type Config struct {
@@ -31,6 +45,7 @@ type Config struct {
 	MaxBodyBytes    int64  // request body size limit (0 = 8 MiB default)
 	AllowNoAuth     bool   // explicit opt-in for empty MEMORA_API_KEY
 	AllowedOrigins  []string // CORS: origins that may call the API; empty = no CORS headers
+	TLS             TLSConfig
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -73,6 +88,12 @@ func New(cfg Config) *Server {
 			cfg.allowedOriginSet[strings.ToLower(o)] = true
 		}
 	}
+	if cfg.TLS.Enabled {
+		if err := initTLS(&cfg); err != nil {
+			cfg.Logger.Error("TLS init failed", "err", err)
+		}
+	}
+
 	mux := http.NewServeMux()
 	s := &Server{cfg: cfg, mux: mux}
 	s.routes()
@@ -96,10 +117,77 @@ func (s *Server) Handler() http.Handler { return s.srv.Handler }
 func (s *Server) Mux() *http.ServeMux { return s.mux }
 
 // ListenAndServe blocks until the server fails or Shutdown is called.
-func (s *Server) ListenAndServe() error { return s.srv.ListenAndServe() }
+// When TLS is configured it serves HTTPS; otherwise plain HTTP.
+func (s *Server) ListenAndServe() error {
+	if s.cfg.TLS.Enabled {
+		return s.srv.ListenAndServeTLS(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
+	}
+	return s.srv.ListenAndServe()
+}
 
 // Shutdown drains the server gracefully.
 func (s *Server) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+
+func initTLS(cfg *Config) error {
+	if cfg.TLS.CertFile == "" && cfg.TLS.AutoSelfSigned {
+		host := cfg.TLS.Host
+		if host == "" {
+			host = "localhost"
+		}
+		cfg.Logger.Info("auto-generating self-signed certificate", "host", host)
+		res, err := certgen.Generate(certgen.Opts{Host: host})
+		if err != nil {
+			return fmt.Errorf("auto self-signed cert: %w", err)
+		}
+		cfg.TLS.CertFile = res.CertPath
+		cfg.TLS.KeyFile = res.KeyPath
+		cfg.Logger.Info("self-signed certificate ready",
+			"cert", res.CertPath, "fingerprint", "SHA256:"+res.Fingerprint)
+	}
+
+	if cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" {
+		return fmt.Errorf("TLS enabled but cert_file or key_file not set")
+	}
+
+	info, err := os.Stat(cfg.TLS.KeyFile)
+	if err != nil {
+		return fmt.Errorf("key_file: %w", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		cfg.Logger.Warn("TLS key file has permissive mode",
+			"path", cfg.TLS.KeyFile, "mode", fmt.Sprintf("%04o", info.Mode().Perm()))
+	}
+
+	cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	if err != nil {
+		return fmt.Errorf("load cert/key: %w", err)
+	}
+	raw := cert.Certificate[0]
+	fp := sha256.Sum256(raw)
+	cfg.Logger.Info("TLS certificate loaded",
+		"cert", cfg.TLS.CertFile, "fingerprint", "SHA256:"+hex.EncodeToString(fp[:]))
+
+	if !bindsToLoopback(cfg.Addr) && cfg.TLS.AutoSelfSigned {
+		cfg.Logger.Warn("running with self-signed cert on a non-loopback bind",
+			"addr", cfg.Addr)
+	}
+	return nil
+}
+
+func bindsToLoopback(addr string) bool {
+	if addr == "" {
+		return true
+	}
+	host := addr
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		host = addr[:i]
+	}
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
+}
 
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
