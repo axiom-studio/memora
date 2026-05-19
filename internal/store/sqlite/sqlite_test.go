@@ -556,3 +556,88 @@ func TestRegisterAgent_ConcurrentUpserts(t *testing.T) {
 		t.Fatalf("expected 1 row for %s after concurrent upserts, got %d", id, n)
 	}
 }
+
+func TestGraphLink_AllEdgeTypes(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "alltypes"}
+	_ = s.CreateWorkspace(ctx, ws)
+
+	for _, et := range types.StoredEdgeTypes {
+		a := &types.Memory{WorkspaceID: ws.ID, Content: "A-" + string(et), WrittenByAgentID: "agent_opaque_t"}
+		b := &types.Memory{WorkspaceID: ws.ID, Content: "B-" + string(et), WrittenByAgentID: "agent_opaque_t"}
+		_, _ = s.ImprintMemory(ctx, a)
+		_, _ = s.ImprintMemory(ctx, b)
+		e := types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: et, CreatedByAgentID: "agent_opaque_t"}
+		got, err := s.GraphLink(ctx, e)
+		if err != nil {
+			t.Errorf("link %s: %v", et, err)
+			continue
+		}
+		if got.EdgeType != et {
+			t.Errorf("roundtrip edge_type %s -> %s", et, got.EdgeType)
+		}
+	}
+}
+
+func TestGraphLinkBatch_PerEdgeIsolation(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "batch"}
+	_ = s.CreateWorkspace(ctx, ws)
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_b"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_b"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_b"}
+	_, _ = s.ImprintMemory(ctx, a)
+	_, _ = s.ImprintMemory(ctx, b)
+	_, _ = s.ImprintMemory(ctx, c)
+
+	edges := []types.Edge{
+		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
+		{WorkspaceID: ws.ID, SourceMemoryID: "mem_does_not_exist", TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
+		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
+	}
+	results, err := s.GraphLinkBatch(ctx, edges)
+	if err != nil {
+		t.Fatalf("batch returned outer error: %v", err)
+	}
+	if results[0].Status != "ok" {
+		t.Errorf("expected first edge ok, got %s (err=%v)", results[0].Status, results[0].Error)
+	}
+	if results[1].Status != "error" {
+		t.Errorf("expected second edge error (bad source), got %s", results[1].Status)
+	}
+	if results[2].Status != "ok" {
+		t.Errorf("expected third edge ok, got %s (err=%v)", results[2].Status, results[2].Error)
+	}
+}
+
+func TestGraphLink_OutDegreeCap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("slow out-degree test")
+	}
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "outdeg"}
+	_ = s.CreateWorkspace(ctx, ws)
+	src := &types.Memory{WorkspaceID: ws.ID, Content: "src", WrittenByAgentID: "agent_opaque_od"}
+	_, _ = s.ImprintMemory(ctx, src)
+
+	for i := 0; i < 1000; i++ {
+		tgt := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("tgt-%d", i), WrittenByAgentID: "agent_opaque_od"}
+		_, _ = s.ImprintMemory(ctx, tgt)
+		_, err := s.GraphLink(ctx, types.Edge{
+			WorkspaceID: ws.ID, SourceMemoryID: src.ID, TargetMemoryID: tgt.ID,
+			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_od",
+		})
+		if err != nil {
+			t.Fatalf("link %d: %v", i, err)
+		}
+	}
+	overflow := &types.Memory{WorkspaceID: ws.ID, Content: "overflow", WrittenByAgentID: "agent_opaque_od"}
+	_, _ = s.ImprintMemory(ctx, overflow)
+	_, err := s.GraphLink(ctx, types.Edge{
+		WorkspaceID: ws.ID, SourceMemoryID: src.ID, TargetMemoryID: overflow.ID,
+		EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_od",
+	})
+	if !errors.Is(err, types.ErrQuotaExceeded) {
+		t.Fatalf("expected ErrQuotaExceeded on 1001st edge, got %v", err)
+	}
+}
