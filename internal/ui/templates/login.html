@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login — Memora</title>
+  <link rel="stylesheet" href="/ui/static/css/style.css">
+  <style>
+    .login-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+    .login-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 2rem;
+      width: 100%;
+      max-width: 380px;
+    }
+    .login-box h1 {
+      font-size: 1.5rem;
+      margin: 0 0 0.25rem;
+    }
+    .login-box p { color: var(--text-muted); margin: 0 0 1.5rem; font-size: 0.9rem; }
+    .login-box label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .login-box input[type="password"] { width: 100%; margin-bottom: 1rem; }
+    .login-box .btn { width: 100%; text-align: center; }
+    .login-error { color: var(--danger); font-size: 0.85rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-box">
+      <h1>memora</h1>
+      <p>Enter your API key to continue.</p>
+      {{if .Error}}<div class="login-error">{{.Error}}</div>{{end}}
+      <form method="POST" action="/ui/login" autocomplete="off">
+        <label for="api_key">API Key</label>
+        <input type="password" id="api_key" name="api_key" placeholder="memora_..." required autofocus>
+        <button type="submit" class="btn btn-primary">Sign in</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

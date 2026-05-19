@@ -52,7 +52,9 @@ type pageData struct {
 
 type Handler struct {
 	pages    map[string]*template.Template
+	loginTmpl *template.Template
 	staticFS http.Handler
+	authCfg  AuthConfig
 }
 
 func NewHandler() (*Handler, error) {
@@ -79,6 +81,15 @@ func NewHandler() (*Handler, error) {
 		pages[name] = tmpl
 	}
 
+	loginSrc, err := templateFS.ReadFile("templates/login.html")
+	if err != nil {
+		return nil, fmt.Errorf("read login template: %w", err)
+	}
+	loginTmpl, err := template.New("login").Parse(string(loginSrc))
+	if err != nil {
+		return nil, fmt.Errorf("parse login template: %w", err)
+	}
+
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return nil, fmt.Errorf("static sub-fs: %w", err)
@@ -86,20 +97,29 @@ func NewHandler() (*Handler, error) {
 
 	return &Handler{
 		pages:    pages,
+		loginTmpl: loginTmpl,
 		staticFS: http.StripPrefix("/ui/static/", http.FileServer(http.FS(sub))),
 	}, nil
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/ui/", h.handlePage)
+	mux.HandleFunc("/ui/login", h.handleLogin)
+	mux.HandleFunc("/ui/logout", h.handleLogout)
 	mux.Handle("/ui/static/", h.staticFS)
 
-	mux.HandleFunc("/ui/partials/dashboard-cards", h.partialDashboardCards)
-	mux.HandleFunc("/ui/partials/recent-activity", h.partialRecentActivity)
-	mux.HandleFunc("/ui/partials/workspace-list", h.partialPlaceholder("Workspaces will load here."))
-	mux.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
-	mux.HandleFunc("/ui/partials/audit-list", h.partialPlaceholder("Audit log will load here."))
-	mux.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
+	protected := http.NewServeMux()
+	protected.HandleFunc("/ui/", h.handlePage)
+	protected.HandleFunc("/ui/partials/dashboard-cards", h.partialDashboardCards)
+	protected.HandleFunc("/ui/partials/recent-activity", h.partialRecentActivity)
+	protected.HandleFunc("/ui/partials/workspace-list", h.partialPlaceholder("Workspaces will load here."))
+	protected.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
+	protected.HandleFunc("/ui/partials/audit-list", h.partialPlaceholder("Audit log will load here."))
+	protected.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
+
+	mux.Handle("/ui/partials/", h.authMiddleware(protected))
+	mux.Handle("/ui/", h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protected.ServeHTTP(w, r)
+	})))
 }
 
 func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {

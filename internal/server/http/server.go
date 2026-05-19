@@ -103,6 +103,7 @@ func New(cfg Config) *Server {
 	if err != nil {
 		cfg.Logger.Error("UI handler init failed", "err", err)
 	} else {
+		uiHandler.SetAuth(ui.AuthConfig{APIKey: cfg.APIKey})
 		uiHandler.Register(mux)
 	}
 	s.srv = &http.Server{
