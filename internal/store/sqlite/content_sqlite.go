@@ -174,6 +174,24 @@ func (c *ContentStore) ListMemoryIDs(ctx context.Context, workspaceID string) ([
 	return ids, rows.Err()
 }
 
+func (c *ContentStore) ListCellIDs(ctx context.Context, workspaceID, memoryID string) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx,
+		`SELECT cell_id FROM memora_content WHERE workspace_id = ? AND memory_id = ? AND cell_id != ''`, workspaceID, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (c *ContentStore) ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
 	rows, err := c.db.QueryContext(ctx,
 		`SELECT DISTINCT memory_id FROM memora_content

@@ -198,6 +198,34 @@ func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]s
 	return ids, nil
 }
 
+func (c *ContentStore) ListCellIDs(_ context.Context, workspaceID, memoryID string) ([]string, error) {
+	dir, err := c.memoryDir(workspaceID, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == "content.txt" {
+			continue
+		}
+		if strings.HasSuffix(name, ".txt") {
+			ids = append(ids, strings.TrimSuffix(name, ".txt"))
+		}
+	}
+	return ids, nil
+}
+
 func (c *ContentStore) ListMemoryIDsOlderThan(_ context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
 	if !validIDSegment(workspaceID) {
 		return nil, fmt.Errorf("%w: invalid workspace_id segment", types.ErrInvalidInput)

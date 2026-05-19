@@ -72,6 +72,9 @@ func (c *ContentStore) DeleteAllForMemory(context.Context, string, string) error
 func (c *ContentStore) ListMemoryIDs(context.Context, string) ([]string, error) {
 	return nil, types.ErrCapability
 }
+func (c *ContentStore) ListCellIDs(context.Context, string, string) ([]string, error) {
+	return nil, types.ErrCapability
+}
 func (c *ContentStore) ListMemoryIDsOlderThan(context.Context, string, time.Time) ([]string, error) {
 	return nil, types.ErrCapability
 }

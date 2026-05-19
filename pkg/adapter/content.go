@@ -60,6 +60,11 @@ type ContentStore interface {
 	// GC sweeper to enforce MinAge — only content old enough to be
 	// confidently orphaned is eligible for deletion.
 	ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error)
+
+	// ListCellIDs returns the cell IDs stored in the content layer for a
+	// given memory. Used by the orphan GC sweeper to detect cell-level
+	// orphans (content cells with no matching metadata cell).
+	ListCellIDs(ctx context.Context, workspaceID, memoryID string) ([]string, error)
 }
 
 // ContentFactory builds a ContentStore from config.

@@ -127,6 +127,7 @@ func (s *Sweeper) sweep(ctx context.Context) {
 				scanned++
 				_, err := s.metadata.GetMemory(ctx, memID)
 				if err == nil {
+					deleted += s.sweepCellOrphans(ctx, ws.ID, memID)
 					continue
 				}
 				if err := s.content.DeleteAllForMemory(ctx, ws.ID, memID); err != nil {
@@ -154,4 +155,39 @@ func (s *Sweeper) sweep(ctx context.Context) {
 			Metadata: map[string]any{"scanned": scanned, "deleted": deleted},
 		})
 	}
+}
+
+// sweepCellOrphans deletes content-layer cells that have no matching
+// metadata cell. Returns the number of orphaned cells deleted.
+func (s *Sweeper) sweepCellOrphans(ctx context.Context, workspaceID, memoryID string) int {
+	contentCellIDs, err := s.content.ListCellIDs(ctx, workspaceID, memoryID)
+	if err != nil {
+		s.logger.Warn("orphan_gc_list_cells_error", "workspace", workspaceID, "memory", memoryID, "err", err)
+		return 0
+	}
+	if len(contentCellIDs) == 0 {
+		return 0
+	}
+	metaCells, err := s.metadata.GetCells(ctx, memoryID)
+	if err != nil {
+		s.logger.Warn("orphan_gc_get_cells_error", "memory", memoryID, "err", err)
+		return 0
+	}
+	live := make(map[string]struct{}, len(metaCells))
+	for _, c := range metaCells {
+		live[c.CellID] = struct{}{}
+	}
+	var deleted int
+	for _, cellID := range contentCellIDs {
+		if _, ok := live[cellID]; ok {
+			continue
+		}
+		if err := s.content.DeleteCellContent(ctx, workspaceID, memoryID, cellID); err != nil {
+			s.logger.Warn("orphan_gc_delete_cell_error", "workspace", workspaceID, "memory", memoryID, "cell", cellID, "err", err)
+			continue
+		}
+		deleted++
+		s.logger.Info("orphan_gc_cell_reclaimed", "workspace", workspaceID, "memory", memoryID, "cell", cellID)
+	}
+	return deleted
 }

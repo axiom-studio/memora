@@ -26,6 +26,7 @@ type mockMetadata struct {
 	adapter.MetadataStore
 	workspaces []types.Workspace
 	memories   map[string]*types.Memory // keyed by memory ID
+	cells      map[string][]types.Cell  // keyed by memory ID
 }
 
 func (m *mockMetadata) ListWorkspaces(_ context.Context, _ int) ([]types.Workspace, error) {
@@ -67,11 +68,20 @@ func (m *mockMetadata) GetMemory(_ context.Context, id string) (*types.Memory, e
 	return nil, types.ErrNotFound
 }
 
+func (m *mockMetadata) GetCells(_ context.Context, memoryID string) ([]types.Cell, error) {
+	if m.cells != nil {
+		return m.cells[memoryID], nil
+	}
+	return nil, nil
+}
+
 type mockContent struct {
 	adapter.ContentStore
-	keys      map[string][]string    // workspace → memory IDs
-	createdAt map[string]time.Time   // "ws:mem" → created_at
-	deleted   map[string]bool        // "ws:mem" → deleted
+	keys        map[string][]string    // workspace → memory IDs
+	createdAt   map[string]time.Time   // "ws:mem" → created_at
+	deleted     map[string]bool        // "ws:mem" → deleted
+	cellKeys    map[string][]string    // "ws:mem" → cell IDs
+	cellDeleted map[string]bool        // "ws:mem:cell" → deleted
 }
 
 func (m *mockContent) ListMemoryIDs(_ context.Context, workspaceID string) ([]string, error) {
@@ -98,6 +108,21 @@ func (m *mockContent) DeleteAllForMemory(_ context.Context, workspaceID, memoryI
 		m.deleted = map[string]bool{}
 	}
 	m.deleted[workspaceID+":"+memoryID] = true
+	return nil
+}
+
+func (m *mockContent) ListCellIDs(_ context.Context, workspaceID, memoryID string) ([]string, error) {
+	if m.cellKeys != nil {
+		return m.cellKeys[workspaceID+":"+memoryID], nil
+	}
+	return nil, nil
+}
+
+func (m *mockContent) DeleteCellContent(_ context.Context, workspaceID, memoryID, cellID string) error {
+	if m.cellDeleted == nil {
+		m.cellDeleted = map[string]bool{}
+	}
+	m.cellDeleted[workspaceID+":"+memoryID+":"+cellID] = true
 	return nil
 }
 
@@ -351,5 +376,40 @@ func TestSweeper_PaginatesWorkspaces(t *testing.T) {
 	lastKey := "ws_1000:orphan_1000"
 	if !content.deleted[lastKey] {
 		t.Fatalf("workspace #1001 orphan not deleted — pagination truncated")
+	}
+}
+
+func TestSweeper_CellLevelOrphanReclaimed(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	led := &mockLedger{}
+
+	meta := &mockMetadata{
+		workspaces: []types.Workspace{{ID: "ws1"}},
+		memories:   map[string]*types.Memory{"mem1": {ID: "mem1"}},
+		cells: map[string][]types.Cell{
+			"mem1": {{CellID: "cell_live", MemoryID: "mem1"}},
+		},
+	}
+	content := &mockContent{
+		keys:     map[string][]string{"ws1": {"mem1"}},
+		cellKeys: map[string][]string{"ws1:mem1": {"cell_live", "cell_orphan"}},
+	}
+
+	sw := New(meta, content, led, logger, Config{
+		Interval: 50 * time.Millisecond,
+		MinAge:   0,
+	})
+
+	ctx := context.Background()
+	sw.sweep(ctx)
+
+	if content.cellDeleted["ws1:mem1:cell_live"] {
+		t.Fatal("live cell should NOT be deleted")
+	}
+	if !content.cellDeleted["ws1:mem1:cell_orphan"] {
+		t.Fatal("orphan cell should be deleted")
+	}
+	if sw.LastDeleted() != 1 {
+		t.Fatalf("LastDeleted = %d, want 1 (one orphan cell)", sw.LastDeleted())
 	}
 }
