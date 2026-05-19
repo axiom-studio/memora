@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -13,9 +12,8 @@ import (
 	"time"
 )
 
-// OpenAIProvider calls the OpenAI embeddings REST API. Reads OPENAI_API_KEY
-// from the environment; if absent, Embed returns ErrNoAPIKey.
-type OpenAIProvider struct {
+// VoyageProvider calls the Voyage AI embeddings API.
+type VoyageProvider struct {
 	model    string
 	dim      int
 	endpoint string
@@ -23,51 +21,45 @@ type OpenAIProvider struct {
 	client   *http.Client
 }
 
-// ErrNoAPIKey is returned when an HTTP-based provider is configured but
-// the required key is missing from the environment.
-var ErrNoAPIKey = errors.New("embedding: API key missing")
+const voyageMaxBatch = 128
 
-const openAIMaxBatch = 2048
+func (p *VoyageProvider) Name() string    { return "voyage" }
+func (p *VoyageProvider) ModelID() string { return "voyage:" + p.model }
+func (p *VoyageProvider) Dim() int        { return p.dim }
 
-func (p *OpenAIProvider) Name() string    { return "openai" }
-func (p *OpenAIProvider) ModelID() string { return "openai:" + p.model }
-func (p *OpenAIProvider) Dim() int        { return p.dim }
-
-func (p *OpenAIProvider) Capabilities() EmbeddingCapabilities {
+func (p *VoyageProvider) Capabilities() EmbeddingCapabilities {
 	return EmbeddingCapabilities{
 		SupportsBatch:        true,
-		MaxBatchSize:         openAIMaxBatch,
-		MaxInputTokens:       8191,
+		MaxBatchSize:         voyageMaxBatch,
+		MaxInputTokens:       32000,
 		ReturnsDeterministic: true,
 		Quality:              "production",
 	}
 }
 
-type openAIRequest struct {
+type voyageRequest struct {
 	Model string   `json:"model"`
 	Input []string `json:"input"`
 }
 
-type openAIResponse struct {
+type voyageResponse struct {
 	Data []struct {
 		Embedding []float32 `json:"embedding"`
 		Index     int       `json:"index"`
 	} `json:"data"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
-func (p *OpenAIProvider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+func (p *VoyageProvider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if p.apiKey == "" {
-		return nil, fmt.Errorf("%w: set OPENAI_API_KEY", ErrNoAPIKey)
+		return nil, fmt.Errorf("%w: set VOYAGE_API_KEY", ErrNoAPIKey)
 	}
-	if len(texts) <= openAIMaxBatch {
+	if len(texts) <= voyageMaxBatch {
 		return p.embedBatch(ctx, texts)
 	}
 	out := make([][]float32, len(texts))
-	for i := 0; i < len(texts); i += openAIMaxBatch {
-		end := i + openAIMaxBatch
+	for i := 0; i < len(texts); i += voyageMaxBatch {
+		end := i + voyageMaxBatch
 		if end > len(texts) {
 			end = len(texts)
 		}
@@ -80,8 +72,8 @@ func (p *OpenAIProvider) Embed(ctx context.Context, texts []string) ([][]float32
 	return out, nil
 }
 
-func (p *OpenAIProvider) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	payload, _ := json.Marshal(openAIRequest{Model: p.model, Input: texts})
+func (p *VoyageProvider) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	payload, _ := json.Marshal(voyageRequest{Model: p.model, Input: texts})
 
 	var lastErr error
 	for attempt := range 3 {
@@ -104,20 +96,15 @@ func (p *OpenAIProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 
 		resp, err := p.client.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("openai: %w", err)
+			lastErr = fmt.Errorf("voyage: %w", err)
 			continue
 		}
 
 		if resp.StatusCode >= 400 {
-			var er openAIResponse
+			var er voyageResponse
 			_ = json.NewDecoder(resp.Body).Decode(&er)
 			resp.Body.Close()
-			msg := ""
-			if er.Error != nil {
-				msg = er.Error.Message
-			}
-			lastErr = fmt.Errorf("openai: status %d: %s", resp.StatusCode, msg)
-
+			lastErr = fmt.Errorf("voyage: status %d: %s", resp.StatusCode, er.Detail)
 			if isRetryable(resp.StatusCode) {
 				if ra := resp.Header.Get("Retry-After"); ra != "" {
 					if secs, err := strconv.Atoi(ra); err == nil {
@@ -133,7 +120,7 @@ func (p *OpenAIProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 			return nil, lastErr
 		}
 
-		var r openAIResponse
+		var r voyageResponse
 		if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 			resp.Body.Close()
 			return nil, err
@@ -151,32 +138,18 @@ func (p *OpenAIProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 	return nil, lastErr
 }
 
-func isRetryable(code int) bool {
-	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504
-}
-
 func init() {
-	Register("openai", func(model string) (Provider, error) {
+	Register("voyage", func(model string) (Provider, error) {
 		if model == "" {
-			model = "text-embedding-3-small"
+			model = "voyage-3"
 		}
-		dim := 1536
-		if model == "text-embedding-3-large" {
-			dim = 3072
-		}
-		return &OpenAIProvider{
+		dim := 1024
+		return &VoyageProvider{
 			model:    model,
 			dim:      dim,
-			endpoint: getenvDefault("OPENAI_BASE_URL", "https://api.openai.com/v1") + "/embeddings",
-			apiKey:   os.Getenv("OPENAI_API_KEY"),
+			endpoint: getenvDefault("VOYAGE_BASE_URL", "https://api.voyageai.com/v1") + "/embeddings",
+			apiKey:   os.Getenv("VOYAGE_API_KEY"),
 			client:   &http.Client{Timeout: 30 * time.Second},
 		}, nil
 	})
-}
-
-func getenvDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

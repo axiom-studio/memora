@@ -92,9 +92,12 @@ type recordingProvider struct {
 	failErr  error
 }
 
-func (p *recordingProvider) Name() string    { return "recording" }
-func (p *recordingProvider) ModelID() string { return p.inner.ModelID() }
-func (p *recordingProvider) Dim() int        { return p.inner.Dim() }
+func (p *recordingProvider) Name() string                            { return "recording" }
+func (p *recordingProvider) ModelID() string                         { return p.inner.ModelID() }
+func (p *recordingProvider) Dim() int                                { return p.inner.Dim() }
+func (p *recordingProvider) Capabilities() embedding.EmbeddingCapabilities {
+	return p.inner.Capabilities()
+}
 func (p *recordingProvider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	p.mu.Lock()
 	snapshot := append([]string(nil), texts...)
@@ -123,9 +126,12 @@ type alwaysFailProvider struct {
 	calls atomic.Int32
 }
 
-func (p *alwaysFailProvider) Name() string    { return "always-fail" }
-func (p *alwaysFailProvider) ModelID() string { return p.inner.ModelID() }
-func (p *alwaysFailProvider) Dim() int        { return p.inner.Dim() }
+func (p *alwaysFailProvider) Name() string                            { return "always-fail" }
+func (p *alwaysFailProvider) ModelID() string                         { return p.inner.ModelID() }
+func (p *alwaysFailProvider) Dim() int                                { return p.inner.Dim() }
+func (p *alwaysFailProvider) Capabilities() embedding.EmbeddingCapabilities {
+	return p.inner.Capabilities()
+}
 func (p *alwaysFailProvider) Embed(_ context.Context, _ []string) ([][]float32, error) {
 	p.calls.Add(1)
 	return nil, p.err
@@ -190,9 +196,12 @@ type blockingProvider struct {
 	seen    [][]string
 }
 
-func (p *blockingProvider) Name() string    { return "blocking" }
-func (p *blockingProvider) ModelID() string { return p.inner.ModelID() }
-func (p *blockingProvider) Dim() int        { return p.inner.Dim() }
+func (p *blockingProvider) Name() string                            { return "blocking" }
+func (p *blockingProvider) ModelID() string                         { return p.inner.ModelID() }
+func (p *blockingProvider) Dim() int                                { return p.inner.Dim() }
+func (p *blockingProvider) Capabilities() embedding.EmbeddingCapabilities {
+	return p.inner.Capabilities()
+}
 func (p *blockingProvider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	p.mu.Lock()
 	p.seen = append(p.seen, append([]string(nil), texts...))

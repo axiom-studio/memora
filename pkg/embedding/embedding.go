@@ -16,9 +16,20 @@ package embedding
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 )
+
+// EmbeddingCapabilities describes what a provider supports.
+type EmbeddingCapabilities struct {
+	SupportsBatch        bool
+	MaxBatchSize         int
+	MaxInputTokens       int
+	SupportsAsync        bool
+	ReturnsDeterministic bool
+	Quality              string // "production", "fallback", "placeholder"
+}
 
 // Provider implements an embedding model.
 type Provider interface {
@@ -26,6 +37,22 @@ type Provider interface {
 	ModelID() string
 	Dim() int
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
+	Capabilities() EmbeddingCapabilities
+}
+
+// EmbeddingConfig carries provider configuration, typically populated
+// from MEMORA_EMBEDDING_MODEL.
+type EmbeddingConfig struct {
+	ModelID string // "openai:text-embedding-3-small", "voyage:voyage-3", etc.
+}
+
+// OpenFromEnv reads MEMORA_EMBEDDING_MODEL and opens the provider.
+func OpenFromEnv() (Provider, error) {
+	cfg := EmbeddingConfig{ModelID: os.Getenv("MEMORA_EMBEDDING_MODEL")}
+	if cfg.ModelID == "" {
+		cfg.ModelID = "noop:default"
+	}
+	return Open(cfg.ModelID)
 }
 
 // Factory builds a Provider from a model identifier like "openai:text-embedding-3-small".

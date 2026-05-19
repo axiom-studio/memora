@@ -15,6 +15,15 @@ func (p *NoopProvider) Name() string    { return "noop" }
 func (p *NoopProvider) ModelID() string { return "noop:" + p.model }
 func (p *NoopProvider) Dim() int        { return p.dim }
 
+func (p *NoopProvider) Capabilities() EmbeddingCapabilities {
+	return EmbeddingCapabilities{
+		SupportsBatch:        true,
+		MaxBatchSize:         10000,
+		ReturnsDeterministic: true,
+		Quality:              "fallback",
+	}
+}
+
 func (p *NoopProvider) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))
 	for i, t := range texts {
