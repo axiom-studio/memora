@@ -3,30 +3,57 @@ package mcp
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/axiom-studio/memora/internal/service"
 )
 
-// Server hosts the MCP request handlers and the tool dispatch table.
-type Server struct {
-	svc    *service.Service
-	logger *stdlog.Logger
-	mu     sync.Mutex // serializes writes to a single transport
+// Config configures an MCP Server. Zero-valued Config disables auth
+// (local-dev convenience for single-tenant stdio use).
+type Config struct {
+	// APIKey is the shared secret a client must prove possession of by
+	// passing `params.apiKey` on the `initialize` JSON-RPC method.
+	// Empty disables auth — every initialize succeeds and every tool
+	// call is dispatched. The stdio transport is intrinsically local
+	// (no network), so an empty APIKey is the documented single-tenant
+	// local-dev mode. Operators who run memora-core mcp in any other
+	// context MUST set MEMORA_API_KEY.
+	APIKey string
 }
 
-// NewServer returns a ready Server.
+// Server hosts the MCP request handlers and the tool dispatch table.
+type Server struct {
+	svc         *service.Service
+	logger      *stdlog.Logger
+	apiKey      string
+	mu          sync.Mutex   // serializes writes to a single transport
+	initialized atomic.Bool  // flipped by a successful initialize handshake
+}
+
+// NewServer returns a ready Server with auth disabled. Equivalent to
+// NewServerWithConfig(svc, logger, Config{}).
 func NewServer(svc *service.Service, logger *stdlog.Logger) *Server {
+	return NewServerWithConfig(svc, logger, Config{})
+}
+
+// NewServerWithConfig returns a ready Server with the supplied auth
+// config. When cfg.APIKey is non-empty the server requires a valid
+// initialize handshake before any other JSON-RPC method is dispatched.
+func NewServerWithConfig(svc *service.Service, logger *stdlog.Logger, cfg Config) *Server {
 	if logger == nil {
 		logger = stdlog.Default()
 	}
-	return &Server{svc: svc, logger: logger}
+	return &Server{svc: svc, logger: logger, apiKey: cfg.APIKey}
 }
+
+func (s *Server) requireAuth() bool { return s.apiKey != "" }
 
 // ServeStdio reads JSON-RPC frames from r, writes responses to w,
 // and blocks until r returns io.EOF.
@@ -67,14 +94,40 @@ func (s *Server) ServeStdio(ctx context.Context, r io.Reader, w io.Writer) error
 	return nil
 }
 
+// initializeParams is the subset of MCP's initialize-method params
+// that this server cares about. Extra fields (clientInfo, capabilities,
+// protocolVersion) are accepted and ignored — JSON-RPC params may
+// carry anything the client wants to send.
+type initializeParams struct {
+	APIKey string `json:"apiKey"`
+}
+
 func (s *Server) handle(ctx context.Context, req request) response {
-	switch req.Method {
-	case methodInitialize:
+	if req.Method == methodInitialize {
+		if s.requireAuth() {
+			var p initializeParams
+			if err := decodeParams(req.Params, &p); err != nil {
+				return errResponse(req.ID, -32602, err.Error(), nil)
+			}
+			if subtle.ConstantTimeCompare([]byte(p.APIKey), []byte(s.apiKey)) != 1 {
+				return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: invalid api key", nil)
+			}
+		}
+		s.initialized.Store(true)
 		return okResponse(req.ID, map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": "memora-core", "version": "0.1.0"},
 		})
+	}
+	// All non-initialize methods require a prior successful initialize
+	// when auth is enabled. The check applies to ping too — otherwise
+	// it'd be a probe that confirms the server is reachable without
+	// proving possession of the API key.
+	if s.requireAuth() && !s.initialized.Load() {
+		return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: must initialize before "+req.Method, nil)
+	}
+	switch req.Method {
 	case methodPing:
 		return okResponse(req.ID, map[string]any{})
 	case methodToolsList:

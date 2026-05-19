@@ -273,9 +273,15 @@ func runMCP() {
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
+	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "MCP API bearer key (empty disables auth — single-tenant local-dev only)")
 	_ = fs.Parse(os.Args[1:])
 
 	logger := stdlog.New(os.Stderr, "memora-mcp ", stdlog.LstdFlags|stdlog.LUTC)
+	if *apiKey == "" {
+		logger.Printf("WARNING: MCP AUTH DISABLED (no MEMORA_API_KEY) — stdio is local-only but any process with stdin access can call write tools")
+	} else {
+		logger.Printf("MCP AUTH ENABLED via API key (sha256[:8]=%s)", hashTag(*apiKey))
+	}
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		logger.Fatalf("mkdir data-dir: %v", err)
 	}
@@ -316,7 +322,7 @@ func runMCP() {
 		Embedder: embedProvider,
 		Identity: identityMap,
 	}
-	server := mcp.NewServer(svc, logger)
+	server := mcp.NewServerWithConfig(svc, logger, mcp.Config{APIKey: *apiKey})
 	logger.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", *dataDir, embedProvider.ModelID())
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
 		logger.Fatalf("mcp serve: %v", err)

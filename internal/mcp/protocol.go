@@ -37,6 +37,15 @@ const (
 	methodPing       = "ping"
 )
 
+// JSON-RPC error codes. The standard codes (-32600..-32603, -32700)
+// come from the JSON-RPC 2.0 spec; -32000..-32099 is the server-error
+// range reserved for implementation-defined codes. We pin -32001 to
+// "unauthorized" so clients can branch on the numeric code without
+// string-matching the message.
+const (
+	ErrCodeUnauthorized = -32001
+)
+
 // Tool is the MCP-facing tool descriptor.
 type Tool struct {
 	Name        string         `json:"name"`
