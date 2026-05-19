@@ -12,6 +12,7 @@ import (
 var (
 	regMu             sync.RWMutex
 	primaryDrivers    = map[string]PrimaryFactory{}
+	metadataDrivers   = map[string]MetadataFactory{}
 	vectorDrivers     = map[string]VectorFactory{}
 	ledgerDrivers     = map[string]LedgerFactory{}
 	contentDrivers    = map[string]ContentFactory{}
@@ -28,6 +29,16 @@ func RegisterPrimary(name string, factory PrimaryFactory) {
 		panic(fmt.Sprintf("memora: PrimaryStore driver %q registered twice", name))
 	}
 	primaryDrivers[name] = factory
+}
+
+// RegisterMetadata registers a MetadataStore factory under a driver name.
+func RegisterMetadata(name string, factory MetadataFactory) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	if _, dup := metadataDrivers[name]; dup {
+		panic(fmt.Sprintf("memora: MetadataStore driver %q registered twice", name))
+	}
+	metadataDrivers[name] = factory
 }
 
 // RegisterVector registers a VectorStore factory.
@@ -91,6 +102,21 @@ func OpenPrimary(ctx context.Context, cfg PrimaryConfig) (PrimaryStore, error) {
 	store := factory()
 	if err := store.Open(ctx, cfg); err != nil {
 		return nil, fmt.Errorf("memora: open PrimaryStore %q: %w", cfg.Driver, err)
+	}
+	return store, nil
+}
+
+// OpenMetadata instantiates and opens a MetadataStore by driver name.
+func OpenMetadata(ctx context.Context, cfg MetadataConfig) (MetadataStore, error) {
+	regMu.RLock()
+	factory, ok := metadataDrivers[cfg.Driver]
+	regMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("memora: unknown MetadataStore driver %q (registered: %v)", cfg.Driver, ListMetadataDrivers())
+	}
+	store := factory()
+	if err := store.Open(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("memora: open MetadataStore %q: %w", cfg.Driver, err)
 	}
 	return store, nil
 }
@@ -168,6 +194,9 @@ func OpenIdentity(name string) (IdentityProvider, error) {
 
 // ListPrimaryDrivers returns the registered PrimaryStore driver names.
 func ListPrimaryDrivers() []string { return sortedKeys(primaryDrivers) }
+
+// ListMetadataDrivers returns the registered MetadataStore driver names.
+func ListMetadataDrivers() []string { return sortedKeys(metadataDrivers) }
 
 // ListVectorDrivers returns the registered VectorStore driver names.
 func ListVectorDrivers() []string { return sortedKeys(vectorDrivers) }

@@ -81,6 +81,7 @@ Common flags for 'serve':
   --primary-driver     primary-store driver (default sqlite)
   --vector-driver      vector-store driver (default sqlite-vec)
   --ledger-driver      ledger-store driver (default sqlite)
+  --metadata-driver    metadata-store driver (default: use PrimaryStore; sqlite)
   --embedding-model    embedding model id (default noop:default)
   --api-key            API bearer key (default $MEMORA_API_KEY; empty disables auth — local dev)
   --allow-no-auth      explicit opt-in to run with an empty API key on a non-loopback bind
@@ -149,6 +150,7 @@ func serve() {
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
 	graphDriver := fs.String("graph-driver", os.Getenv("MEMORA_GRAPH_DRIVER"), "graph-store driver (empty = use PrimaryStore; sqlite_graph)")
+	metadataDriver := fs.String("metadata-driver", os.Getenv("MEMORA_METADATA_DRIVER"), "metadata-store driver (empty = use PrimaryStore; sqlite)")
 	contentDriver := fs.String("content-driver", os.Getenv("MEMORA_CONTENT_DRIVER"), "content-store driver (empty = disabled; file | sqlite)")
 	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN (e.g. /var/lib/memora/content for file driver)")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
@@ -246,6 +248,15 @@ func serve() {
 		defer gs.Close()
 		svc.Graph = gs
 		logger.Info("graph store enabled", "driver", *graphDriver)
+	}
+	if *metadataDriver != "" {
+		ms, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
+		if err != nil {
+			bootLog.Fatalf("open metadata: %v", err)
+		}
+		defer ms.Close()
+		svc.Metadata = ms
+		logger.Info("metadata store enabled", "driver", *metadataDriver)
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{

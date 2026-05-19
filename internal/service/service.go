@@ -29,6 +29,7 @@ import (
 // Service is the assembled set of collaborators handlers depend on.
 type Service struct {
 	Primary  adapter.PrimaryStore
+	Metadata adapter.MetadataStore // nil = fall back to Primary for metadata ops
 	Vector   adapter.VectorStore
 	Ledger   adapter.LedgerStore
 	Content  adapter.ContentStore // nil = legacy-only (no dual-write)
@@ -36,6 +37,36 @@ type Service struct {
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
 	Pool     *embedqueue.Pool
+}
+
+// meta returns the MetadataStore if configured, otherwise wraps
+// Primary as a pass-through. All non-Graph, non-Content PrimaryStore
+// calls should go through this accessor.
+func (s *Service) meta() metadataAccessor {
+	if s.Metadata != nil {
+		return s.Metadata
+	}
+	return s.Primary
+}
+
+// metadataAccessor is the subset of methods shared by both
+// MetadataStore and PrimaryStore. The meta() method returns whichever
+// is configured so callers can route transparently.
+type metadataAccessor interface {
+	GetWorkspace(ctx context.Context, id string) (*types.Workspace, error)
+	ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error)
+	CreateWorkspace(ctx context.Context, w *types.Workspace) error
+	GetMemory(ctx context.Context, id string) (*types.Memory, error)
+	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
+	ImprintMemory(ctx context.Context, m *types.Memory) (string, error)
+	UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error)
+	AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (string, string, error)
+	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error)
+	ForgetMemory(ctx context.Context, id string) error
+	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
+	GetCells(ctx context.Context, memoryID string) ([]types.Cell, error)
+	UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error
+	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (bool, error)
 }
 
 // GraphLink routes to Graph if configured, else falls back to Primary.
