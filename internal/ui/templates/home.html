@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="page-header">
+  <h1>Dashboard</h1>
+</div>
+<div class="card-grid"
+     hx-get="/ui/partials/dashboard-cards"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div class="card"><div class="skeleton" style="height:3rem"></div></div>
+  <div class="card"><div class="skeleton" style="height:3rem"></div></div>
+  <div class="card"><div class="skeleton" style="height:3rem"></div></div>
+  <div class="card"><div class="skeleton" style="height:3rem"></div></div>
+  <div class="card"><div class="skeleton" style="height:3rem"></div></div>
+</div>
+<div class="card">
+  <h3 class="card-title">Recent Activity</h3>
+  <div hx-get="/ui/partials/recent-activity"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skeleton" style="height:6rem"></div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Title}}{{.Title}} — {{end}}Memora</title>
+  <link rel="stylesheet" href="/ui/static/css/style.css">
+  <script src="/ui/static/js/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" role="navigation" aria-label="Main navigation">
+      <div class="sidebar-brand">memora</div>
+      <ul class="sidebar-nav">
+        <li><a href="/ui/" {{if eq .Nav "home"}}class="active"{{end}}>Dashboard</a></li>
+        <li><a href="/ui/workspaces" {{if eq .Nav "workspaces"}}class="active"{{end}}>Workspaces</a></li>
+        <li><a href="/ui/federation" {{if eq .Nav "federation"}}class="active"{{end}}>Federation</a></li>
+        <li><a href="/ui/audit" {{if eq .Nav "audit"}}class="active"{{end}}>Audit</a></li>
+        <li><a href="/ui/settings" {{if eq .Nav "settings"}}class="active"{{end}}>Settings</a></li>
+      </ul>
+      <div class="sidebar-footer">memora v0.3</div>
+    </nav>
+    <main class="main" role="main">
+      {{template "content" .}}
+    </main>
+  </div>
+</body>
+</html>

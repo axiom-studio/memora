@@ -1,0 +1,10 @@
+{{define "content"}}
+<div class="page-header">
+  <h1>Audit Log</h1>
+</div>
+<div hx-get="/ui/partials/audit-list"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div class="skeleton" style="height:10rem"></div>
+</div>
+{{end}}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/service"
+	"github.com/axiom-studio/memora/internal/ui"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -97,6 +98,13 @@ func New(cfg Config) *Server {
 	mux := http.NewServeMux()
 	s := &Server{cfg: cfg, mux: mux}
 	s.routes()
+
+	uiHandler, err := ui.NewHandler()
+	if err != nil {
+		cfg.Logger.Error("UI handler init failed", "err", err)
+	} else {
+		uiHandler.Register(mux)
+	}
 	s.srv = &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           s.middleware(mux),
@@ -218,8 +226,9 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 		}
 
-		// Auth: API key (skipped when no key configured — local-dev mode).
-		if s.cfg.APIKey != "" {
+		// Auth: API key (skipped for /ui/ paths — UI has its own session auth;
+		// skipped when no key configured — local-dev mode).
+		if s.cfg.APIKey != "" && !strings.HasPrefix(r.URL.Path, "/ui/") {
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") {
 				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
