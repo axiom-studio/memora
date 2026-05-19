@@ -2,6 +2,11 @@
 // targets both local memora-core servers (default
 // http://localhost:7777) and remote Memora Cloud endpoints (via
 // --endpoint or MEMORA_ENDPOINT).
+//
+// Design note: CLI dispatch uses stdlib flag (not Cobra). This is a
+// deliberate zero-dependency choice for OSS v0.1. Trade-offs accepted:
+// no auto-generated completion, no subcommand grouping. If these become
+// blockers, Cobra migration is tracked in PRD §9.
 package main
 
 import (
@@ -15,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	mcli "github.com/axiom-studio/memora/internal/cli"
 	"github.com/axiom-studio/memora/pkg/client"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -50,6 +56,7 @@ func main() {
 	c := client.New(g.Endpoint, g.APIKey)
 	c.AgentID = g.AgentID
 	c.Workspace = g.Workspace
+	g.out = mcli.NewOutput(mcli.ParseFormat(g.Output), g.NoColor, g.Quiet, g.Verbose)
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.Timeout)
 	defer cancel()
@@ -106,7 +113,11 @@ type globalFlags struct {
 	Workspace string
 	Output    string
 	Timeout   time.Duration
+	NoColor   bool
+	Quiet     bool
+	Verbose   bool
 	Args      []string
+	out       *mcli.Output
 }
 
 func parseGlobal(args []string) globalFlags {
@@ -153,6 +164,12 @@ func parseGlobal(args []string) globalFlags {
 				}
 				i++
 			}
+		case "--no-color":
+			g.NoColor = true
+		case "--quiet", "-q":
+			g.Quiet = true
+		case "--verbose", "-v":
+			g.Verbose = true
 		default:
 			out = append(out, args[i])
 		}
@@ -169,30 +186,7 @@ func getenv(k, def string) string {
 }
 
 func emit(g globalFlags, v any) {
-	switch g.Output {
-	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(v)
-	case "jsonl":
-		// Naive jsonl: if v is a slice, one row per element.
-		// Otherwise single line.
-		b, _ := json.Marshal(v)
-		fmt.Println(string(b))
-	default:
-		emitText(v)
-	}
-}
-
-func emitText(v any) {
-	switch t := v.(type) {
-	case string:
-		fmt.Println(t)
-	default:
-		// Pretty-print as key=value pairs when it's a struct via JSON round-trip.
-		b, _ := json.MarshalIndent(t, "", "  ")
-		fmt.Println(string(b))
-	}
+	g.out.Emit(v)
 }
 
 func die(err error) {
@@ -767,6 +761,9 @@ Global flags:
   --api-key <key>        (default: $MEMORA_API_KEY)
   --agent-id <id>        (default: $MEMORA_AGENT_ID or agent_opaque_local)
   --workspace, -w <id>   (default: $MEMORA_WORKSPACE)
-  --output, -o text|json|jsonl
-  --timeout <duration>   (default: 30s)`)
+  --output, -o text|json|jsonl|yaml
+  --timeout <duration>   (default: 30s)
+  --no-color             disable colored output
+  --quiet, -q            suppress normal output
+  --verbose, -v          enable verbose/debug output`)
 }
