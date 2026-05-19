@@ -259,6 +259,21 @@ func serve() {
 		logger.Info("metadata store enabled", "driver", *metadataDriver)
 	}
 
+	// Boot-time compatibility check (§7.7).
+	var ccaps *adapter.ContentCapabilities
+	if svc.Content != nil {
+		c := svc.Content.Capabilities()
+		ccaps = &c
+	}
+	var gcaps *adapter.GraphCapabilities
+	if svc.Graph != nil {
+		c := svc.Graph.Capabilities()
+		gcaps = &c
+	}
+	if err := adapter.ValidateCompatibility(logger, primary.Capabilities(), ccaps, gcaps); err != nil {
+		bootLog.Fatalf("compatibility check failed: %v", err)
+	}
+
 	httpsrv := httpserver.New(httpserver.Config{
 		Addr:        *addr,
 		APIKey:      *apiKey,

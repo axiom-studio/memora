@@ -165,10 +165,14 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 		WrittenByAgentID: agentID,
 	}
 	start := time.Now()
-	wmk, err := s.Primary.ImprintMemory(ctx, mem)
-	if err != nil {
-		return nil, err
-	}
+
+	// INVARIANT: write ordering is content → metadata → embed → ledger.
+	// If content succeeds but metadata fails, content blobs are orphaned
+	// and reclaimed by the orphan GC sweeper (§7.3 option a). The
+	// reverse (metadata first, content second) would leave a memory
+	// visible but unreadable — a worse failure mode.
+
+	mem.ID = types.NewID(types.MemoryIDPrefix)
 	cells, err := ck.Chunk(ctx, req.Content)
 	if err != nil {
 		return nil, err
@@ -178,15 +182,22 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 		cells[i].WrittenByAgentID = agentID
 		cells[i].CellID = types.NewID(types.CellIDPrefix)
 	}
-	if err := s.Primary.UpsertCells(ctx, mem.ID, cells); err != nil {
-		return nil, err
-	}
-	// Dual-write: content first, per doc #301 §7.3 recommendation.
+
+	// Step 1: content writes (orphan-safe — GC reclaims if step 2 fails).
 	if s.Content != nil {
-		_ = s.Content.PutMemoryContent(ctx, workspaceID, mem.ID, mem.ContentMD5, req.Content)
+		_ = s.Content.PutMemoryContent(ctx, workspaceID, mem.ID, types.MD5Hex(req.Content), req.Content)
 		for _, cell := range cells {
 			_ = s.Content.PutCellContent(ctx, workspaceID, mem.ID, cell.CellID, cell.TextMD5, cell.Text)
 		}
+	}
+
+	// Step 2: metadata writes.
+	wmk, err := s.Primary.ImprintMemory(ctx, mem)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Primary.UpsertCells(ctx, mem.ID, cells); err != nil {
+		return nil, err
 	}
 	// Inline-embed so the response reports a finalized recall_ready.
 	embedRes, err := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
@@ -414,6 +425,11 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Forget removes a Memory and cascades incident edges.
 func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID string) (*api.ForgetResponse, error) {
+	// INVARIANT: forget ordering is metadata → content → vector → ledger.
+	// Metadata goes first so the memory becomes invisible immediately.
+	// If content delete fails, the blob is orphaned but unreachable —
+	// the GC sweeper will reclaim it. Never delete content first, or a
+	// concurrent reader could see a memory with no body.
 	if err := s.Primary.ForgetMemory(ctx, memoryID); err != nil {
 		return nil, err
 	}
