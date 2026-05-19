@@ -228,7 +228,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			TargetMemoryID string         `json:"target_memory_id"`
 			EdgeType       string         `json:"edge_type"`
 			AgentID        string         `json:"agent_id"`
-			Properties     map[string]any `json:"properties"`
+			Properties     map[string]any `json:"properties_json"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err

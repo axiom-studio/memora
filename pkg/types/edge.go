@@ -55,7 +55,7 @@ type Edge struct {
 	SourceMemoryID   string         `json:"source_memory_id"`
 	TargetMemoryID   string         `json:"target_memory_id"`
 	EdgeType         EdgeType       `json:"edge_type"`
-	PropertiesJSON   map[string]any `json:"properties,omitempty"`
+	PropertiesJSON   map[string]any `json:"properties_json,omitempty"`
 	CreatedByAgentID string         `json:"created_by_agent_id"`
 	CreatedAt        time.Time      `json:"created_at"`
 	DeletedAt        *time.Time     `json:"deleted_at,omitempty"`

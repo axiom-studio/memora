@@ -7,7 +7,7 @@ import "github.com/axiom-studio/memora/pkg/types"
 type LinkRequest struct {
 	TargetMemoryID string         `json:"target_memory_id"`
 	EdgeType       string         `json:"edge_type"`
-	Properties     map[string]any `json:"properties,omitempty"`
+	Properties     map[string]any `json:"properties_json,omitempty"`
 }
 
 // LinkResponse echoes the persisted Edge.
@@ -21,7 +21,7 @@ type LinkBatchEntry struct {
 	SourceMemoryID string         `json:"source_memory_id"`
 	TargetMemoryID string         `json:"target_memory_id"`
 	EdgeType       string         `json:"edge_type"`
-	Properties     map[string]any `json:"properties,omitempty"`
+	Properties     map[string]any `json:"properties_json,omitempty"`
 }
 
 // LinkBatchRequest creates up to 1000 edges atomically-per-edge.

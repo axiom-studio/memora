@@ -241,7 +241,7 @@ func toolCatalog() []Tool {
 					"target_memory_id": stringP(),
 					"edge_type":        map[string]any{"type": "string", "enum": []string{"parent_of", "derived_from", "supersedes", "references", "session_of", "mentions"}},
 					"agent_id":         stringP(),
-					"properties":       map[string]any{"type": "object"},
+					"properties_json":  map[string]any{"type": "object"},
 				},
 				"required": []string{"workspace_id", "source_memory_id", "target_memory_id", "edge_type", "agent_id"},
 			},
