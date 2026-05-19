@@ -23,6 +23,9 @@ const (
 	EdgeTypeSessionOf EdgeType = "session_of"
 	// EdgeTypeMentions — A's content references B's id.
 	EdgeTypeMentions EdgeType = "mentions"
+	// EdgeTypeVectorNeighbor — system-generated edge indicating cell-level
+	// vector similarity at write time; not a user assertion.
+	EdgeTypeVectorNeighbor EdgeType = "vector_neighbor"
 )
 
 // StoredEdgeTypes is the canonical list of edge types persisted in
@@ -34,13 +37,15 @@ var StoredEdgeTypes = []EdgeType{
 	EdgeTypeReferences,
 	EdgeTypeSessionOf,
 	EdgeTypeMentions,
+	EdgeTypeVectorNeighbor,
 }
 
 // ValidEdgeType returns true if the given string is a known stored edge type.
 func ValidEdgeType(s string) bool {
 	switch EdgeType(s) {
 	case EdgeTypeParentOf, EdgeTypeDerivedFrom, EdgeTypeSupersedes,
-		EdgeTypeReferences, EdgeTypeSessionOf, EdgeTypeMentions:
+		EdgeTypeReferences, EdgeTypeSessionOf, EdgeTypeMentions,
+		EdgeTypeVectorNeighbor:
 		return true
 	default:
 		return false
