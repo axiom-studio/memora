@@ -180,8 +180,9 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	}
 	recallReady := err == nil
 
+	wantAutoLink := req.AutoLink == nil || *req.AutoLink
 	var autoLinked []types.Edge
-	if recallReady && s.Graph != nil {
+	if recallReady && s.Graph != nil && wantAutoLink {
 		autoLinked, _ = autolink.AutoLink(ctx, autolink.Deps{
 			Metadata: s.Metadata, Vector: s.Vector,
 			Graph: s.Graph, Ledger: s.Ledger,
@@ -205,6 +206,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 		ContentMD5:       mem.ContentMD5,
 		CellsCreated:     len(cells),
 		RecallReady:      recallReady,
+		AutoLinkedEdges:  len(autoLinked),
 		WrittenByAgentID: agentID,
 		LedgerID:         ledgerID,
 		LatencyMS:        int(time.Since(start).Milliseconds()),

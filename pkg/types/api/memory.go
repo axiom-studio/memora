@@ -12,6 +12,7 @@ type ImprintRequest struct {
 	Content      string            `json:"content"`
 	Tags         map[string]string `json:"tags,omitempty"`
 	ChunkerID    string            `json:"chunker_id,omitempty"`
+	AutoLink     *bool             `json:"auto_link,omitempty"`
 }
 
 // ImprintResponse is returned synchronously after Imprint commits.
@@ -21,6 +22,7 @@ type ImprintResponse struct {
 	ContentMD5       string `json:"content_md5"`
 	CellsCreated     int    `json:"cells_created"`
 	RecallReady      bool   `json:"recall_ready"`
+	AutoLinkedEdges  int    `json:"auto_linked_edges,omitempty"`
 	WrittenByAgentID string `json:"written_by_agent_id"`
 	LedgerID         string `json:"ledger_id"`
 	LatencyMS        int    `json:"latency_ms"`

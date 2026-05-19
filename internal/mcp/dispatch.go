@@ -33,6 +33,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			CollectionID string            `json:"collection_id"`
 			Content      string            `json:"content"`
 			Tags         map[string]string `json:"tags"`
+			AutoLink     *bool             `json:"auto_link"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
@@ -42,6 +43,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		return s.svc.Imprint(ctx, in.WorkspaceID, in.AgentID, api.ImprintRequest{
 			CollectionID: in.CollectionID, Content: in.Content, Tags: in.Tags,
+			AutoLink: in.AutoLink,
 		})
 	case "memora_lookup":
 		var in struct {

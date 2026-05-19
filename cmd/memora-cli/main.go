@@ -299,6 +299,8 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 	text := fs.String("text", "", "memory content (use - for stdin)")
 	fromFile := fs.String("from-file", "", "read content from file")
 	collection := fs.String("collection", "", "collection id")
+	enableAutoLink := fs.Bool("auto-link", false, "enable auto-link for this imprint")
+	disableAutoLink := fs.Bool("no-auto-link", false, "disable auto-link for this imprint")
 	tagPairs := newRepeatable()
 	fs.Var(tagPairs, "tag", "k=v tag (repeatable)")
 	_ = fs.Parse(g.Args)
@@ -315,10 +317,19 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 			tags[p[:i]] = p[i+1:]
 		}
 	}
+	var autoLink *bool
+	if *enableAutoLink {
+		v := true
+		autoLink = &v
+	} else if *disableAutoLink {
+		v := false
+		autoLink = &v
+	}
 	resp, err := c.Imprint(ctx, g.Workspace, api.ImprintRequest{
 		CollectionID: *collection,
 		Content:      content,
 		Tags:         tags,
+		AutoLink:     autoLink,
 	})
 	die(err)
 	if g.Output == "text" {
