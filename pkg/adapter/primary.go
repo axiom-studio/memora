@@ -114,6 +114,15 @@ type PrimaryStore interface {
 	GetCells(ctx context.Context, memoryID string) ([]types.Cell, error)
 	UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error
 
+	// FlipRecallReadyIfAllEmbedded atomically sets recall_ready=1 on the
+	// memory iff every cell of that memory has a non-empty vector_key.
+	// The flipped return value reports whether this call mutated the row
+	// (false means either some cells still need embedding, or the row was
+	// already at recall_ready=1). Implementations MUST do the check and
+	// flip in a single statement so concurrent embed workers can't race
+	// against each other.
+	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (flipped bool, err error)
+
 	// Watermark history (OSS retention 7d).
 	GetWatermarkHistory(ctx context.Context, targetID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
 	AppendWatermarkHistory(ctx context.Context, entry types.WatermarkHistoryEntry) error

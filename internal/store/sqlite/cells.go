@@ -88,3 +88,26 @@ UPDATE memora_cells SET vector_key=?, embedding_model=? WHERE cell_id=?`,
 	}
 	return nil
 }
+
+// FlipRecallReadyIfAllEmbedded sets recall_ready=1 on a memory iff every
+// one of its cells has a non-empty vector_key. Atomic via a single
+// conditional UPDATE so concurrent embed workers can't race.
+func (s *Store) FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+UPDATE memora_memories
+SET    recall_ready = 1,
+       updated_at   = ?
+WHERE  id           = ?
+  AND  recall_ready = 0
+  AND  EXISTS (SELECT 1 FROM memora_cells WHERE memory_id = ?)
+  AND  NOT EXISTS (
+           SELECT 1 FROM memora_cells
+           WHERE memory_id = ?
+             AND (vector_key IS NULL OR vector_key = '')
+       )`, time.Now().UTC(), memoryID, memoryID, memoryID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}

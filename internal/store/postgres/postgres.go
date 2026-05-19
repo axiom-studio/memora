@@ -76,6 +76,9 @@ func (s *Store) ForgetMemory(context.Context, string) error                     
 func (s *Store) UpsertCells(context.Context, string, []types.Cell) error           { return types.ErrCapability }
 func (s *Store) GetCells(context.Context, string) ([]types.Cell, error)            { return nil, types.ErrCapability }
 func (s *Store) UpdateCellVectorKey(context.Context, string, string, string) error { return types.ErrCapability }
+func (s *Store) FlipRecallReadyIfAllEmbedded(context.Context, string) (bool, error) {
+	return false, types.ErrCapability
+}
 func (s *Store) GetWatermarkHistory(context.Context, string, time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return nil, types.ErrCapability
 }

@@ -130,6 +130,90 @@ func PrimaryStoreSuite(t *testing.T, factory PrimaryFactory) {
 		}
 	})
 
+	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
+		s := factory(t)
+		ctx := context.Background()
+		ws := &types.Workspace{Name: "recall-ready-ws"}
+		_ = s.CreateWorkspace(ctx, ws)
+		mem := &types.Memory{
+			WorkspaceID:      ws.ID,
+			Content:          "recall content",
+			WrittenByAgentID: "agent_opaque_c",
+		}
+		if _, err := s.ImprintMemory(ctx, mem); err != nil {
+			t.Fatalf("imprint: %v", err)
+		}
+		// Two cells, neither embedded yet.
+		cells := []types.Cell{
+			{Seq: 0, Text: "a", TextMD5: types.MD5Hex("a"), WrittenByAgentID: "agent_opaque_c"},
+			{Seq: 1, Text: "b", TextMD5: types.MD5Hex("b"), WrittenByAgentID: "agent_opaque_c"},
+		}
+		if err := s.UpsertCells(ctx, mem.ID, cells); err != nil {
+			t.Fatalf("upsert cells: %v", err)
+		}
+		// No cells have a vector_key → no flip.
+		flipped, err := s.FlipRecallReadyIfAllEmbedded(ctx, mem.ID)
+		if err != nil {
+			t.Fatalf("flip (none embedded): %v", err)
+		}
+		if flipped {
+			t.Fatal("flipped with zero cells embedded")
+		}
+		// Embed cell 0 only → still no flip.
+		stored, _ := s.GetCells(ctx, mem.ID)
+		if err := s.UpdateCellVectorKey(ctx, stored[0].CellID, stored[0].CellID, "test:model"); err != nil {
+			t.Fatalf("update cell 0: %v", err)
+		}
+		flipped, err = s.FlipRecallReadyIfAllEmbedded(ctx, mem.ID)
+		if err != nil {
+			t.Fatalf("flip (1 of 2): %v", err)
+		}
+		if flipped {
+			t.Fatal("flipped with one cell still missing vector_key")
+		}
+		// Embed cell 1 → flip should succeed once.
+		if err := s.UpdateCellVectorKey(ctx, stored[1].CellID, stored[1].CellID, "test:model"); err != nil {
+			t.Fatalf("update cell 1: %v", err)
+		}
+		flipped, err = s.FlipRecallReadyIfAllEmbedded(ctx, mem.ID)
+		if err != nil {
+			t.Fatalf("flip (all embedded): %v", err)
+		}
+		if !flipped {
+			t.Fatal("expected flip after all cells embedded")
+		}
+		// Memory row reflects the flip.
+		got, err := s.GetMemory(ctx, mem.ID)
+		if err != nil {
+			t.Fatalf("GetMemory: %v", err)
+		}
+		if !got.RecallReady {
+			t.Fatal("Memory.RecallReady not persisted after flip")
+		}
+		// Idempotent — second call is a no-op.
+		flipped, err = s.FlipRecallReadyIfAllEmbedded(ctx, mem.ID)
+		if err != nil {
+			t.Fatalf("flip (idempotent): %v", err)
+		}
+		if flipped {
+			t.Fatal("second flip mutated an already-ready memory")
+		}
+		// Memory with zero cells must never flip.
+		empty := &types.Memory{
+			WorkspaceID:      ws.ID,
+			Content:          "empty",
+			WrittenByAgentID: "agent_opaque_c",
+		}
+		_, _ = s.ImprintMemory(ctx, empty)
+		flipped, err = s.FlipRecallReadyIfAllEmbedded(ctx, empty.ID)
+		if err != nil {
+			t.Fatalf("flip (zero cells): %v", err)
+		}
+		if flipped {
+			t.Fatal("flipped a memory with zero cells")
+		}
+	})
+
 	t.Run("graph_unique_live_triple", func(t *testing.T) {
 		s := factory(t)
 		ctx := context.Background()
