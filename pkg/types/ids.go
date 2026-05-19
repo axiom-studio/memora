@@ -28,6 +28,7 @@ const (
 	LedgerIDPrefix     = "lg_"
 	PinIDPrefix        = "pin_"
 	SnapshotIDPrefix   = "snap_"
+	FederationIDPrefix = "fed_"
 )
 
 // NewID returns a fresh prefixed ULID, e.g. "mem_01HXYZ...".

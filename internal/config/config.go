@@ -200,8 +200,12 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("telemetry.log_format: unknown %q", c.Telemetry.LogFormat))
 	}
 
-	if c.Federation.Enabled && c.Federation.FederationID == "" {
-		errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))
+	if c.Federation.Enabled {
+		if c.Federation.FederationID == "" {
+			errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))
+		} else if !strings.HasPrefix(c.Federation.FederationID, "fed_") {
+			errs = append(errs, fmt.Errorf("federation.federation_id %q must start with fed_ prefix", c.Federation.FederationID))
+		}
 	}
 	for i, p := range c.Federation.Peers {
 		if p.URL == "" {

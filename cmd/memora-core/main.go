@@ -75,6 +75,11 @@ func main() {
 		runCheckConfig()
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "federation" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runFederation()
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
 		fmt.Printf("memora-core %s (commit=%s built=%s)\n", version, commit, buildDate)
 		return
@@ -92,6 +97,7 @@ func printHelp() {
 Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
+  memora-core federation init      generate a federation UUID (fed_<ULID>)
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -546,6 +552,29 @@ func runInitCert() {
 	fmt.Println()
 	fmt.Println("Add to your config.toml:")
 	fmt.Println(res.ConfigSnippet())
+}
+
+func runFederation() {
+	if len(os.Args) < 2 || os.Args[1] != "init" {
+		fmt.Fprintln(os.Stderr, "usage: memora-core federation init [--name <name>]")
+		os.Exit(1)
+	}
+	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+	fs := flag.NewFlagSet("federation-init", flag.ExitOnError)
+	name := fs.String("name", "", "human-readable name for this federation instance")
+	_ = fs.Parse(os.Args[1:])
+
+	fedID := types.NewID(types.FederationIDPrefix)
+	fmt.Printf("Federation ID: %s\n", fedID)
+	if *name != "" {
+		fmt.Printf("Name:          %s\n", *name)
+	}
+	fmt.Println()
+	fmt.Println("Add to your config.toml:")
+	fmt.Println()
+	fmt.Println("[federation]")
+	fmt.Println("enabled = true")
+	fmt.Printf("federation_id = %q\n", fedID)
 }
 
 func runPrintConfig() {
