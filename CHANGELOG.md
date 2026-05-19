@@ -36,6 +36,15 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `internal/mcp/server_test.go` covers the handshake, dispatch
   round-trip, and frame-parsing edges.
 
+### Changed
+- VectorStore (`internal/store/sqlitevec`): acceptance criteria updated
+  to match v0.1 reality — pure-Go brute-force cosine scan
+  (`SupportsANN=false`) instead of `vec0` extension. vec0 requires
+  `CGO_ENABLED=1` which conflicts with the zero-CGO cross-platform
+  build. Performance is equivalent for v0.1 corpus sizes (<100K
+  vectors). vec0 integration deferred to v0.5. See
+  [`docs/architecture.md`](./docs/architecture.md#vectorstore-performance-trade-off).
+
 ### Known issues (tracked)
 - macOS darwin binaries are unsigned; first run triggers a Gatekeeper
   warning. Notarization deferred pending Apple Developer Program

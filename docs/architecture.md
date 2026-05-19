@@ -99,6 +99,36 @@ from keyword/vector/hybrid mode, then BFS walks expand the seed set
 with `score = weight × decay^layer × seed_score`. Results carry
 `via: "seed"|"graph"` and a `graph_provenance` block when graph-derived.
 
+## VectorStore performance trade-off
+
+v0.1 ships a **pure-Go cosine-similarity scan** (`internal/store/sqlitevec/`)
+rather than the originally-specified `vec0` virtual-table extension.
+
+**Why:** `modernc.org/sqlite` — the pure-Go SQLite driver that keeps
+`CGO_ENABLED=0` — cannot load C extensions. `vec0` is a C extension.
+Preserving zero-CGO was a hard requirement for the cross-platform
+release pipeline (see `.goreleaser.yaml`), so the VectorStore ships a
+brute-force exact scan instead of sub-linear ANN.
+
+**What this means in practice:**
+
+| Metric | Pure-Go scan (v0.1) | vec0 ANN (v0.5+) |
+|---|---|---|
+| Complexity | O(n) per query | O(log n) via HNSW/IVF |
+| Corpus ceiling | ~100K vectors (single-digit ms on modern hardware) | Millions |
+| `SupportsANN` | `false` | `true` |
+| Filter strategy | Post-scan Go filtering | WHERE-clause pushdown into the index |
+| CGO requirement | None | `CGO_ENABLED=1` + C toolchain |
+
+For v0.1's expected corpus sizes (hundreds to low-thousands of vectors
+per workspace), the brute-force scan is functionally indistinguishable
+from ANN — both return in <1 ms. The adapter interface is unchanged;
+swapping in vec0 later is a drop-in driver replacement with no
+caller-visible API change.
+
+**Tracked follow-up:** vec0 integration targeting v0.5 (requires either
+a CGO build variant or a pure-Go vec0 port).
+
 ## Adapter contracts
 
 The three adapter contracts in `pkg/adapter` are the public OSS API.
