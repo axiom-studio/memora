@@ -20,8 +20,8 @@ public Go packages third parties can vendor.
                                 │               │               │
                                 │  ┌────────────▼────────────┐  │
                                 │  │     pkg/adapter         │  │
-                                │  │  PrimaryStore / Vector  │  │
-                                │  │      / Ledger / ID      │  │
+                                │  │  Metadata / Content /   │  │
+                                │  │  Vector / Graph / Ledger│  │
                                 │  └─┬──────┬──────┬──────┬──┘  │
                                 │    │      │      │      │     │
                                 └────┼──────┼──────┼──────┼─────┘
@@ -44,7 +44,7 @@ public Go packages third parties can vendor.
 |---|---|
 | `pkg/types` | Domain types (Workspace, Memory, Cell, Edge, Agent, Watermark, ...). |
 | `pkg/types/api` | REST request / response wire types (Imprint, Patch, Recall, ...). |
-| `pkg/adapter` | Three pluggable persistence interfaces — PrimaryStore, VectorStore, LedgerStore — plus IdentityProvider and the driver registry. |
+| `pkg/adapter` | Five pluggable persistence interfaces — MetadataStore, ContentStore, VectorStore, LedgerStore, GraphStore — plus IdentityProvider and the driver registry. |
 | `pkg/embedding` | EmbeddingProvider contract + noop / openai providers. |
 | `pkg/identity` | OSS identity providers (opaque, anthropic_session) + standards stubs. |
 | `pkg/client` | Go SDK over the REST surface; what memora-cli is built on. |
@@ -53,7 +53,7 @@ public Go packages third parties can vendor.
 
 | Package | Role |
 |---|---|
-| `internal/store/sqlite` | Default OSS PrimaryStore. |
+| `internal/store/sqlite` | Default OSS MetadataStore. |
 | `internal/store/sqlitevec` | Default OSS VectorStore (pure-Go cosine; vec0 in v0.5). |
 | `internal/ledger/sqlite` | Default OSS LedgerStore. |
 | `internal/ledger/file` | Flat-file JSONL+gzip rotation LedgerStore. |
@@ -88,11 +88,13 @@ stored in `memora_edges`. The closed edge_type enum is `parent_of`,
 (see `pkg/types/edge.go`). Caller-declared, never extracted from
 content.
 
-Six PrimaryStore methods power the graph: `GraphLink`, `GraphUnlink`,
-`GraphLinkBatch`, `GraphNeighbors`, `GraphTraverse`, and
-`GraphCascadeForget`. Traversal is BFS with an OSS depth cap of 3,
-a `MaxEdges`/`Budget` safety budget, and an optional Memory predicate
-filter.
+The `GraphStore` adapter (extracted from the retired `PrimaryStore`)
+exposes six methods: `Link`, `Unlink`, `LinkBatch`, `Neighbors`,
+`Traverse`, and `CascadeForget`. Traversal is BFS with an OSS depth
+cap of 3, a `MaxEdges`/`Budget` safety budget, and an optional Memory
+predicate filter. The service layer nil-guards every `GraphStore`
+call — deployments without a graph backend degrade gracefully (forget
+skips cascade; explicit graph ops return 501).
 
 `Recall.graph_expansion` wires the graph back into search: seeds come
 from keyword/vector/hybrid mode, then BFS walks expand the seed set
@@ -131,19 +133,30 @@ a CGO build variant or a pure-Go vec0 port).
 
 ## Adapter contracts
 
-The three adapter contracts in `pkg/adapter` are the public OSS API.
+The five adapter contracts in `pkg/adapter` are the public OSS API.
 Third parties writing adapters import only this package — they don't
 need to depend on any `internal/` package.
 
 ```go
-type PrimaryStore interface {
-    Open(ctx, PrimaryConfig) error
+type MetadataStore interface {
+    Open(ctx, MetadataConfig) error
     // Workspace / Collection / Memory / Cell CRUD with CAS via watermark.
-    // Agent registry.
-    // Context Graph (Link / Unlink / LinkBatch / CascadeForget /
-    //                Neighbors / Traverse / Stats).
-    // Watermark history.
-    Capabilities() PrimaryCapabilities
+    // Agent registry. Watermark history.
+    Capabilities() MetadataCapabilities
+}
+
+type ContentStore interface {
+    Open(ctx, ContentConfig) error
+    // PutMemoryContent / PutCellContent / GetMemoryContent / GetCellContent /
+    // DeleteAllForMemory
+    Capabilities() ContentCapabilities
+}
+
+type GraphStore interface {
+    Open(ctx, GraphConfig) error
+    // Link / Unlink / LinkBatch / CascadeForget /
+    // Neighbors / Traverse / Stats
+    Capabilities() GraphCapabilities
 }
 
 type VectorStore interface {
@@ -164,10 +177,11 @@ type IdentityProvider interface {
 ```
 
 Drivers register themselves in `init()` via
-`adapter.RegisterPrimary("driver-name", factory)` (and the equivalent
-for vector/ledger/identity). The server's `--primary-driver` flag
-(or `MEMORA_PRIMARY_DRIVER`) selects which driver to instantiate at
-boot.
+`adapter.RegisterMetadata("driver-name", factory)` (and the equivalent
+for content/graph/vector/ledger/identity). The server's
+`--metadata-driver` flag (or `MEMORA_METADATA_DRIVER`) selects which
+metadata driver to instantiate at boot; `--graph-driver`, `--vector-driver`,
+etc. select the others.
 
 See [adapter-authoring.md](adapter-authoring.md) for the step-by-step
 guide.

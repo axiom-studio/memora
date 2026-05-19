@@ -33,10 +33,10 @@ type MigrateContentResult struct {
 	ResumeToken string `json:"resume_token,omitempty"`
 }
 
-// MigrateContent copies memory and cell content from the PrimaryStore
+// MigrateContent copies memory and cell content from the MetadataStore
 // legacy columns to the ContentStore. Idempotent — only missing entries
 // are written. Returns the result summary.
-func MigrateContent(ctx context.Context, primary adapter.PrimaryStore, content adapter.ContentStore, cfg MigrateContentConfig) (*MigrateContentResult, error) {
+func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content adapter.ContentStore, cfg MigrateContentConfig) (*MigrateContentResult, error) {
 	if content == nil {
 		return nil, fmt.Errorf("content store is nil — configure a content driver first")
 	}

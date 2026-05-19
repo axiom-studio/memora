@@ -8,7 +8,7 @@ import (
 
 // openSQLiteDB opens a SQLite database with the standard safety
 // pragmas (WAL, foreign keys, synchronous=NORMAL, busy_timeout).
-// Shared between PrimaryStore and ContentStore.
+// Shared between MetadataStore and ContentStore.
 func openSQLiteDB(dsn string) (*sql.DB, error) {
 	sep := "?"
 	if strings.Contains(dsn, "?") {

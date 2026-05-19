@@ -1,10 +1,9 @@
 // Package orphangc provides a background goroutine that reclaims
 // orphaned content blobs. An orphan is a ContentStore entry whose
-// corresponding MetadataStore / PrimaryStore memory row either
-// doesn't exist or was soft-deleted (forgotten). Orphans arise from
-// the content-first write ordering (doc #301 §7.3 option a): if the
-// content write succeeds but the metadata write fails, the blob is
-// stranded.
+// corresponding MetadataStore memory row either doesn't exist or was
+// soft-deleted (forgotten). Orphans arise from the content-first
+// write ordering (doc #301 §7.3 option a): if the content write
+// succeeds but the metadata write fails, the blob is stranded.
 package orphangc
 
 import (
@@ -31,11 +30,11 @@ type Config struct {
 
 // Sweeper is the background orphan-content GC.
 type Sweeper struct {
-	primary adapter.PrimaryStore
-	content adapter.ContentStore
-	ledger  LedgerAppender
-	logger  *slog.Logger
-	cfg     Config
+	metadata adapter.MetadataStore
+	content  adapter.ContentStore
+	ledger   LedgerAppender
+	logger   *slog.Logger
+	cfg      Config
 
 	totalDeleted atomic.Int64
 	lastDeleted  atomic.Int64
@@ -43,7 +42,7 @@ type Sweeper struct {
 }
 
 // New creates a Sweeper but does not start it. Call Start to begin.
-func New(primary adapter.PrimaryStore, content adapter.ContentStore, ledger LedgerAppender, logger *slog.Logger, cfg Config) *Sweeper {
+func New(metadata adapter.MetadataStore, content adapter.ContentStore, ledger LedgerAppender, logger *slog.Logger, cfg Config) *Sweeper {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Minute
 	}
@@ -51,8 +50,8 @@ func New(primary adapter.PrimaryStore, content adapter.ContentStore, ledger Ledg
 		cfg.MinAge = 1 * time.Hour
 	}
 	return &Sweeper{
-		primary: primary,
-		content: content,
+		metadata: metadata,
+		content:  content,
 		ledger:  ledger,
 		logger:  logger,
 		cfg:     cfg,
@@ -92,7 +91,7 @@ func (s *Sweeper) loop(ctx context.Context) {
 }
 
 // sweep runs one GC pass. It lists recently-forgotten memories from
-// the PrimaryStore and deletes their content blobs. This is a
+// the MetadataStore and deletes their content blobs. This is a
 // conservative approach — it only cleans up content for memories that
 // were explicitly forgotten, not content orphaned by metadata write
 // failures. A more thorough enumeration-based sweep would require a

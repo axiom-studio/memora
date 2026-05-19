@@ -14,7 +14,7 @@ func init() {
 
 // ContentStore is the Postgres-backed ContentStore. Currently a
 // deferred stub (returns ErrCapability) — full implementation is
-// tracked for v0.5, alongside the Postgres PrimaryStore. The type is
+// tracked for v0.5, alongside the Postgres MetadataStore. The type is
 // registered so deployers who set --content-driver=postgres get a
 // clear error instead of a panic.
 //

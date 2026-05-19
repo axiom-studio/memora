@@ -11,7 +11,6 @@ import (
 // `cloud` build tag toggles cloud-only factories on or off.
 var (
 	regMu             sync.RWMutex
-	primaryDrivers    = map[string]PrimaryFactory{}
 	metadataDrivers   = map[string]MetadataFactory{}
 	vectorDrivers     = map[string]VectorFactory{}
 	ledgerDrivers     = map[string]LedgerFactory{}
@@ -19,17 +18,6 @@ var (
 	graphDrivers      = map[string]GraphFactory{}
 	identityProviders = map[string]IdentityFactory{}
 )
-
-// RegisterPrimary registers a PrimaryStore factory under a driver name.
-// Idiomatic call site: a package's init() function.
-func RegisterPrimary(name string, factory PrimaryFactory) {
-	regMu.Lock()
-	defer regMu.Unlock()
-	if _, dup := primaryDrivers[name]; dup {
-		panic(fmt.Sprintf("memora: PrimaryStore driver %q registered twice", name))
-	}
-	primaryDrivers[name] = factory
-}
 
 // RegisterMetadata registers a MetadataStore factory under a driver name.
 func RegisterMetadata(name string, factory MetadataFactory) {
@@ -89,21 +77,6 @@ func RegisterIdentity(name string, factory IdentityFactory) {
 		panic(fmt.Sprintf("memora: IdentityProvider %q registered twice", name))
 	}
 	identityProviders[name] = factory
-}
-
-// OpenPrimary instantiates and opens a PrimaryStore by driver name.
-func OpenPrimary(ctx context.Context, cfg PrimaryConfig) (PrimaryStore, error) {
-	regMu.RLock()
-	factory, ok := primaryDrivers[cfg.Driver]
-	regMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("memora: unknown PrimaryStore driver %q (registered: %v)", cfg.Driver, ListPrimaryDrivers())
-	}
-	store := factory()
-	if err := store.Open(ctx, cfg); err != nil {
-		return nil, fmt.Errorf("memora: open PrimaryStore %q: %w", cfg.Driver, err)
-	}
-	return store, nil
 }
 
 // OpenMetadata instantiates and opens a MetadataStore by driver name.
@@ -191,9 +164,6 @@ func OpenIdentity(name string) (IdentityProvider, error) {
 	}
 	return factory(), nil
 }
-
-// ListPrimaryDrivers returns the registered PrimaryStore driver names.
-func ListPrimaryDrivers() []string { return sortedKeys(primaryDrivers) }
 
 // ListMetadataDrivers returns the registered MetadataStore driver names.
 func ListMetadataDrivers() []string { return sortedKeys(metadataDrivers) }

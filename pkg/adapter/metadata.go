@@ -30,7 +30,7 @@ type MetadataCapabilities struct {
 // ContentStore), Cell headers (Text="" — real text lives in
 // ContentStore), watermark history, tags, and the agent registry.
 //
-// Extracted from PrimaryStore per doc #301 §3 to enable the
+// Extracted from MetadataStore per doc #301 §3 to enable the
 // five-adapter architecture: Metadata + Content + Vector + Graph + Ledger.
 type MetadataStore interface {
 	Open(ctx context.Context, cfg MetadataConfig) error

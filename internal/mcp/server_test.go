@@ -31,8 +31,8 @@ func newTestService(t *testing.T) *service.Service {
 	ctx := context.Background()
 
 	primary := &storesqlite.Store{}
-	if err := primary.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
-		t.Fatalf("open primary: %v", err)
+	if err := primary.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
+		t.Fatalf("open metadata: %v", err)
 	}
 	t.Cleanup(func() { _ = primary.Close() })
 
@@ -47,7 +47,7 @@ func newTestService(t *testing.T) *service.Service {
 		t.Fatalf("open embedding: %v", err)
 	}
 	return &service.Service{
-		Primary:  primary,
+		Metadata: primary,
 		Vector:   vec,
 		Embedder: embedProvider,
 		Identity: map[string]adapter.IdentityProvider{
@@ -299,7 +299,7 @@ func TestDispatch_AgentIDFlowsToService(t *testing.T) {
 	}
 	memID := extractToolMemoryID(t, resps2[0])
 
-	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	mem, err := svc.Metadata.GetMemory(context.Background(), memID)
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestDispatch_PinnedAgentIDOverridesClientParam(t *testing.T) {
 	}
 	memID := extractToolMemoryID(t, resps2[0])
 
-	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	mem, err := svc.Metadata.GetMemory(context.Background(), memID)
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestDispatch_NoAuthMode_ClientAgentIDFlows(t *testing.T) {
 	}
 	memID := extractToolMemoryID(t, resps2[0])
 
-	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	mem, err := svc.Metadata.GetMemory(context.Background(), memID)
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}

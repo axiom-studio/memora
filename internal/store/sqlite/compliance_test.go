@@ -9,16 +9,13 @@ import (
 	"github.com/axiom-studio/memora/pkg/adapter/compliance"
 )
 
-// TestCompliance_PrimaryStore_SQLite runs the public compliance suite
-// against the SQLite adapter. Adapter authors can copy this file as a
-// template for their own implementations.
-func TestCompliance_PrimaryStore_SQLite(t *testing.T) {
-	compliance.PrimaryStoreSuite(t, func(t *testing.T) adapter.PrimaryStore {
+func TestCompliance_MetadataStore_SQLite(t *testing.T) {
+	compliance.MetadataStoreSuite(t, func(t *testing.T) adapter.MetadataStore {
 		t.Helper()
 		dir := t.TempDir()
 		dsn := filepath.Join(dir, "compliance.db")
 		s := &Store{}
-		if err := s.Open(context.Background(), adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+		if err := s.Open(context.Background(), adapter.MetadataConfig{Driver: "sqlite", DSN: dsn}); err != nil {
 			t.Fatalf("open: %v", err)
 		}
 		t.Cleanup(func() { _ = s.Close() })

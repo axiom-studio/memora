@@ -116,7 +116,7 @@ func TestWebSocket_FullToolCallRoundtrip(t *testing.T) {
 	}
 	memID := extractToolMemoryID(t, resp)
 
-	mem, err := svc.Primary.GetMemory(context.Background(), memID)
+	mem, err := svc.Metadata.GetMemory(context.Background(), memID)
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}

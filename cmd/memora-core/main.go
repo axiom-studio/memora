@@ -1,6 +1,6 @@
 // memora-core is the Memora server binary. It boots the configured
-// PrimaryStore / VectorStore / LedgerStore adapters and serves the
-// REST surface (plus the bundled MCP transport in `serve` mode).
+// MetadataStore / VectorStore / LedgerStore / ContentStore / GraphStore
+// adapters and serves the REST + MCP surface.
 package main
 
 import (
@@ -78,10 +78,9 @@ Usage:
 Common flags for 'serve':
   --addr               listen address (default :7777; can also be set via MEMORA_ADDR)
   --data-dir           directory for the SQLite database file (default ./data)
-  --primary-driver     primary-store driver (default sqlite)
+  --metadata-driver    metadata-store driver (default sqlite)
   --vector-driver      vector-store driver (default sqlite-vec)
   --ledger-driver      ledger-store driver (default sqlite)
-  --metadata-driver    metadata-store driver (default: use PrimaryStore; sqlite)
   --embedding-model    embedding model id (default noop:default)
   --api-key            API bearer key (default $MEMORA_API_KEY; empty disables auth — local dev)
   --allow-no-auth      explicit opt-in to run with an empty API key on a non-loopback bind
@@ -146,11 +145,10 @@ func serve() {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", getenv("MEMORA_ADDR", ":7777"), "listen address")
 	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory for SQLite")
-	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
+	metadataDriver := fs.String("metadata-driver", getenv("MEMORA_METADATA_DRIVER", "sqlite"), "metadata-store driver")
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
-	graphDriver := fs.String("graph-driver", os.Getenv("MEMORA_GRAPH_DRIVER"), "graph-store driver (empty = use PrimaryStore; sqlite_graph)")
-	metadataDriver := fs.String("metadata-driver", os.Getenv("MEMORA_METADATA_DRIVER"), "metadata-store driver (empty = use PrimaryStore; sqlite)")
+	graphDriver := fs.String("graph-driver", getenv("MEMORA_GRAPH_DRIVER", "sqlite_graph"), "graph-store driver")
 	contentDriver := fs.String("content-driver", os.Getenv("MEMORA_CONTENT_DRIVER"), "content-store driver (empty = disabled; file | sqlite)")
 	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN (e.g. /var/lib/memora/content for file driver)")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
@@ -171,7 +169,7 @@ func serve() {
 		logger.Info("auth enabled", "key_tag", hashTag(*apiKey))
 	}
 	logger.Info("starting",
-		"addr", *addr, "mode", *mode, "primary", *primaryDriver,
+		"addr", *addr, "mode", *mode, "metadata", *metadataDriver,
 		"vector", *vectorDriver, "ledger", *ledgerDriver, "embedding", *embedModel)
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -182,11 +180,11 @@ func serve() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
 	if err != nil {
-		bootLog.Fatalf("open primary: %v", err)
+		bootLog.Fatalf("open metadata: %v", err)
 	}
-	defer primary.Close()
+	defer meta.Close()
 	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
 	if err != nil {
 		bootLog.Fatalf("open vector: %v", err)
@@ -217,7 +215,7 @@ func serve() {
 	}
 
 	svc := &service.Service{
-		Primary:  primary,
+		Metadata: meta,
 		Vector:   vec,
 		Ledger:   led,
 		Embedder: embedProvider,
@@ -240,24 +238,13 @@ func serve() {
 		svc.Content = cs
 		logger.Info("content store enabled", "driver", *contentDriver, "dsn", cdsn)
 	}
-	if *graphDriver != "" {
-		gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: *graphDriver, DSN: dbPath})
-		if err != nil {
-			bootLog.Fatalf("open graph: %v", err)
-		}
-		defer gs.Close()
-		svc.Graph = gs
-		logger.Info("graph store enabled", "driver", *graphDriver)
+	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: *graphDriver, DSN: dbPath})
+	if err != nil {
+		bootLog.Fatalf("open graph: %v", err)
 	}
-	if *metadataDriver != "" {
-		ms, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
-		if err != nil {
-			bootLog.Fatalf("open metadata: %v", err)
-		}
-		defer ms.Close()
-		svc.Metadata = ms
-		logger.Info("metadata store enabled", "driver", *metadataDriver)
-	}
+	defer gs.Close()
+	svc.Graph = gs
+	logger.Info("graph store enabled", "driver", *graphDriver)
 
 	// Boot-time compatibility check (§7.7).
 	var ccaps *adapter.ContentCapabilities
@@ -265,12 +252,8 @@ func serve() {
 		c := svc.Content.Capabilities()
 		ccaps = &c
 	}
-	var gcaps *adapter.GraphCapabilities
-	if svc.Graph != nil {
-		c := svc.Graph.Capabilities()
-		gcaps = &c
-	}
-	if err := adapter.ValidateCompatibility(logger, primary.Capabilities(), ccaps, gcaps); err != nil {
+	gcaps := gs.Capabilities()
+	if err := adapter.ValidateCompatibility(logger, meta.Capabilities(), ccaps, &gcaps); err != nil {
 		bootLog.Fatalf("compatibility check failed: %v", err)
 	}
 
@@ -334,7 +317,7 @@ func getenv(key, def string) string {
 func runMCP() {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
 	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory")
-	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
+	metadataDriver := fs.String("metadata-driver", getenv("MEMORA_METADATA_DRIVER", "sqlite"), "metadata-store driver")
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
@@ -355,11 +338,11 @@ func runMCP() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
 	if err != nil {
-		logger.Fatalf("open primary: %v", err)
+		logger.Fatalf("open metadata: %v", err)
 	}
-	defer primary.Close()
+	defer meta.Close()
 	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: *vectorDriver, DSN: dbPath, Dim: 384})
 	if err != nil {
 		logger.Fatalf("open vector: %v", err)
@@ -381,7 +364,7 @@ func runMCP() {
 		identityMap[name] = p
 	}
 	svc := &service.Service{
-		Primary:  primary,
+		Metadata: meta,
 		Vector:   vec,
 		Ledger:   led,
 		Embedder: embedProvider,

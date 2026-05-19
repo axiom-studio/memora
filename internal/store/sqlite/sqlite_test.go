@@ -22,7 +22,7 @@ func openStore(t *testing.T) (*Store, context.Context) {
 	dsn := filepath.Join(dir, "memora.db")
 	s := &Store{}
 	ctx := context.Background()
-	if err := s.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+	if err := s.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: dsn}); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
@@ -202,7 +202,7 @@ func TestMigrationIdempotence(t *testing.T) {
 	ctx := context.Background()
 
 	s1 := &Store{}
-	if err := s1.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+	if err := s1.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: dsn}); err != nil {
 		t.Fatalf("first open: %v", err)
 	}
 	ws := &types.Workspace{Name: "idempotent"}
@@ -212,7 +212,7 @@ func TestMigrationIdempotence(t *testing.T) {
 	_ = s1.Close()
 
 	s2 := &Store{}
-	if err := s2.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+	if err := s2.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: dsn}); err != nil {
 		t.Fatalf("second open (re-migrate): %v", err)
 	}
 	t.Cleanup(func() { _ = s2.Close() })
@@ -287,15 +287,6 @@ func TestCapabilities(t *testing.T) {
 	}
 	if !caps.SupportsTransactions {
 		t.Error("SupportsTransactions should be true")
-	}
-	if caps.MaxGraphDepth != 3 {
-		t.Errorf("MaxGraphDepth = %d, want 3", caps.MaxGraphDepth)
-	}
-	if caps.MaxNeighborsK != 200 {
-		t.Errorf("MaxNeighborsK = %d, want 200", caps.MaxNeighborsK)
-	}
-	if caps.MaxLinkBatchSize != 1000 {
-		t.Errorf("MaxLinkBatchSize = %d, want 1000", caps.MaxLinkBatchSize)
 	}
 }
 

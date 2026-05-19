@@ -2,7 +2,7 @@
 // HTTP / MCP handlers and the adapter contracts. It hosts the
 // composite operations the user-facing surfaces invoke:
 //
-//   - Imprint  -- chunker → cells → primary insert → enqueue embed
+//   - Imprint  -- chunker → cells → metadata insert → enqueue embed
 //   - Update   -- CAS via watermark, re-chunk, selective re-embed
 //   - Patch    -- atomic diff-op apply + the moat (text_md5 skip)
 //   - Append   -- chunk-aware append
@@ -28,101 +28,70 @@ import (
 
 // Service is the assembled set of collaborators handlers depend on.
 type Service struct {
-	Primary  adapter.PrimaryStore
-	Metadata adapter.MetadataStore // nil = fall back to Primary for metadata ops
+	Metadata adapter.MetadataStore
 	Vector   adapter.VectorStore
 	Ledger   adapter.LedgerStore
 	Content  adapter.ContentStore // nil = legacy-only (no dual-write)
-	Graph    adapter.GraphStore   // nil = fall back to Primary.Graph* (deprecated)
+	Graph    adapter.GraphStore   // nil = graph ops unavailable
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
 	Pool     *embedqueue.Pool
 }
 
-// meta returns the MetadataStore if configured, otherwise wraps
-// Primary as a pass-through. All non-Graph, non-Content PrimaryStore
-// calls should go through this accessor.
-func (s *Service) meta() metadataAccessor {
-	if s.Metadata != nil {
-		return s.Metadata
-	}
-	return s.Primary
-}
-
-// metadataAccessor is the subset of methods shared by both
-// MetadataStore and PrimaryStore. The meta() method returns whichever
-// is configured so callers can route transparently.
-type metadataAccessor interface {
-	GetWorkspace(ctx context.Context, id string) (*types.Workspace, error)
-	ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error)
-	CreateWorkspace(ctx context.Context, w *types.Workspace) error
-	GetMemory(ctx context.Context, id string) (*types.Memory, error)
-	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
-	ImprintMemory(ctx context.Context, m *types.Memory) (string, error)
-	UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error)
-	AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (string, string, error)
-	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error)
-	ForgetMemory(ctx context.Context, id string) error
-	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
-	GetCells(ctx context.Context, memoryID string) ([]types.Cell, error)
-	UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error
-	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (bool, error)
-}
-
-// GraphLink routes to Graph if configured, else falls back to Primary.
+// GraphLink delegates to the configured GraphStore.
 func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
-	if s.Graph != nil {
-		return s.Graph.Link(ctx, e)
+	if s.Graph == nil {
+		return types.Edge{}, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphLink(ctx, e)
+	return s.Graph.Link(ctx, e)
 }
 
-// GraphUnlink routes to Graph if configured, else falls back to Primary.
+// GraphUnlink delegates to the configured GraphStore.
 func (s *Service) GraphUnlink(ctx context.Context, edgeID, agentID string) error {
-	if s.Graph != nil {
-		return s.Graph.Unlink(ctx, edgeID, agentID)
+	if s.Graph == nil {
+		return fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphUnlink(ctx, edgeID, agentID)
+	return s.Graph.Unlink(ctx, edgeID, agentID)
 }
 
-// GraphLinkBatch routes to Graph if configured, else falls back to Primary.
+// GraphLinkBatch delegates to the configured GraphStore.
 func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]adapter.LinkResult, error) {
-	if s.Graph != nil {
-		return s.Graph.LinkBatch(ctx, edges)
+	if s.Graph == nil {
+		return nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphLinkBatch(ctx, edges)
+	return s.Graph.LinkBatch(ctx, edges)
 }
 
-// GraphCascadeForget routes to Graph if configured, else falls back to Primary.
+// GraphCascadeForget delegates to the configured GraphStore.
 func (s *Service) GraphCascadeForget(ctx context.Context, memoryID, agentID string) (int, error) {
-	if s.Graph != nil {
-		return s.Graph.CascadeForget(ctx, memoryID, agentID)
+	if s.Graph == nil {
+		return 0, nil
 	}
-	return s.Primary.GraphCascadeForget(ctx, memoryID, agentID)
+	return s.Graph.CascadeForget(ctx, memoryID, agentID)
 }
 
-// GraphNeighbors routes to Graph if configured, else falls back to Primary.
+// GraphNeighbors delegates to the configured GraphStore.
 func (s *Service) GraphNeighbors(ctx context.Context, workspaceID, memoryID string, opts adapter.NeighborsOpts) ([]types.Edge, []types.MemoryHeader, error) {
-	if s.Graph != nil {
-		return s.Graph.Neighbors(ctx, workspaceID, memoryID, opts)
+	if s.Graph == nil {
+		return nil, nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphNeighbors(ctx, workspaceID, memoryID, opts)
+	return s.Graph.Neighbors(ctx, workspaceID, memoryID, opts)
 }
 
-// GraphTraverse routes to Graph if configured, else falls back to Primary.
+// GraphTraverse delegates to the configured GraphStore.
 func (s *Service) GraphTraverse(ctx context.Context, workspaceID, seedMemoryID string, opts adapter.TraverseOpts) (adapter.TraverseResult, error) {
-	if s.Graph != nil {
-		return s.Graph.Traverse(ctx, workspaceID, seedMemoryID, opts)
+	if s.Graph == nil {
+		return adapter.TraverseResult{}, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphTraverse(ctx, workspaceID, seedMemoryID, opts)
+	return s.Graph.Traverse(ctx, workspaceID, seedMemoryID, opts)
 }
 
-// GraphStats routes to Graph if configured, else falls back to Primary.
+// GraphStats delegates to the configured GraphStore.
 func (s *Service) GraphStats(ctx context.Context, workspaceID string) (int, map[string]int, error) {
-	if s.Graph != nil {
-		return s.Graph.Stats(ctx, workspaceID)
+	if s.Graph == nil {
+		return 0, nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Primary.GraphStats(ctx, workspaceID)
+	return s.Graph.Stats(ctx, workspaceID)
 }
 
 // IdentityFor returns the configured provider or falls back to "opaque".
@@ -145,7 +114,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required for imprint", types.ErrInvalidInput)
 	}
-	ws, err := s.Primary.GetWorkspace(ctx, workspaceID)
+	ws, err := s.Metadata.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,19 +161,19 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	}
 
 	// Step 2: metadata writes.
-	wmk, err := s.Primary.ImprintMemory(ctx, mem)
+	wmk, err := s.Metadata.ImprintMemory(ctx, mem)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Primary.UpsertCells(ctx, mem.ID, cells); err != nil {
+	if err := s.Metadata.UpsertCells(ctx, mem.ID, cells); err != nil {
 		return nil, err
 	}
 	// Inline-embed so the response reports a finalized recall_ready.
 	embedRes, err := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
+		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, req.CollectionID, mem.ID, nil, cells)
 	if err == nil {
-		_ = s.Primary.UpsertCells(ctx, mem.ID, cells)
+		_ = s.Metadata.UpsertCells(ctx, mem.ID, cells)
 	}
 	recallReady := err == nil
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
@@ -237,7 +206,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	if expected == "" {
 		return nil, fmt.Errorf("%w: If-Match or expected_watermark required for update", types.ErrInvalidInput)
 	}
-	existing, err := s.Primary.GetMemory(ctx, memoryID)
+	existing, err := s.Metadata.GetMemory(ctx, memoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +215,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	mem.Tags = req.Tags
 	mem.LastModifiedByAgentID = agentID
 	start := time.Now()
-	newWmk, err := s.Primary.UpdateMemory(ctx, memoryID, expected, &mem)
+	newWmk, err := s.Metadata.UpdateMemory(ctx, memoryID, expected, &mem)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +224,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	if ck == nil {
 		ck, _ = chunker.Get("default")
 	}
-	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, req.Content)
 	if err != nil {
 		return nil, err
@@ -265,9 +234,9 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		newCells[i].WrittenByAgentID = agentID
 	}
 	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
+		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
-	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(req.Content), req.Content)
 		for _, cell := range newCells {
@@ -314,13 +283,13 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		return nil, fmt.Errorf("%w: If-Match or expected_watermark required for patch", types.ErrInvalidInput)
 	}
 	start := time.Now()
-	newWmk, _, newContent, err := s.Primary.PatchMemory(ctx, memoryID, expected, req.Patch, agentID)
+	newWmk, _, newContent, err := s.Metadata.PatchMemory(ctx, memoryID, expected, req.Patch, agentID)
 	if err != nil {
 		return nil, err
 	}
-	existing, _ := s.Primary.GetMemory(ctx, memoryID)
+	existing, _ := s.Metadata.GetMemory(ctx, memoryID)
 	ck, _ := chunker.Get("default")
-	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, newContent)
 	if err != nil {
 		return nil, err
@@ -330,9 +299,9 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		newCells[i].WrittenByAgentID = agentID
 	}
 	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
+		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
-	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(newContent), newContent)
 		for _, cell := range newCells {
@@ -381,13 +350,13 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 	if expected == "" {
 		expected = req.ExpectedWatermark
 	}
-	newWmk, md5, err := s.Primary.AppendMemory(ctx, memoryID, expected, req.Content, agentID)
+	newWmk, md5, err := s.Metadata.AppendMemory(ctx, memoryID, expected, req.Content, agentID)
 	if err != nil {
 		return nil, err
 	}
-	existing, _ := s.Primary.GetMemory(ctx, memoryID)
+	existing, _ := s.Metadata.GetMemory(ctx, memoryID)
 	ck, _ := chunker.Get("default")
-	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, existing.Content)
 	if err != nil {
 		return nil, err
@@ -397,9 +366,9 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		newCells[i].WrittenByAgentID = agentID
 	}
 	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
+		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
-	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, md5, existing.Content)
 		for _, cell := range newCells {
@@ -430,7 +399,7 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 	// If content delete fails, the blob is orphaned but unreachable —
 	// the GC sweeper will reclaim it. Never delete content first, or a
 	// concurrent reader could see a memory with no body.
-	if err := s.Primary.ForgetMemory(ctx, memoryID); err != nil {
+	if err := s.Metadata.ForgetMemory(ctx, memoryID); err != nil {
 		return nil, err
 	}
 	if s.Content != nil {
@@ -466,7 +435,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	switch mode {
 	case api.RecallModeLookup:
 		for _, id := range req.MemoryIDs {
-			m, err := s.Primary.GetMemory(ctx, id)
+			m, err := s.Metadata.GetMemory(ctx, id)
 			if err != nil {
 				continue
 			}
@@ -554,12 +523,12 @@ func max(a, b int) int {
 	return b
 }
 
-// keywordSearch hits the FTS5 virtual table on the SQLite PrimaryStore.
+// keywordSearch hits the FTS5 virtual table on the SQLite MetadataStore.
 // Adapter-specific; falls back to a substring scan for adapters without FTS.
 func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
 	// SQLite-specific FTS query exposed via a typed Querier interface
 	// would be cleaner. v0.1 lives without it by scanning ListMemories.
-	mems, err := s.Primary.ListMemories(ctx, workspaceID, req.Filters.CollectionID, 500)
+	mems, err := s.Metadata.ListMemories(ctx, workspaceID, req.Filters.CollectionID, 500)
 	if err != nil {
 		return nil, err
 	}
@@ -612,7 +581,7 @@ func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.
 	}
 	out := make([]api.RecallHit, 0, len(res))
 	for _, v := range res {
-		m, err := s.Primary.GetMemory(ctx, v.Key.MemoryID)
+		m, err := s.Metadata.GetMemory(ctx, v.Key.MemoryID)
 		if err != nil {
 			continue
 		}
@@ -793,7 +762,7 @@ func (s *Service) graphExpand(ctx context.Context, workspaceID string, seeds []a
 					continue
 				}
 				visited[hit.Memory.MemoryID] = true
-				m, err := s.Primary.GetMemory(ctx, hit.Memory.MemoryID)
+				m, err := s.Metadata.GetMemory(ctx, hit.Memory.MemoryID)
 				if err != nil {
 					continue
 				}

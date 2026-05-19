@@ -19,7 +19,7 @@ func init() {
 }
 
 // GraphStore implements adapter.GraphStore against SQLite, reusing
-// the memora_edges table created by the PrimaryStore migrations.
+// the memora_edges table created by the MetadataStore migrations.
 type GraphStore struct {
 	db *sql.DB
 }

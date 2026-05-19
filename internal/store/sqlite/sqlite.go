@@ -1,4 +1,4 @@
-// Package sqlite is the OSS-default Memora PrimaryStore adapter
+// Package sqlite is the OSS-default Memora MetadataStore adapter
 // backed by modernc.org/sqlite (CGo-free).
 package sqlite
 
@@ -23,10 +23,10 @@ import (
 var embeddedMigrations embed.FS
 
 func init() {
-	adapter.RegisterPrimary("sqlite", func() adapter.PrimaryStore { return &Store{} })
+	adapter.RegisterMetadata("sqlite", func() adapter.MetadataStore { return &Store{} })
 }
 
-// Store implements adapter.PrimaryStore against SQLite.
+// Store implements adapter.MetadataStore against SQLite.
 type Store struct {
 	db     *sql.DB
 	dsn    string
@@ -34,8 +34,8 @@ type Store struct {
 	wmkMu  sync.Mutex
 }
 
-// Open implements adapter.PrimaryStore.
-func (s *Store) Open(ctx context.Context, cfg adapter.PrimaryConfig) error {
+// Open implements adapter.MetadataStore.
+func (s *Store) Open(ctx context.Context, cfg adapter.MetadataConfig) error {
 	if cfg.DSN == "" {
 		return errors.New("sqlite: DSN required (e.g. ./data/memora.db)")
 	}
@@ -75,7 +75,7 @@ func (s *Store) Open(ctx context.Context, cfg adapter.PrimaryConfig) error {
 	return nil
 }
 
-// Close implements adapter.PrimaryStore.
+// Close implements adapter.MetadataStore.
 func (s *Store) Close() error {
 	if s.db == nil {
 		return nil
@@ -83,7 +83,7 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Ping implements adapter.PrimaryStore.
+// Ping implements adapter.MetadataStore.
 func (s *Store) Ping(ctx context.Context) error {
 	if s.db == nil {
 		return errors.New("sqlite: not opened")
@@ -91,16 +91,13 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-// Capabilities implements adapter.PrimaryStore.
-func (s *Store) Capabilities() adapter.PrimaryCapabilities {
-	return adapter.PrimaryCapabilities{
-		SupportsCAS:              true,
-		SupportsTransactions:     true,
-		SupportsBatchUpsert:      true,
-		RecommendedMaxSizeGB:     50,
-		MaxGraphDepth:            3,
-		MaxNeighborsK:            200,
-		MaxLinkBatchSize:         1000,
+// Capabilities implements adapter.MetadataStore.
+func (s *Store) Capabilities() adapter.MetadataCapabilities {
+	return adapter.MetadataCapabilities{
+		SupportsCAS:          true,
+		SupportsTransactions: true,
+		SupportsBatchUpsert:  true,
+		RecommendedMaxSizeGB: 50,
 	}
 }
 

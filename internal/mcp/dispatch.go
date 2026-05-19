@@ -51,7 +51,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		m, err := s.svc.Primary.GetMemory(ctx, in.MemoryID)
+		m, err := s.svc.Metadata.GetMemory(ctx, in.MemoryID)
 		if err != nil {
 			return nil, err
 		}
@@ -131,14 +131,14 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		_ = json.Unmarshal(args, &wrapper)
 		return s.svc.Recall(ctx, wrapper.WorkspaceID, in)
 	case "memora_list_workspaces":
-		return s.svc.Primary.ListWorkspaces(ctx, 100)
+		return s.svc.Metadata.ListWorkspaces(ctx, 100)
 	case "memora_create_workspace":
 		var in api.CreateWorkspaceRequest
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
 		ws := &types.Workspace{Name: in.Name, Region: in.Region, ChunkerID: in.ChunkerID, EmbeddingModel: in.EmbeddingModel, Meta: in.Meta}
-		if err := s.svc.Primary.CreateWorkspace(ctx, ws); err != nil {
+		if err := s.svc.Metadata.CreateWorkspace(ctx, ws); err != nil {
 			return nil, err
 		}
 		return ws, nil
@@ -149,7 +149,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.GetWorkspace(ctx, in.WorkspaceID)
+		return s.svc.Metadata.GetWorkspace(ctx, in.WorkspaceID)
 	case "memora_delete_workspace":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`
@@ -157,7 +157,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		if err := s.svc.Primary.DeleteWorkspace(ctx, in.WorkspaceID); err != nil {
+		if err := s.svc.Metadata.DeleteWorkspace(ctx, in.WorkspaceID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"deleted": in.WorkspaceID}, nil
@@ -168,7 +168,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.ListCollections(ctx, in.WorkspaceID)
+		return s.svc.Metadata.ListCollections(ctx, in.WorkspaceID)
 	case "memora_create_collection":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`
@@ -178,7 +178,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			return nil, err
 		}
 		c := &types.Collection{WorkspaceID: in.WorkspaceID, Name: in.Name}
-		if err := s.svc.Primary.CreateCollection(ctx, c); err != nil {
+		if err := s.svc.Metadata.CreateCollection(ctx, c); err != nil {
 			return nil, err
 		}
 		return c, nil
@@ -189,7 +189,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		if err := s.svc.Primary.DeleteCollection(ctx, in.CollectionID); err != nil {
+		if err := s.svc.Metadata.DeleteCollection(ctx, in.CollectionID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"deleted": in.CollectionID}, nil
@@ -202,7 +202,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.ListMemories(ctx, in.WorkspaceID, in.CollectionID, in.Limit)
+		return s.svc.Metadata.ListMemories(ctx, in.WorkspaceID, in.CollectionID, in.Limit)
 	case "memora_get_watermark_history":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`
@@ -211,7 +211,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		hist, err := s.svc.Primary.GetWatermarkHistory(ctx, in.WorkspaceID, in.MemoryID, sevenDaysAgo())
+		hist, err := s.svc.Metadata.GetWatermarkHistory(ctx, in.WorkspaceID, in.MemoryID, sevenDaysAgo())
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +238,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			Model:            in.Model,
 			Capabilities:     in.Capabilities,
 		}
-		if err := s.svc.Primary.RegisterAgent(ctx, a); err != nil {
+		if err := s.svc.Metadata.RegisterAgent(ctx, a); err != nil {
 			return nil, err
 		}
 		return a, nil
@@ -249,7 +249,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.ListAgents(ctx, in.WorkspaceID, 0)
+		return s.svc.Metadata.ListAgents(ctx, in.WorkspaceID, 0)
 	case "memora_link":
 		var in struct {
 			WorkspaceID    string         `json:"workspace_id"`

@@ -10,18 +10,18 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-// openGraphAndPrimary returns a GraphStore and a PrimaryStore backed
-// by the same SQLite file. PrimaryStore is needed to create memories
+// openGraphAndMetadata returns a GraphStore and a MetadataStore backed
+// by the same SQLite file. MetadataStore is needed to create memories
 // (the graph endpoints must exist before linking).
-func openGraphAndPrimary(t *testing.T) (*GraphStore, *Store, context.Context) {
+func openGraphAndMetadata(t *testing.T) (*GraphStore, *Store, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "memora.db")
 	ctx := context.Background()
 
 	primary := &Store{}
-	if err := primary.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
-		t.Fatalf("open primary: %v", err)
+	if err := primary.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+		t.Fatalf("open metadata: %v", err)
 	}
 	t.Cleanup(func() { _ = primary.Close() })
 
@@ -52,7 +52,7 @@ func createTestWorkspaceAndMemories(t *testing.T, primary *Store, ctx context.Co
 }
 
 func TestGraphStore_LinkAndNeighbors(t *testing.T) {
-	gs, primary, ctx := openGraphAndPrimary(t)
+	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-link-test", 2)
 
 	e, err := gs.Link(ctx, types.Edge{
@@ -82,7 +82,7 @@ func TestGraphStore_LinkAndNeighbors(t *testing.T) {
 }
 
 func TestGraphStore_UnlinkAndCascade(t *testing.T) {
-	gs, primary, ctx := openGraphAndPrimary(t)
+	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-unlink-test", 3)
 
 	e1, _ := gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
@@ -107,7 +107,7 @@ func TestGraphStore_UnlinkAndCascade(t *testing.T) {
 }
 
 func TestGraphStore_Traverse(t *testing.T) {
-	gs, primary, ctx := openGraphAndPrimary(t)
+	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-traverse-test", 3)
 
 	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeDerivedFrom, CreatedByAgentID: "agent"})
@@ -126,7 +126,7 @@ func TestGraphStore_Traverse(t *testing.T) {
 }
 
 func TestGraphStore_DepthCap(t *testing.T) {
-	gs, _, _ := openGraphAndPrimary(t)
+	gs, _, _ := openGraphAndMetadata(t)
 	ctx := context.Background()
 	_, err := gs.Traverse(ctx, "ws", "mem", adapter.TraverseOpts{Depth: 5})
 	if err == nil {
@@ -135,7 +135,7 @@ func TestGraphStore_DepthCap(t *testing.T) {
 }
 
 func TestGraphStore_Stats(t *testing.T) {
-	gs, primary, ctx := openGraphAndPrimary(t)
+	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-stats-test", 2)
 
 	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})

@@ -13,6 +13,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Retired monolithic `PrimaryStore` interface in favor of
+  five dedicated adapters: `MetadataStore`, `ContentStore`, `GraphStore`,
+  `VectorStore`, `LedgerStore`. CLI flag `--primary-driver` is now
+  `--metadata-driver`; env var `MEMORA_PRIMARY_DRIVER` is now
+  `MEMORA_METADATA_DRIVER`. Third-party adapters that implemented
+  `PrimaryStore` must migrate to `MetadataStore` (tabular CRUD) and
+  optionally `GraphStore` (edges / traversal). See updated
+  [`docs/adapter-authoring.md`](./docs/adapter-authoring.md).
+- Service layer graph methods nil-guard `GraphStore` — deployments
+  without a graph backend degrade gracefully (forget skips cascade;
+  explicit graph ops return 501 `capability_unavailable`).
+
 ### Added
 - Cross-platform release pipeline (`.goreleaser.yaml` + `.github/workflows/release.yml`):
   cross-compiles to linux/darwin/windows × amd64/arm64, generates

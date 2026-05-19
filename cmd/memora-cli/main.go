@@ -674,12 +674,12 @@ func cmdMigrate(ctx context.Context, g globalFlags) {
 	workspace := fs.String("workspace", g.Workspace, "workspace ID")
 	collection := fs.String("collection", "", "optional collection filter")
 	dataDir := fs.String("data-dir", getenv("MEMORA_DATA_DIR", "./data"), "data directory for SQLite")
-	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
+	metadataDriver := fs.String("metadata-driver", getenv("MEMORA_METADATA_DRIVER", "sqlite"), "metadata-store driver")
 	contentDriver := fs.String("content-driver", getenv("MEMORA_CONTENT_DRIVER", "sqlite"), "content-store driver")
 	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN")
 	resumeFrom := fs.String("resume-from", "", "memory ID to resume from")
 	dryRun := fs.Bool("dry-run", false, "report counts without writing")
-	verify := fs.Bool("verify", false, "verify content matches between primary and content store")
+	verify := fs.Bool("verify", false, "verify content matches between metadata and content store")
 	maxRate := fs.Int("max-rate", 100, "max memories per second (0 = unlimited)")
 	_ = fs.Parse(g.Args[1:])
 
@@ -689,9 +689,9 @@ func cmdMigrate(ctx context.Context, g globalFlags) {
 	}
 
 	dbPath := *dataDir + "/memora.db"
-	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: *primaryDriver, DSN: dbPath})
+	primary, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: *metadataDriver, DSN: dbPath})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "open primary: %v\n", err)
+		fmt.Fprintf(os.Stderr, "open metadata: %v\n", err)
 		os.Exit(exitClient)
 	}
 	defer primary.Close()

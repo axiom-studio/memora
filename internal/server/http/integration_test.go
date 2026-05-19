@@ -27,8 +27,8 @@ func newTestService(t *testing.T) *service.Service {
 	ctx := context.Background()
 
 	primary := &storesqlite.Store{}
-	if err := primary.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
-		t.Fatalf("open primary: %v", err)
+	if err := primary.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
+		t.Fatalf("open metadata: %v", err)
 	}
 	t.Cleanup(func() { _ = primary.Close() })
 
@@ -40,7 +40,7 @@ func newTestService(t *testing.T) *service.Service {
 
 	embedProvider, _ := embedding.Open("noop:default")
 	return &service.Service{
-		Primary:  primary,
+		Metadata: primary,
 		Vector:   vec,
 		Embedder: embedProvider,
 		Identity: map[string]adapter.IdentityProvider{

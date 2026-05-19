@@ -9,18 +9,18 @@ import (
 	"github.com/axiom-studio/memora/pkg/types"
 )
 
-func openMetadataStore(t *testing.T) (*MetadataStore, context.Context) {
+func openMetadataStore(t *testing.T) (*Store, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "memora.db")
 	ctx := context.Background()
 
-	ms := &MetadataStore{}
-	if err := ms.Open(ctx, adapter.MetadataConfig{DSN: dsn}); err != nil {
+	s := &Store{}
+	if err := s.Open(ctx, adapter.MetadataConfig{DSN: dsn}); err != nil {
 		t.Fatalf("open metadata: %v", err)
 	}
-	t.Cleanup(func() { _ = ms.Close() })
-	return ms, ctx
+	t.Cleanup(func() { _ = s.Close() })
+	return s, ctx
 }
 
 func TestMetadataStore_WorkspaceRoundtrip(t *testing.T) {
@@ -174,9 +174,8 @@ func TestMetadataStore_AgentRoundtrip(t *testing.T) {
 }
 
 func TestMetadataStore_Capabilities(t *testing.T) {
-	ms := &MetadataStore{}
-	ms.inner = Store{}
-	caps := ms.Capabilities()
+	s := &Store{}
+	caps := s.Capabilities()
 	if !caps.SupportsCAS {
 		t.Fatal("SupportsCAS should be true")
 	}

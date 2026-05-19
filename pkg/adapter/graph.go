@@ -2,8 +2,10 @@ package adapter
 
 import (
 	"context"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/types"
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 // GraphConfig is the driver-agnostic input to GraphStore.Open.
@@ -24,7 +26,7 @@ type GraphCapabilities struct {
 }
 
 // GraphStore is the Context Graph persistence contract — edges,
-// traversal, and graph statistics. Extracted from PrimaryStore to
+// traversal, and graph statistics. Extracted from MetadataStore to
 // enable dedicated graph backends (Neo4j, Kuzu, Apache AGE) for
 // deployments with high fan-out or deep traversals.
 type GraphStore interface {
@@ -59,3 +61,43 @@ type GraphStore interface {
 
 // GraphFactory builds a GraphStore from config.
 type GraphFactory func() GraphStore
+
+// NeighborsOpts is the options struct for GraphStore.Neighbors.
+type NeighborsOpts struct {
+	Direction api.GraphDirection
+	EdgeTypes []string
+	K         int
+}
+
+// TraverseOpts is the options struct for GraphStore.Traverse.
+type TraverseOpts struct {
+	Depth     int
+	Direction api.GraphDirection
+	EdgeTypes []string
+	Filter    map[string]any
+	MaxEdges  int           // safety budget; 0 = adapter default
+	Budget    time.Duration // wall-clock safety budget
+}
+
+// TraverseLayer is one BFS layer.
+type TraverseLayer struct {
+	Memory      types.MemoryHeader
+	ViaEdgeID   string
+	ViaEdgeType string
+	Layer       int
+}
+
+// TraverseResult is the output of a BFS walk.
+type TraverseResult struct {
+	Seed   types.MemoryHeader
+	Layers [][]TraverseLayer
+	Stats  api.TraverseStats
+}
+
+// LinkResult is the per-edge outcome inside a LinkBatch response.
+type LinkResult struct {
+	Index   int
+	Status  string // "ok" | "error"
+	EdgeID  string
+	Error   error
+}

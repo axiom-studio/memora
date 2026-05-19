@@ -14,13 +14,13 @@ import (
 	_ "github.com/axiom-studio/memora/internal/store/sqlite"
 )
 
-func openStores(t *testing.T) (adapter.PrimaryStore, adapter.ContentStore, context.Context) {
+func openStores(t *testing.T) (adapter.MetadataStore, adapter.ContentStore, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "memora.db")
 	ctx := context.Background()
 
-	primary, err := adapter.OpenPrimary(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn})
+	primary, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: dsn})
 	if err != nil {
 		t.Fatalf("open primary: %v", err)
 	}

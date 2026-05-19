@@ -1,5 +1,5 @@
 // Package sqlite is the OSS-default Memora LedgerStore — append-only
-// audit log against SQLite, colocated with the PrimaryStore.
+// audit log against SQLite, colocated with the MetadataStore.
 package sqlite
 
 import (

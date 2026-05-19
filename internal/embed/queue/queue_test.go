@@ -24,10 +24,10 @@ import (
 // ledger are local impls of public interfaces, used to exercise retry /
 // dedup / ledger paths that real backends don't expose deterministically.
 type harness struct {
-	t       *testing.T
-	ctx     context.Context
-	primary adapter.PrimaryStore
-	vector  adapter.VectorStore
+	t        *testing.T
+	ctx      context.Context
+	metadata adapter.MetadataStore
+	vector   adapter.VectorStore
 }
 
 func newHarness(t *testing.T) *harness {
@@ -36,8 +36,8 @@ func newHarness(t *testing.T) *harness {
 	ctx := context.Background()
 
 	primary := &storesqlite.Store{}
-	if err := primary.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
-		t.Fatalf("open primary: %v", err)
+	if err := primary.Open(ctx, adapter.MetadataConfig{Driver: "sqlite", DSN: filepath.Join(dir, "primary.db")}); err != nil {
+		t.Fatalf("open metadata: %v", err)
 	}
 	t.Cleanup(func() { _ = primary.Close() })
 
@@ -47,13 +47,13 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { _ = vector.Close() })
 
-	return &harness{t: t, ctx: ctx, primary: primary, vector: vector}
+	return &harness{t: t, ctx: ctx, metadata: primary, vector: vector}
 }
 
 func (h *harness) imprint(ws, content, agent string) *types.Memory {
 	h.t.Helper()
 	m := &types.Memory{WorkspaceID: ws, Content: content, WrittenByAgentID: agent}
-	if _, err := h.primary.ImprintMemory(h.ctx, m); err != nil {
+	if _, err := h.metadata.ImprintMemory(h.ctx, m); err != nil {
 		h.t.Fatalf("imprint: %v", err)
 	}
 	return m
@@ -70,10 +70,10 @@ func (h *harness) seedCells(memID, agent string, texts []string) []types.Cell {
 			WrittenByAgentID: agent,
 		}
 	}
-	if err := h.primary.UpsertCells(h.ctx, memID, cells); err != nil {
+	if err := h.metadata.UpsertCells(h.ctx, memID, cells); err != nil {
 		h.t.Fatalf("upsert cells: %v", err)
 	}
-	stored, err := h.primary.GetCells(h.ctx, memID)
+	stored, err := h.metadata.GetCells(h.ctx, memID)
 	if err != nil {
 		h.t.Fatalf("get cells: %v", err)
 	}
@@ -221,10 +221,10 @@ func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open provider: %v", err)
 	}
-	deps := queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: provider}
+	deps := queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: provider}
 
 	ws := &types.Workspace{Name: "moat"}
-	if err := h.primary.CreateWorkspace(h.ctx, ws); err != nil {
+	if err := h.metadata.CreateWorkspace(h.ctx, ws); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
 	mem := h.imprint(ws.ID, "moat-content", "agent_opaque_m")
@@ -246,10 +246,10 @@ func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 		t.Fatalf("initial: want 0 skipped, got %d", len(res0.Skipped))
 	}
 	// Persist the vector_keys so the second pass can see them.
-	if err := h.primary.UpsertCells(h.ctx, mem.ID, old); err != nil {
+	if err := h.metadata.UpsertCells(h.ctx, mem.ID, old); err != nil {
 		t.Fatalf("upsert cells after initial: %v", err)
 	}
-	oldWithVK, err := h.primary.GetCells(h.ctx, mem.ID)
+	oldWithVK, err := h.metadata.GetCells(h.ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("get cells after initial: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestPool_Batching_RespectsBatchSize(t *testing.T) {
 	rec := &recordingProvider{inner: inner}
 
 	ws := &types.Workspace{Name: "batching"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 	mem := h.imprint(ws.ID, "x", "agent_opaque_b")
 	texts := make([]string, 25)
 	for i := range texts {
@@ -287,7 +287,7 @@ func TestPool_Batching_RespectsBatchSize(t *testing.T) {
 	stored := h.seedCells(mem.ID, "agent_opaque_b", texts)
 
 	// Workers=1 so we deterministically observe call counts. BatchSize=8.
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: rec},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: rec},
 		queue.PoolConfig{Workers: 1, BatchSize: 8, BatchFlushInterval: 50 * time.Millisecond})
 	for _, c := range stored {
 		pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: c})
@@ -317,14 +317,14 @@ func TestPool_RecallReadyFlip(t *testing.T) {
 	provider, _ := embedding.Open("noop:default")
 
 	ws := &types.Workspace{Name: "ready"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 
 	memA := h.imprint(ws.ID, "a", "agent_opaque_r")
 	cellsA := h.seedCells(memA.ID, "agent_opaque_r", []string{"a0", "a1", "a2"})
 	memB := h.imprint(ws.ID, "b", "agent_opaque_r")
 	cellsB := h.seedCells(memB.ID, "agent_opaque_r", []string{"b0", "b1"})
 
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: provider},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: provider},
 		queue.PoolConfig{Workers: 2, BatchSize: 4, BatchFlushInterval: 20 * time.Millisecond})
 	// Memory A: submit all 3 cells → should flip.
 	for _, c := range cellsA {
@@ -334,14 +334,14 @@ func TestPool_RecallReadyFlip(t *testing.T) {
 	pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: memB.ID, Cell: cellsB[0]})
 	pool.Close()
 
-	gotA, err := h.primary.GetMemory(h.ctx, memA.ID)
+	gotA, err := h.metadata.GetMemory(h.ctx, memA.ID)
 	if err != nil {
 		t.Fatalf("get A: %v", err)
 	}
 	if !gotA.RecallReady {
 		t.Fatal("Memory A: expected RecallReady=true after all cells embedded")
 	}
-	gotB, err := h.primary.GetMemory(h.ctx, memB.ID)
+	gotB, err := h.metadata.GetMemory(h.ctx, memB.ID)
 	if err != nil {
 		t.Fatalf("get B: %v", err)
 	}
@@ -360,11 +360,11 @@ func TestPool_RetryWithBackoff(t *testing.T) {
 	rl := &recordingLedger{}
 
 	ws := &types.Workspace{Name: "retry"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 	mem := h.imprint(ws.ID, "r", "agent_opaque_rt")
 	cells := h.seedCells(mem.ID, "agent_opaque_rt", []string{"rt0"})
 
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: rec, Ledger: rl},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: rec, Ledger: rl},
 		queue.PoolConfig{Workers: 1, BatchSize: 4, BatchFlushInterval: 10 * time.Millisecond,
 			RetryAttempts: 3, RetryBaseDelay: 5 * time.Millisecond})
 	pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: cells[0]})
@@ -373,7 +373,7 @@ func TestPool_RetryWithBackoff(t *testing.T) {
 	if got := len(rec.callShapes()); got != 3 {
 		t.Fatalf("expected 3 Embed attempts (2 fail + 1 success), got %d", got)
 	}
-	stored, _ := h.primary.GetCells(h.ctx, mem.ID)
+	stored, _ := h.metadata.GetCells(h.ctx, mem.ID)
 	if stored[0].VectorKey == "" {
 		t.Fatal("cell has empty vector_key after successful retry")
 	}
@@ -399,11 +399,11 @@ func TestPool_PermanentFailure_AppendsEmbedFailed(t *testing.T) {
 	rl := &recordingLedger{}
 
 	ws := &types.Workspace{Name: "fail"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 	mem := h.imprint(ws.ID, "f", "agent_opaque_f")
 	cells := h.seedCells(mem.ID, "agent_opaque_f", []string{"f0", "f1", "f2"})
 
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: bad, Ledger: rl},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: bad, Ledger: rl},
 		queue.PoolConfig{Workers: 1, BatchSize: 8, BatchFlushInterval: 10 * time.Millisecond,
 			RetryAttempts: 2, RetryBaseDelay: 1 * time.Millisecond})
 	for _, c := range cells {
@@ -439,12 +439,12 @@ func TestPool_PermanentFailure_AppendsEmbedFailed(t *testing.T) {
 	if len(seenCells) != 3 {
 		t.Fatalf("expected ledger entries for 3 distinct cells, got %d (entries=%+v)", len(seenCells), entries)
 	}
-	got, _ := h.primary.GetMemory(h.ctx, mem.ID)
+	got, _ := h.metadata.GetMemory(h.ctx, mem.ID)
 	if got.RecallReady {
 		t.Fatal("recall_ready flipped after permanent embed failure")
 	}
 	// Cells stay with empty vector_key.
-	stored, _ := h.primary.GetCells(h.ctx, mem.ID)
+	stored, _ := h.metadata.GetCells(h.ctx, mem.ID)
 	for _, c := range stored {
 		if c.VectorKey != "" {
 			t.Fatalf("cell %s has vector_key after permanent failure", c.CellID)
@@ -462,13 +462,13 @@ func TestPool_InFlightDedup_SameCell(t *testing.T) {
 	bp := &blockingProvider{inner: inner, release: release}
 
 	ws := &types.Workspace{Name: "dedup"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 	mem := h.imprint(ws.ID, "d", "agent_opaque_d")
 	cells := h.seedCells(mem.ID, "agent_opaque_d", []string{"d0"})
 
 	// Workers=2 so the duplicate has a chance to be picked up by the
 	// other worker, exercising the cross-worker dedup gate.
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: bp},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: bp},
 		queue.PoolConfig{Workers: 2, BatchSize: 1, BatchFlushInterval: 5 * time.Millisecond})
 	pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: cells[0]})
 	// Wait for the first Embed to enter the blocking provider.
@@ -502,7 +502,7 @@ func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 	rec := &recordingProvider{inner: inner}
 
 	ws := &types.Workspace{Name: "skip"}
-	_ = h.primary.CreateWorkspace(h.ctx, ws)
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 	mem := h.imprint(ws.ID, "s", "agent_opaque_s")
 	cells := h.seedCells(mem.ID, "agent_opaque_s", []string{"s0", "s1"})
 
@@ -511,11 +511,11 @@ func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 		cells[i].VectorKey = cells[i].CellID
 		cells[i].EmbeddingModel = "noop:default"
 	}
-	if err := h.primary.UpsertCells(h.ctx, mem.ID, cells); err != nil {
+	if err := h.metadata.UpsertCells(h.ctx, mem.ID, cells); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	pool := queue.NewPool(queue.EmbedderDeps{Primary: h.primary, Vector: h.vector, Provider: rec},
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: rec},
 		queue.PoolConfig{Workers: 1, BatchSize: 4, BatchFlushInterval: 10 * time.Millisecond})
 	for _, c := range cells {
 		pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: c})
@@ -526,7 +526,7 @@ func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 		t.Fatalf("expected 0 Embed calls (all skipped), got %d (shapes=%v)", got, rec.callShapes())
 	}
 	// Both cells already had vector_keys → memory should flip to ready.
-	got, _ := h.primary.GetMemory(h.ctx, mem.ID)
+	got, _ := h.metadata.GetMemory(h.ctx, mem.ID)
 	if !got.RecallReady {
 		t.Fatal("expected recall_ready=true after skip-only run with all cells already embedded")
 	}

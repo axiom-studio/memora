@@ -31,7 +31,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 // /readyz pings every adapter.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	resp := api.HealthResponse{OK: true, Status: "ready", Adapter: map[string]string{}}
-	if err := s.cfg.Service.Primary.Ping(r.Context()); err != nil {
+	if err := s.cfg.Service.Metadata.Ping(r.Context()); err != nil {
 		resp.Adapter["primary"] = "down: " + err.Error()
 		resp.OK = false
 	} else {
@@ -77,7 +77,7 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ws := &types.Workspace{Name: req.Name, Region: req.Region, ChunkerID: req.ChunkerID, EmbeddingModel: req.EmbeddingModel, Meta: req.Meta}
-		if err := s.cfg.Service.Primary.CreateWorkspace(r.Context(), ws); err != nil {
+		if err := s.cfg.Service.Metadata.CreateWorkspace(r.Context(), ws); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -87,7 +87,7 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		if limit <= 0 || limit > 200 {
 			limit = 100
 		}
-		ws, err := s.cfg.Service.Primary.ListWorkspaces(r.Context(), limit+1)
+		ws, err := s.cfg.Service.Metadata.ListWorkspaces(r.Context(), limit+1)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -147,7 +147,7 @@ func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, id string) {
 	switch r.Method {
 	case http.MethodGet:
-		ws, err := s.cfg.Service.Primary.GetWorkspace(r.Context(), id)
+		ws, err := s.cfg.Service.Metadata.GetWorkspace(r.Context(), id)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -160,13 +160,13 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		ws := &types.Workspace{ID: id, Name: req.Name, Region: req.Region, ChunkerID: req.ChunkerID, EmbeddingModel: req.EmbeddingModel, Meta: req.Meta}
-		if err := s.cfg.Service.Primary.UpdateWorkspace(r.Context(), ws); err != nil {
+		if err := s.cfg.Service.Metadata.UpdateWorkspace(r.Context(), ws); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 200, ws)
 	case http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeleteWorkspace(r.Context(), id); err != nil {
+		if err := s.cfg.Service.Metadata.DeleteWorkspace(r.Context(), id); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -181,7 +181,7 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
-		coll, err := s.cfg.Service.Primary.ListCollections(r.Context(), wsID)
+		coll, err := s.cfg.Service.Metadata.ListCollections(r.Context(), wsID)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -194,20 +194,20 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request, wsID 
 			return
 		}
 		c := &types.Collection{WorkspaceID: wsID, Name: req.Name}
-		if err := s.cfg.Service.Primary.CreateCollection(r.Context(), c); err != nil {
+		if err := s.cfg.Service.Metadata.CreateCollection(r.Context(), c); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 201, c)
 	case len(rest) == 1 && r.Method == http.MethodGet:
-		c, err := s.cfg.Service.Primary.GetCollection(r.Context(), rest[0])
+		c, err := s.cfg.Service.Metadata.GetCollection(r.Context(), rest[0])
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 200, c)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeleteCollection(r.Context(), rest[0]); err != nil {
+		if err := s.cfg.Service.Metadata.DeleteCollection(r.Context(), rest[0]); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -295,7 +295,7 @@ func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request, wsID
 	if limit <= 0 {
 		limit = 50
 	}
-	mems, err := s.cfg.Service.Primary.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), limit)
+	mems, err := s.cfg.Service.Metadata.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), limit)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
@@ -304,12 +304,12 @@ func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request, wsID
 }
 
 func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request, wsID, id string) {
-	m, err := s.cfg.Service.Primary.GetMemory(r.Context(), id)
+	m, err := s.cfg.Service.Metadata.GetMemory(r.Context(), id)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
 	}
-	cells, _ := s.cfg.Service.Primary.GetCells(r.Context(), id)
+	cells, _ := s.cfg.Service.Metadata.GetCells(r.Context(), id)
 	s.writeJSON(w, 200, api.MemoryEnvelope{Memory: m, Cells: cells})
 }
 
@@ -376,7 +376,7 @@ func (s *Server) handleForget(w http.ResponseWriter, r *http.Request, wsID, id s
 }
 
 func (s *Server) handleGetAtWatermark(w http.ResponseWriter, r *http.Request, wsID, memID, wmk string) {
-	m, err := s.cfg.Service.Primary.GetMemoryAtWatermark(r.Context(), memID, wmk)
+	m, err := s.cfg.Service.Metadata.GetMemoryAtWatermark(r.Context(), memID, wmk)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
@@ -406,7 +406,7 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
-		ags, err := s.cfg.Service.Primary.ListAgents(r.Context(), wsID, 0)
+		ags, err := s.cfg.Service.Metadata.ListAgents(r.Context(), wsID, 0)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
@@ -428,20 +428,20 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 			Model:            req.Model,
 			Capabilities:     req.Capabilities,
 		}
-		if err := s.cfg.Service.Primary.RegisterAgent(r.Context(), a); err != nil {
+		if err := s.cfg.Service.Metadata.RegisterAgent(r.Context(), a); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 201, a)
 	case len(rest) == 1 && r.Method == http.MethodGet:
-		a, err := s.cfg.Service.Primary.GetAgent(r.Context(), wsID, rest[0])
+		a, err := s.cfg.Service.Metadata.GetAgent(r.Context(), wsID, rest[0])
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 200, a)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeactivateAgent(r.Context(), wsID, rest[0]); err != nil {
+		if err := s.cfg.Service.Metadata.DeactivateAgent(r.Context(), wsID, rest[0]); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -633,7 +633,7 @@ func (s *Server) handleWatermarks(w http.ResponseWriter, r *http.Request, wsID, 
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
-	hist, err := s.cfg.Service.Primary.GetWatermarkHistory(r.Context(), wsID, memID, time.Now().AddDate(0, 0, -7))
+	hist, err := s.cfg.Service.Metadata.GetWatermarkHistory(r.Context(), wsID, memID, time.Now().AddDate(0, 0, -7))
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
@@ -653,13 +653,13 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request, wsID, memID 
 			Value string `json:"value"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if err := s.cfg.Service.Primary.UpsertTag(r.Context(), wsID, memID, key, body.Value); err != nil {
+		if err := s.cfg.Service.Metadata.UpsertTag(r.Context(), wsID, memID, key, body.Value); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		w.WriteHeader(204)
 	case http.MethodDelete:
-		if err := s.cfg.Service.Primary.DeleteTag(r.Context(), wsID, memID, key); err != nil {
+		if err := s.cfg.Service.Metadata.DeleteTag(r.Context(), wsID, memID, key); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}

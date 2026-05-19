@@ -35,7 +35,7 @@ type Job struct {
 // pool will not record `embed_failed` rows. Production builds wire it;
 // some tests omit it for terseness.
 type EmbedderDeps struct {
-	Primary  adapter.PrimaryStore
+	Metadata adapter.MetadataStore
 	Vector   adapter.VectorStore
 	Provider embedding.Provider
 	Ledger   adapter.LedgerStore
@@ -211,7 +211,7 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 		if cs, ok := cellsByMemory[memID]; ok {
 			return cs
 		}
-		cs, err := p.deps.Primary.GetCells(ctx, memID)
+		cs, err := p.deps.Metadata.GetCells(ctx, memID)
 		if err != nil {
 			return nil
 		}
@@ -285,7 +285,7 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 			p.inFlight.Delete(j.Cell.CellID)
 			continue
 		}
-		if err := p.deps.Primary.UpdateCellVectorKey(ctx, j.Cell.CellID, j.Cell.CellID, p.deps.Provider.ModelID()); err != nil {
+		if err := p.deps.Metadata.UpdateCellVectorKey(ctx, j.Cell.CellID, j.Cell.CellID, p.deps.Provider.ModelID()); err != nil {
 			p.logEmbedFailed(j, fmt.Errorf("update cell_vector_key cell %s memory %s: %w", j.Cell.CellID, j.MemoryID, err))
 			p.inFlight.Delete(j.Cell.CellID)
 			continue
@@ -328,7 +328,7 @@ func (p *Pool) embedWithRetry(ctx context.Context, texts []string) ([][]float32,
 
 func (p *Pool) flipCandidates(ctx context.Context, ids map[string]struct{}) {
 	for memID := range ids {
-		_, _ = p.deps.Primary.FlipRecallReadyIfAllEmbedded(ctx, memID)
+		_, _ = p.deps.Metadata.FlipRecallReadyIfAllEmbedded(ctx, memID)
 	}
 }
 

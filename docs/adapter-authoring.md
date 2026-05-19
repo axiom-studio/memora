@@ -1,9 +1,11 @@
 # Authoring a Memora adapter
 
-Memora has three pluggable persistence contracts plus an identity
+Memora has five pluggable persistence contracts plus an identity
 contract — each defined in [`pkg/adapter`](../pkg/adapter):
 
-- `PrimaryStore` — tabular data (memories, cells, agents, edges, ...).
+- `MetadataStore` — tabular data (workspaces, collections, memories, cells, agents, watermarks).
+- `ContentStore` — content bytes (memory and cell bodies).
+- `GraphStore` — context graph (edges, traversal, statistics).
 - `VectorStore` — embedding index.
 - `LedgerStore` — append-only audit log.
 - `IdentityProvider` — verifies an `agent_id` matches an `identity_proof`.
