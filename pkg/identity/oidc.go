@@ -26,9 +26,10 @@ import (
 // validates the JWT signature, and checks the configured claim matches
 // agent_id.
 type OIDCAgent struct {
-	IssuerURL    string // OIDC issuer (used to fetch .well-known/openid-configuration)
-	AgentIDClaim string // claim in the ID token to match (default: "sub")
-	Client       *http.Client
+	IssuerURL        string // OIDC issuer (used to fetch .well-known/openid-configuration)
+	AgentIDClaim     string // claim in the ID token to match (default: "sub")
+	ExpectedAudience string // OIDC client_id; if set, aud claim must contain this value
+	Client           *http.Client
 
 	mu       sync.RWMutex
 	jwksKeys []jwkKey
@@ -63,6 +64,9 @@ func (o *OIDCAgent) Capabilities() adapter.IdentityCapabilities {
 func (o *OIDCAgent) Verify(ctx context.Context, in adapter.IdentityVerifyInput) error {
 	if o.IssuerURL == "" {
 		return ErrIdentityNotConfigured
+	}
+	if o.Client == nil && !strings.HasPrefix(o.IssuerURL, "https://") {
+		return fmt.Errorf("oidc_agent: IssuerURL must use https:// scheme")
 	}
 
 	idToken, _ := in.IdentityProof["id_token"].(string)
@@ -131,6 +135,12 @@ func (o *OIDCAgent) Verify(ctx context.Context, in adapter.IdentityVerifyInput) 
 		return fmt.Errorf("oidc_agent: JWT signature verification failed")
 	}
 
+	if o.ExpectedAudience != "" {
+		if !audienceContains(claims["aud"], o.ExpectedAudience) {
+			return fmt.Errorf("oidc_agent: token audience does not contain expected %q", o.ExpectedAudience)
+		}
+	}
+
 	claimKey := o.AgentIDClaim
 	if claimKey == "" {
 		claimKey = "sub"
@@ -178,6 +188,9 @@ func (o *OIDCAgent) fetchJWKS(ctx context.Context) ([]jwkKey, error) {
 	}
 	if cfg.JWKSURI == "" {
 		return nil, fmt.Errorf("no jwks_uri in openid-configuration")
+	}
+	if o.Client == nil && !strings.HasPrefix(cfg.JWKSURI, "https://") {
+		return nil, fmt.Errorf("jwks_uri must use https:// scheme, got %q", cfg.JWKSURI)
 	}
 
 	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.JWKSURI, nil)
@@ -233,6 +246,9 @@ func verifyRS256(key jwkKey, signed, sig []byte) bool {
 	n := new(big.Int).SetBytes(nBytes)
 	e := int(new(big.Int).SetBytes(eBytes).Int64())
 	pub := &rsa.PublicKey{N: n, E: e}
+	if pub.N.BitLen() < 2048 {
+		return false
+	}
 
 	hash := sha256.Sum256(signed)
 	return rsa.VerifyPKCS1v15(pub, crypto.SHA256, hash[:], sig) == nil
@@ -270,4 +286,19 @@ func verifyES256(key jwkKey, signed, sig []byte) bool {
 func base64URLDecode(s string) ([]byte, error) {
 	s = strings.TrimRight(s, "=")
 	return base64.RawURLEncoding.DecodeString(s)
+}
+
+// audienceContains checks if the aud claim (string or []string) contains the expected value.
+func audienceContains(aud any, expected string) bool {
+	switch v := aud.(type) {
+	case string:
+		return v == expected
+	case []any:
+		for _, a := range v {
+			if s, ok := a.(string); ok && s == expected {
+				return true
+			}
+		}
+	}
+	return false
 }
