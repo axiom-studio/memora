@@ -80,7 +80,10 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	if err != nil {
 		return nil, err
 	}
-	cells := ck.Chunk(req.Content)
+	cells, err := ck.Chunk(ctx, req.Content)
+	if err != nil {
+		return nil, err
+	}
 	for i := range cells {
 		cells[i].MemoryID = mem.ID
 		cells[i].WrittenByAgentID = agentID
@@ -146,7 +149,10 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		ck, _ = chunker.Get("default")
 	}
 	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
-	newCells := ck.Chunk(req.Content)
+	newCells, err := ck.Chunk(ctx, req.Content)
+	if err != nil {
+		return nil, err
+	}
 	for i := range newCells {
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID
@@ -202,7 +208,10 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 	existing, _ := s.Primary.GetMemory(ctx, memoryID)
 	ck, _ := chunker.Get("default")
 	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
-	newCells := ck.Chunk(newContent)
+	newCells, err := ck.Chunk(ctx, newContent)
+	if err != nil {
+		return nil, err
+	}
 	for i := range newCells {
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID
@@ -260,7 +269,10 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 	existing, _ := s.Primary.GetMemory(ctx, memoryID)
 	ck, _ := chunker.Get("default")
 	oldCells, _ := s.Primary.GetCells(ctx, memoryID)
-	newCells := ck.Chunk(existing.Content)
+	newCells, err := ck.Chunk(ctx, existing.Content)
+	if err != nil {
+		return nil, err
+	}
 	for i := range newCells {
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID

@@ -4,6 +4,7 @@
 package chunker
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -15,7 +16,7 @@ import (
 // + text + text_md5; the caller fills cell_id and persists.
 type Chunker interface {
 	Name() string
-	Chunk(content string) []types.Cell
+	Chunk(ctx context.Context, content string) ([]types.Cell, error)
 }
 
 // Factory builds a Chunker.
@@ -58,11 +59,30 @@ func names() []string {
 	return out
 }
 
-// ApproxTokens returns a rough estimate of token count using the
-// industry-standard 4-chars-per-token heuristic. Avoids pulling in
-// tiktoken at this layer; F12 can swap a real tokenizer in via the
-// chunker registry without changing the API.
-func ApproxTokens(s string) int { return len(s) / 4 }
+// TokenCounter counts tokens in a string. Defaults to a 4-char heuristic;
+// call SetTokenCounter to wire in tiktoken or another real tokenizer.
+type TokenCounter func(string) int
+
+var (
+	tokenMu      sync.RWMutex
+	tokenCounter TokenCounter = func(s string) int { return len(s) / 4 }
+)
+
+// SetTokenCounter replaces the global token-counting function.
+func SetTokenCounter(tc TokenCounter) {
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+	tokenCounter = tc
+}
+
+// ApproxTokens returns a token-count estimate. Uses the registered
+// TokenCounter (default: 4-chars-per-token heuristic).
+func ApproxTokens(s string) int {
+	tokenMu.RLock()
+	tc := tokenCounter
+	tokenMu.RUnlock()
+	return tc(s)
+}
 
 // ----- default chunker -----
 
@@ -76,7 +96,7 @@ type DefaultChunker struct {
 
 func (c *DefaultChunker) Name() string { return "default" }
 
-func (c *DefaultChunker) Chunk(content string) []types.Cell {
+func (c *DefaultChunker) Chunk(_ context.Context, content string) ([]types.Cell, error) {
 	if c.TargetTokens <= 0 {
 		c.TargetTokens = 512
 	}
@@ -84,7 +104,7 @@ func (c *DefaultChunker) Chunk(content string) []types.Cell {
 		c.OverlapTokens = 64
 	}
 	if strings.TrimSpace(content) == "" {
-		return nil
+		return nil, nil
 	}
 	target := c.TargetTokens * 4 // approx chars
 	overlap := c.OverlapTokens * 4
@@ -136,7 +156,7 @@ func (c *DefaultChunker) Chunk(content string) []types.Cell {
 	if strings.TrimSpace(current) != "" {
 		cells = append(cells, mkCell(len(cells), current))
 	}
-	return cells
+	return cells, nil
 }
 
 func mkCell(seq int, text string) types.Cell {
@@ -191,8 +211,7 @@ type MarkdownChunker struct {
 
 func (c *MarkdownChunker) Name() string { return "markdown" }
 
-func (c *MarkdownChunker) Chunk(content string) []types.Cell {
-	// Carve out code blocks as standalone cells so they're never split.
+func (c *MarkdownChunker) Chunk(ctx context.Context, content string) ([]types.Cell, error) {
 	parts := splitOnFences(content)
 	var cells []types.Cell
 	for _, p := range parts {
@@ -200,13 +219,16 @@ func (c *MarkdownChunker) Chunk(content string) []types.Cell {
 			cells = append(cells, mkCell(len(cells), p.text))
 			continue
 		}
-		sub := c.Default.Chunk(p.text)
+		sub, err := c.Default.Chunk(ctx, p.text)
+		if err != nil {
+			return nil, err
+		}
 		for i := range sub {
 			sub[i].Seq = len(cells) + i
 		}
 		cells = append(cells, sub...)
 	}
-	return cells
+	return cells, nil
 }
 
 type mdPart struct {
@@ -227,7 +249,8 @@ func splitOnFences(content string) []mdPart {
 		buf = nil
 	}
 	for _, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "```") {
 			if !inFence {
 				flush(false)
 				inFence = true
@@ -237,6 +260,9 @@ func splitOnFences(content string) []mdPart {
 				inFence = false
 				continue
 			}
+		}
+		if !inFence && len(trimmed) > 0 && trimmed[0] == '#' && len(buf) > 0 {
+			flush(false)
 		}
 		buf = append(buf, l)
 	}
@@ -251,11 +277,11 @@ type NoChunkChunker struct{}
 
 func (c *NoChunkChunker) Name() string { return "no-chunk" }
 
-func (c *NoChunkChunker) Chunk(content string) []types.Cell {
+func (c *NoChunkChunker) Chunk(_ context.Context, content string) ([]types.Cell, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil
+		return nil, nil
 	}
-	return []types.Cell{mkCell(0, content)}
+	return []types.Cell{mkCell(0, content)}, nil
 }
 
 func init() {
