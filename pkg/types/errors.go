@@ -20,6 +20,9 @@ var (
 	ErrCapability     = errors.New("memora: adapter does not support this capability")
 	ErrEmbedPending   = errors.New("memora: memory has not finished embedding")
 	ErrNotEmpty       = errors.New("memora: container has live children")
+	ErrFederationLoop = errors.New("memora: federation loop detected")
+	ErrFederationAuth = errors.New("memora: federation peer not authorized")
+	ErrFederationDown = errors.New("memora: all federation peers failed")
 )
 
 func errEmpty(field string) error {
