@@ -86,6 +86,10 @@ func New(cfg Config) *Server {
 	return s
 }
 
+// Handler returns the assembled http.Handler (middleware + routes) for
+// use with httptest.NewServer in integration tests.
+func (s *Server) Handler() http.Handler { return s.srv.Handler }
+
 // ListenAndServe blocks until the server fails or Shutdown is called.
 func (s *Server) ListenAndServe() error { return s.srv.ListenAndServe() }
 

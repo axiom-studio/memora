@@ -83,12 +83,25 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeJSON(w, 201, ws)
 	case http.MethodGet:
-		ws, err := s.cfg.Service.Primary.ListWorkspaces(r.Context(), 100)
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		if limit <= 0 || limit > 200 {
+			limit = 100
+		}
+		ws, err := s.cfg.Service.Primary.ListWorkspaces(r.Context(), limit+1)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
-		s.writeJSON(w, 200, map[string]any{"workspaces": ws})
+		var nextCursor string
+		if len(ws) > limit {
+			nextCursor = ws[limit-1].ID
+			ws = ws[:limit]
+		}
+		resp := map[string]any{"workspaces": ws}
+		if nextCursor != "" {
+			resp["next_cursor"] = nextCursor
+		}
+		s.writeJSON(w, 200, resp)
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		s.writeError(w, 405, "method_not_allowed", "", nil)
@@ -140,6 +153,18 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		s.writeJSON(w, 200, ws)
+	case http.MethodPut:
+		var req api.CreateWorkspaceRequest
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		ws := &types.Workspace{ID: id, Name: req.Name, Region: req.Region, ChunkerID: req.ChunkerID, EmbeddingModel: req.EmbeddingModel, Meta: req.Meta}
+		if err := s.cfg.Service.Primary.UpdateWorkspace(r.Context(), ws); err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, ws)
 	case http.MethodDelete:
 		if err := s.cfg.Service.Primary.DeleteWorkspace(r.Context(), id); err != nil {
 			s.writeErrorFromService(w, err)
@@ -147,7 +172,7 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 		}
 		w.WriteHeader(204)
 	default:
-		w.Header().Set("Allow", "GET, DELETE")
+		w.Header().Set("Allow", "GET, PUT, DELETE")
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 	}
 }
@@ -174,6 +199,13 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request, wsID 
 			return
 		}
 		s.writeJSON(w, 201, c)
+	case len(rest) == 1 && r.Method == http.MethodGet:
+		c, err := s.cfg.Service.Primary.GetCollection(r.Context(), rest[0])
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, c)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
 		if err := s.cfg.Service.Primary.DeleteCollection(r.Context(), rest[0]); err != nil {
 			s.writeErrorFromService(w, err)
@@ -328,6 +360,17 @@ func (s *Server) handleForget(w http.ResponseWriter, r *http.Request, wsID, id s
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
+	}
+	if r.URL.Query().Get("redact_audit") == "true" && s.cfg.Service.Ledger != nil {
+		caps := s.cfg.Service.Ledger.Capabilities()
+		if caps.SupportsRedaction && caps.SupportsQuery {
+			entries, _, _ := s.cfg.Service.Ledger.Query(r.Context(), adapter.LedgerQuery{
+				WorkspaceID: wsID, MemoryID: id, Limit: 1000,
+			})
+			for _, e := range entries {
+				_ = s.cfg.Service.Ledger.Redact(r.Context(), e.LedgerID, []string{"metadata", "ip", "user_agent"})
+			}
+		}
 	}
 	s.writeJSON(w, 200, resp)
 }
