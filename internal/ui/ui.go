@@ -55,7 +55,10 @@ type Handler struct {
 	loginTmpl *template.Template
 	staticFS http.Handler
 	authCfg  AuthConfig
+	data     DataSource
 }
+
+func (h *Handler) SetDataSource(ds DataSource) { h.data = ds }
 
 func NewHandler() (*Handler, error) {
 	layoutBytes, err := templateFS.ReadFile("templates/layout.html")
@@ -169,6 +172,27 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if h.data == nil {
+		h.renderFallbackCards(w)
+		return
+	}
+	stats, err := h.data.DashboardStats(r.Context())
+	if err != nil {
+		h.renderFallbackCards(w)
+		return
+	}
+	fedLabel := fmt.Sprintf("%d / %d", stats.HealthyPeers, stats.FederationPeers)
+	if stats.FederationPeers == 0 {
+		fedLabel = "—"
+	}
+	fmt.Fprintf(w, `<div class="card"><p class="card-title">Workspaces</p><p class="card-value">%d</p></div>`, stats.WorkspaceCount)
+	fmt.Fprintf(w, `<div class="card"><p class="card-title">Memories</p><p class="card-value">%d</p></div>`, stats.MemoryCount)
+	fmt.Fprintf(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">%d%%</p></div>`, stats.RecallReadyPct)
+	fmt.Fprintf(w, `<div class="card"><p class="card-title">Embed Queue</p><p class="card-value">%d</p></div>`, stats.EmbedQueueDepth)
+	fmt.Fprintf(w, `<div class="card"><p class="card-title">Federation Peers</p><p class="card-value">%s</p></div>`, template.HTMLEscapeString(fedLabel))
+}
+
+func (h *Handler) renderFallbackCards(w http.ResponseWriter) {
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Workspaces</p><p class="card-value">—</p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Memories</p><p class="card-value">—</p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">—</p></div>`)
@@ -178,7 +202,32 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) partialRecentActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<p class="text-muted">No recent activity.</p>`)
+	if h.data == nil {
+		fmt.Fprint(w, `<p class="text-muted">No recent activity.</p>`)
+		return
+	}
+	entries, err := h.data.RecentLedgerEntries(r.Context(), 20)
+	if err != nil || len(entries) == 0 {
+		fmt.Fprint(w, `<p class="text-muted">No recent activity.</p>`)
+		return
+	}
+	fmt.Fprint(w, `<table><thead><tr><th>Time</th><th>Op</th><th>Target</th><th>Agent</th></tr></thead><tbody>`)
+	for _, e := range entries {
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td class="mono">%s</td></tr>`,
+			template.HTMLEscapeString(e.Timestamp.UTC().Format("15:04:05")),
+			template.HTMLEscapeString(e.Op),
+			template.HTMLEscapeString(truncateStr(e.Target, 20)),
+			template.HTMLEscapeString(truncateStr(e.AgentID, 20)),
+		)
+	}
+	fmt.Fprint(w, `</tbody></table>`)
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func (h *Handler) partialPlaceholder(msg string) http.HandlerFunc {

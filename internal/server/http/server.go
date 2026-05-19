@@ -104,6 +104,13 @@ func New(cfg Config) *Server {
 		cfg.Logger.Error("UI handler init failed", "err", err)
 	} else {
 		uiHandler.SetAuth(ui.AuthConfig{APIKey: cfg.APIKey})
+		if cfg.Service != nil {
+			ds := &ui.ServiceDataSource{
+				Metadata: cfg.Service.Metadata,
+				Ledger:   cfg.Service.Ledger,
+			}
+			uiHandler.SetDataSource(ds)
+		}
 		uiHandler.Register(mux)
 	}
 	s.srv = &http.Server{

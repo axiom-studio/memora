@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 func TestNewHandler(t *testing.T) {
@@ -358,6 +362,118 @@ func TestAuth_PartialsRequireSession(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("partials without auth: expected 303, got %d", w.Code)
+	}
+}
+
+type mockDataSource struct {
+	stats   DashboardStats
+	entries []api.LedgerEntry
+	err     error
+}
+
+func (m *mockDataSource) DashboardStats(_ context.Context) (DashboardStats, error) {
+	return m.stats, m.err
+}
+func (m *mockDataSource) RecentLedgerEntries(_ context.Context, limit int) ([]api.LedgerEntry, error) {
+	if len(m.entries) > limit {
+		return m.entries[:limit], m.err
+	}
+	return m.entries, m.err
+}
+func (m *mockDataSource) LedgerEntriesSince(_ context.Context, _ time.Time, _ []string, limit int) ([]api.LedgerEntry, error) {
+	return m.RecentLedgerEntries(nil, limit)
+}
+
+func TestDashboardCards_WithData(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		stats: DashboardStats{
+			WorkspaceCount:  3,
+			MemoryCount:     42,
+			RecallReadyPct:  95,
+			EmbedQueueDepth: 7,
+			FederationPeers: 2,
+			HealthyPeers:    1,
+		},
+	})
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/dashboard-cards", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	for _, want := range []string{"3", "42", "95%", "7", "1 / 2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard cards missing %q in body: %s", want, body)
+		}
+	}
+}
+
+func TestDashboardCards_NoDataSource(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/dashboard-cards", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "—") {
+		t.Error("expected fallback dash values")
+	}
+}
+
+func TestRecentActivity_WithEntries(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		entries: []api.LedgerEntry{
+			{Op: "imprint", Target: "mem_abc", AgentID: "agent_1", Timestamp: time.Now()},
+			{Op: "recall", Target: "mem_xyz", AgentID: "agent_2", Timestamp: time.Now()},
+		},
+	})
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/recent-activity", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	if !strings.Contains(body, "imprint") || !strings.Contains(body, "recall") {
+		t.Errorf("recent activity missing entries: %s", body)
+	}
+	if !strings.Contains(body, "<table>") {
+		t.Error("expected table in recent activity")
+	}
+}
+
+func TestRecentActivity_Empty(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/recent-activity", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "No recent activity") {
+		t.Error("expected 'No recent activity' message")
 	}
 }
 
