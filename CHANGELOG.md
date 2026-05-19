@@ -22,6 +22,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `PrimaryStore` must migrate to `MetadataStore` (tabular CRUD) and
   optionally `GraphStore` (edges / traversal). See updated
   [`docs/adapter-authoring.md`](./docs/adapter-authoring.md).
+  **Note**: This is an interface refactor only — the storage layout is
+  unchanged. The MetadataStore legacy columns (`memora_memories.content`,
+  `memora_cells.text`) remain authoritative. ContentStore is a dual-write
+  target. The column-drop migration is tracked for v1.0; operators
+  performing deletion/erasure must continue to address the MetadataStore
+  columns directly until then.
 - Service layer graph methods nil-guard `GraphStore` — deployments
   without a graph backend degrade gracefully (forget skips cascade;
   explicit graph ops return 501 `capability_unavailable`).

@@ -53,10 +53,12 @@ type MetadataStore interface {
 	ListCollections(ctx context.Context, workspaceID string) ([]types.Collection, error)
 	DeleteCollection(ctx context.Context, id string) error
 
-	// --- Memory CRUD (content-free headers) ---
-	// Implementations persist Memory.Content as "" — ContentStore owns
-	// the real bytes. Pre-migration rows may still carry content in the
-	// legacy column; reads return whatever is in the DB.
+	// --- Memory CRUD ---
+	// The MetadataStore legacy column (memora_memories.content) remains
+	// authoritative for content storage until the column-drop migration
+	// ships (tracked for v1.0). ContentStore is a dual-write target;
+	// both stores receive the same bytes on Imprint/Append/Patch.
+	// Reads return whatever is in the MetadataStore DB column.
 
 	ImprintMemory(ctx context.Context, m *types.Memory) (watermark string, err error)
 	GetMemory(ctx context.Context, id string) (*types.Memory, error)
@@ -68,10 +70,10 @@ type MetadataStore interface {
 	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (newWatermark string, deltas []types.CellDelta, newContent string, err error)
 	ForgetMemory(ctx context.Context, id string) error
 
-	// --- Cell headers (text-free) ---
-	// Implementations persist Cell.Text as "" — ContentStore owns the
-	// real chunk text. Only cell_id, memory_id, seq, text_md5,
-	// vector_key, embedding_model, and metadata_json are stored.
+	// --- Cell CRUD ---
+	// The MetadataStore legacy column (memora_cells.text) remains
+	// authoritative until the column-drop migration ships (v1.0).
+	// ContentStore is a dual-write target for cell text.
 
 	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
 	GetCells(ctx context.Context, memoryID string) ([]types.Cell, error)

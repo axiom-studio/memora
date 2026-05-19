@@ -151,6 +151,10 @@ type ContentStore interface {
     // DeleteAllForMemory
     Capabilities() ContentCapabilities
 }
+// NOTE: As of v0.4, the MetadataStore legacy columns
+// (memora_memories.content, memora_cells.text) remain the
+// authoritative content store. ContentStore is a dual-write
+// target. The column-drop migration is tracked for v1.0.
 
 type GraphStore interface {
     Open(ctx, GraphConfig) error
