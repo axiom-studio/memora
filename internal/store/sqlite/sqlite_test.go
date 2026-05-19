@@ -189,3 +189,53 @@ func TestGraphCascadeForget(t *testing.T) {
 		t.Fatalf("expected 1 cascaded edge, got %d", n)
 	}
 }
+
+func TestMigrationIdempotence(t *testing.T) {
+	dir := t.TempDir()
+	dsn := filepath.Join(dir, "memora.db")
+	ctx := context.Background()
+
+	s1 := &Store{}
+	if err := s1.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	ws := &types.Workspace{Name: "idempotent"}
+	if err := s1.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	_ = s1.Close()
+
+	s2 := &Store{}
+	if err := s2.Open(ctx, adapter.PrimaryConfig{Driver: "sqlite", DSN: dsn}); err != nil {
+		t.Fatalf("second open (re-migrate): %v", err)
+	}
+	t.Cleanup(func() { _ = s2.Close() })
+
+	got, err := s2.GetWorkspace(ctx, ws.ID)
+	if err != nil {
+		t.Fatalf("data lost after re-open: %v", err)
+	}
+	if got.Name != "idempotent" {
+		t.Errorf("name = %q, want idempotent", got.Name)
+	}
+}
+
+func TestCapabilities(t *testing.T) {
+	s, _ := openStore(t)
+	caps := s.Capabilities()
+	if !caps.SupportsCAS {
+		t.Error("SupportsCAS should be true")
+	}
+	if !caps.SupportsTransactions {
+		t.Error("SupportsTransactions should be true")
+	}
+	if caps.MaxGraphDepth != 3 {
+		t.Errorf("MaxGraphDepth = %d, want 3", caps.MaxGraphDepth)
+	}
+	if caps.MaxNeighborsK != 200 {
+		t.Errorf("MaxNeighborsK = %d, want 200", caps.MaxNeighborsK)
+	}
+	if caps.MaxLinkBatchSize != 1000 {
+		t.Errorf("MaxLinkBatchSize = %d, want 1000", caps.MaxLinkBatchSize)
+	}
+}
