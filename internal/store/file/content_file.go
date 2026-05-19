@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -191,6 +192,34 @@ func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]s
 	var ids []string
 	for _, e := range entries {
 		if e.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids, nil
+}
+
+func (c *ContentStore) ListMemoryIDsOlderThan(_ context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
+	if !validIDSegment(workspaceID) {
+		return nil, fmt.Errorf("%w: invalid workspace_id segment", types.ErrInvalidInput)
+	}
+	wsDir := filepath.Join(c.root, workspaceID)
+	entries, err := os.ReadDir(wsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
 			ids = append(ids, e.Name())
 		}
 	}

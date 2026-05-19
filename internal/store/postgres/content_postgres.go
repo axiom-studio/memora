@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -149,6 +150,25 @@ func (c *ContentStore) DeleteAllForMemory(ctx context.Context, workspaceID, memo
 func (c *ContentStore) ListMemoryIDs(ctx context.Context, workspaceID string) ([]string, error) {
 	rows, err := c.pool.Query(ctx,
 		`SELECT DISTINCT memory_id FROM memora_content WHERE workspace_id = $1`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (c *ContentStore) ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
+	rows, err := c.pool.Query(ctx,
+		`SELECT DISTINCT memory_id FROM memora_content WHERE workspace_id = $1 AND created_at < $2`,
+		workspaceID, cutoff.UTC())
 	if err != nil {
 		return nil, err
 	}

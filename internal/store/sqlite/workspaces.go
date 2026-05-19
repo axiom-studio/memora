@@ -105,6 +105,54 @@ FROM memora_workspaces ORDER BY created_at DESC LIMIT ?`, limit)
 	return out, rows.Err()
 }
 
+// ListWorkspacesPaged returns up to `limit` workspaces using cursor-based
+// keyset pagination on id. Returns (workspaces, nextCursor, error).
+func (s *Store) ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+FROM memora_workspaces`
+	var args []any
+	if cursor != "" {
+		q += " WHERE id > ?"
+		args = append(args, cursor)
+	}
+	q += " ORDER BY id ASC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var out []types.Workspace
+	for rows.Next() {
+		var w types.Workspace
+		var region, chunker, embed, metaJSON sql.NullString
+		var createdAt, updatedAt sqliteTime
+		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &createdAt, &updatedAt); err != nil {
+			return nil, "", err
+		}
+		w.Region = region.String
+		w.ChunkerID = chunker.String
+		w.EmbeddingModel = embed.String
+		w.CreatedAt = createdAt.Time
+		w.UpdatedAt = updatedAt.Time
+		if metaJSON.Valid && metaJSON.String != "" {
+			_ = json.Unmarshal([]byte(metaJSON.String), &w.Meta)
+		}
+		out = append(out, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(out) == limit {
+		nextCursor = out[len(out)-1].ID
+	}
+	return out, nextCursor, nil
+}
+
 // UpdateWorkspace replaces a Workspace's mutable fields.
 func (s *Store) UpdateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if err := w.Validate(); err != nil {

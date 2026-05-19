@@ -35,6 +35,7 @@ type Sweeper struct {
 	ledger   LedgerAppender
 	logger   *slog.Logger
 	cfg      Config
+	now      func() time.Time
 
 	totalDeleted atomic.Int64
 	lastDeleted  atomic.Int64
@@ -55,6 +56,7 @@ func New(metadata adapter.MetadataStore, content adapter.ContentStore, ledger Le
 		ledger:  ledger,
 		logger:  logger,
 		cfg:     cfg,
+		now:     time.Now,
 	}
 }
 
@@ -90,10 +92,10 @@ func (s *Sweeper) loop(ctx context.Context) {
 	}
 }
 
-// sweep runs one GC pass. For each workspace it enumerates content
-// keys via ContentStore.ListMemoryIDs, cross-references each against
-// MetadataStore.GetMemory, and deletes content for memories that are
-// missing or forgotten (ErrNotFound).
+// sweep runs one GC pass. For each workspace (paginated) it enumerates
+// content keys older than MinAge via ContentStore.ListMemoryIDsOlderThan,
+// cross-references each against MetadataStore.GetMemory, and deletes
+// content for memories that are missing or forgotten (ErrNotFound).
 func (s *Sweeper) sweep(ctx context.Context) {
 	s.logger.Info("orphan_gc_pass_start")
 
@@ -103,32 +105,43 @@ func (s *Sweeper) sweep(ctx context.Context) {
 		return
 	}
 
-	workspaces, err := s.metadata.ListWorkspaces(ctx, 1000)
-	if err != nil {
-		s.logger.Warn("orphan_gc_list_workspaces_error", "err", err)
-		return
-	}
+	cutoff := s.now().Add(-s.cfg.MinAge)
 
 	var scanned, deleted int
-	for _, ws := range workspaces {
-		memIDs, err := s.content.ListMemoryIDs(ctx, ws.ID)
+	cursor := ""
+	const pageSize = 500
+	for {
+		workspaces, nextCursor, err := s.metadata.ListWorkspacesPaged(ctx, cursor, pageSize)
 		if err != nil {
-			s.logger.Warn("orphan_gc_list_keys_error", "workspace", ws.ID, "err", err)
-			continue
+			s.logger.Warn("orphan_gc_list_workspaces_error", "err", err)
+			break
 		}
-		for _, memID := range memIDs {
-			scanned++
-			_, err := s.metadata.GetMemory(ctx, memID)
-			if err == nil {
+
+		for _, ws := range workspaces {
+			memIDs, err := s.content.ListMemoryIDsOlderThan(ctx, ws.ID, cutoff)
+			if err != nil {
+				s.logger.Warn("orphan_gc_list_keys_error", "workspace", ws.ID, "err", err)
 				continue
 			}
-			if err := s.content.DeleteAllForMemory(ctx, ws.ID, memID); err != nil {
-				s.logger.Warn("orphan_gc_delete_error", "workspace", ws.ID, "memory", memID, "err", err)
-				continue
+			for _, memID := range memIDs {
+				scanned++
+				_, err := s.metadata.GetMemory(ctx, memID)
+				if err == nil {
+					continue
+				}
+				if err := s.content.DeleteAllForMemory(ctx, ws.ID, memID); err != nil {
+					s.logger.Warn("orphan_gc_delete_error", "workspace", ws.ID, "memory", memID, "err", err)
+					continue
+				}
+				deleted++
+				s.logger.Info("orphan_gc_reclaimed", "workspace", ws.ID, "memory", memID)
 			}
-			deleted++
-			s.logger.Info("orphan_gc_reclaimed", "workspace", ws.ID, "memory", memID)
 		}
+
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
 	}
 
 	s.lastDeleted.Store(int64(deleted))

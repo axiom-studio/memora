@@ -43,6 +43,7 @@ type MetadataStore interface {
 	CreateWorkspace(ctx context.Context, w *types.Workspace) error
 	GetWorkspace(ctx context.Context, id string) (*types.Workspace, error)
 	ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error)
+	ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error)
 	UpdateWorkspace(ctx context.Context, w *types.Workspace) error
 	DeleteWorkspace(ctx context.Context, id string) error
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -158,6 +159,25 @@ func (c *ContentStore) DeleteAllForMemory(ctx context.Context, workspaceID, memo
 func (c *ContentStore) ListMemoryIDs(ctx context.Context, workspaceID string) ([]string, error) {
 	rows, err := c.db.QueryContext(ctx,
 		`SELECT DISTINCT memory_id FROM memora_content WHERE workspace_id = ?`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (c *ContentStore) ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx,
+		`SELECT DISTINCT memory_id FROM memora_content
+		 WHERE workspace_id = ? AND created_at < ?`, workspaceID, cutoff.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}

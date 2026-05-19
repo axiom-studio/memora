@@ -165,6 +165,58 @@ FROM memora_workspaces ORDER BY created_at DESC LIMIT $1`, limit)
 	return out, rows.Err()
 }
 
+func (s *MetadataStore) ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json, created_at, updated_at
+FROM memora_workspaces`
+	args := []any{}
+	argN := 1
+	if cursor != "" {
+		q += fmt.Sprintf(" WHERE id > $%d", argN)
+		args = append(args, cursor)
+		argN++
+	}
+	q += fmt.Sprintf(" ORDER BY id ASC LIMIT $%d", argN)
+	args = append(args, limit)
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var out []types.Workspace
+	for rows.Next() {
+		var w types.Workspace
+		var region, chunker, embed *string
+		var metaJSON []byte
+		if err := rows.Scan(&w.ID, &w.Name, &region, &chunker, &embed, &metaJSON, &w.CreatedAt, &w.UpdatedAt); err != nil {
+			return nil, "", err
+		}
+		if region != nil {
+			w.Region = *region
+		}
+		if chunker != nil {
+			w.ChunkerID = *chunker
+		}
+		if embed != nil {
+			w.EmbeddingModel = *embed
+		}
+		if len(metaJSON) > 0 {
+			_ = json.Unmarshal(metaJSON, &w.Meta)
+		}
+		out = append(out, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(out) == limit {
+		nextCursor = out[len(out)-1].ID
+	}
+	return out, nextCursor, nil
+}
+
 func (s *MetadataStore) UpdateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if err := w.Validate(); err != nil {
 		return err

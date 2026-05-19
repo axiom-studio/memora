@@ -1,6 +1,9 @@
 package adapter
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ContentConfig is the driver-agnostic input to ContentStore.Open.
 type ContentConfig struct {
@@ -51,6 +54,12 @@ type ContentStore interface {
 	// in the given workspace. Used by the orphan GC sweeper to enumerate
 	// content keys and cross-reference against MetadataStore.
 	ListMemoryIDs(ctx context.Context, workspaceID string) ([]string, error)
+
+	// ListMemoryIDsOlderThan returns distinct memory IDs whose earliest
+	// content row was created before the given cutoff. Used by the orphan
+	// GC sweeper to enforce MinAge — only content old enough to be
+	// confidently orphaned is eligible for deletion.
+	ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error)
 }
 
 // ContentFactory builds a ContentStore from config.

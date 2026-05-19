@@ -14,6 +14,7 @@ package s3
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -69,5 +70,8 @@ func (c *ContentStore) DeleteAllForMemory(context.Context, string, string) error
 	return types.ErrCapability
 }
 func (c *ContentStore) ListMemoryIDs(context.Context, string) ([]string, error) {
+	return nil, types.ErrCapability
+}
+func (c *ContentStore) ListMemoryIDsOlderThan(context.Context, string, time.Time) ([]string, error) {
 	return nil, types.ErrCapability
 }
