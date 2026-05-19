@@ -153,8 +153,8 @@ type PrimaryStore interface {
 	RegisterAgent(ctx context.Context, a *types.Agent) error
 	// GetAgent returns the Agent by ID within a workspace. Returns ErrNotFound if absent or belongs to a different workspace.
 	GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error)
-	// ListAgents returns all agents registered in a workspace.
-	ListAgents(ctx context.Context, workspaceID string) ([]types.Agent, error)
+	// ListAgents returns up to limit agents registered in a workspace, ordered by registered_at DESC. 0 means adapter default (100).
+	ListAgents(ctx context.Context, workspaceID string, limit int) ([]types.Agent, error)
 	// DeactivateAgent soft-deletes an agent within a workspace. Returns ErrNotFound if absent or belongs to a different workspace.
 	DeactivateAgent(ctx context.Context, workspaceID, id string) error
 

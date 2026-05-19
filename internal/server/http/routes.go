@@ -406,7 +406,7 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
-		ags, err := s.cfg.Service.Primary.ListAgents(r.Context(), wsID)
+		ags, err := s.cfg.Service.Primary.ListAgents(r.Context(), wsID, 0)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return

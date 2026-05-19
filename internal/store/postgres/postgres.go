@@ -89,7 +89,7 @@ func (s *Store) UpsertTag(context.Context, string, string, string, string) error
 func (s *Store) DeleteTag(context.Context, string, string, string) error         { return types.ErrCapability }
 func (s *Store) RegisterAgent(context.Context, *types.Agent) error       { return types.ErrCapability }
 func (s *Store) GetAgent(context.Context, string, string) (*types.Agent, error) { return nil, types.ErrCapability }
-func (s *Store) ListAgents(context.Context, string) ([]types.Agent, error) {
+func (s *Store) ListAgents(context.Context, string, int) ([]types.Agent, error) {
 	return nil, types.ErrCapability
 }
 func (s *Store) DeactivateAgent(context.Context, string, string) error { return types.ErrCapability }

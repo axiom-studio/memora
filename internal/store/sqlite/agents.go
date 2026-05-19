@@ -75,12 +75,15 @@ FROM memora_agents WHERE agent_id = ? AND workspace_id = ?`, id, workspaceID).Sc
 	return a, nil
 }
 
-// ListAgents returns the workspace's agents.
-func (s *Store) ListAgents(ctx context.Context, workspaceID string) ([]types.Agent, error) {
+// ListAgents returns the workspace's agents, capped at limit.
+func (s *Store) ListAgents(ctx context.Context, workspaceID string, limit int) ([]types.Agent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT agent_id, workspace_id, display_name, identity_provider, identity_proof, agent_type, model,
     capabilities_json, registered_at, last_seen_at, active
-FROM memora_agents WHERE workspace_id = ? ORDER BY registered_at DESC`, workspaceID)
+FROM memora_agents WHERE workspace_id = ? ORDER BY registered_at DESC LIMIT ?`, workspaceID, limit)
 	if err != nil {
 		return nil, err
 	}

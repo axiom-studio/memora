@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -460,5 +461,98 @@ func TestUpdateMemory_ConcurrentWriters(t *testing.T) {
 	}
 	if loserCount.Load() != 4 {
 		t.Errorf("expected 4 CAS losers, got %d", loserCount.Load())
+	}
+}
+
+func TestUpsertCells_Idempotent(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "cells"}
+	_ = s.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "agent_opaque_c"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	cells := []types.Cell{
+		{Seq: 0, Text: "first", TextMD5: types.MD5Hex("first"), WrittenByAgentID: "agent_opaque_c"},
+		{Seq: 1, Text: "second", TextMD5: types.MD5Hex("second"), WrittenByAgentID: "agent_opaque_c"},
+	}
+	if err := s.UpsertCells(ctx, m.ID, cells); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertCells(ctx, m.ID, cells); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetCells(ctx, m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 cells after idempotent re-apply, got %d", len(got))
+	}
+}
+
+func TestGetWatermarkHistory_SinceFilter(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "wmkh"}
+	_ = s.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "v1", WrittenByAgentID: "agent_opaque_w"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	future := time.Now().UTC().Add(time.Hour)
+	hist, err := s.GetWatermarkHistory(ctx, ws.ID, m.ID, future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 0 {
+		t.Fatalf("expected zero history rows since the future, got %d", len(hist))
+	}
+	epoch := time.Unix(0, 0).UTC()
+	hist, _ = s.GetWatermarkHistory(ctx, ws.ID, m.ID, epoch)
+	if len(hist) == 0 {
+		t.Fatal("expected at least one history row")
+	}
+	if hist[0].Op != "imprint" {
+		t.Fatalf("first history row op = %s, want imprint", hist[0].Op)
+	}
+}
+
+func TestRegisterAgent_ConcurrentUpserts(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "agents_race"}
+	_ = s.CreateWorkspace(ctx, ws)
+
+	const id = "agent_opaque_race"
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			a := &types.Agent{
+				AgentID:          id,
+				WorkspaceID:      ws.ID,
+				DisplayName:      fmt.Sprintf("writer-%d", i),
+				IdentityProvider: "opaque",
+			}
+			if err := s.RegisterAgent(ctx, a); err != nil {
+				t.Errorf("register %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	got, err := s.GetAgent(ctx, ws.ID, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got.DisplayName, "writer-") {
+		t.Fatalf("display_name not preserved across race: %s", got.DisplayName)
+	}
+	all, _ := s.ListAgents(ctx, ws.ID, 0)
+	n := 0
+	for _, a := range all {
+		if a.AgentID == id {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 row for %s after concurrent upserts, got %d", id, n)
 	}
 }

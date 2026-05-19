@@ -220,7 +220,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Primary.ListAgents(ctx, in.WorkspaceID)
+		return s.svc.Primary.ListAgents(ctx, in.WorkspaceID, 0)
 	case "memora_link":
 		var in struct {
 			WorkspaceID    string         `json:"workspace_id"`
