@@ -131,6 +131,24 @@ func (c *ContentStore) DeleteAllForMemory(_ context.Context, workspaceID, memory
 	return err
 }
 
+func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]string, error) {
+	wsDir := filepath.Join(c.root, workspaceID)
+	entries, err := os.ReadDir(wsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids, nil
+}
+
 func (c *ContentStore) memoryDir(workspaceID, memoryID string) string {
 	return filepath.Join(c.root, workspaceID, memoryID)
 }

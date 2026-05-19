@@ -63,3 +63,6 @@ func (c *ContentStore) DeleteCellContent(context.Context, string, string, string
 func (c *ContentStore) DeleteAllForMemory(context.Context, string, string) error {
 	return types.ErrCapability
 }
+func (c *ContentStore) ListMemoryIDs(context.Context, string) ([]string, error) {
+	return nil, types.ErrCapability
+}

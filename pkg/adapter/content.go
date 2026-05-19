@@ -46,6 +46,11 @@ type ContentStore interface {
 
 	// DeleteAllForMemory removes all content (memory + cells) for a memory. Used by Forget cascade.
 	DeleteAllForMemory(ctx context.Context, workspaceID, memoryID string) error
+
+	// ListMemoryIDs returns distinct memory IDs that have content stored
+	// in the given workspace. Used by the orphan GC sweeper to enumerate
+	// content keys and cross-reference against MetadataStore.
+	ListMemoryIDs(ctx context.Context, workspaceID string) ([]string, error)
 }
 
 // ContentFactory builds a ContentStore from config.

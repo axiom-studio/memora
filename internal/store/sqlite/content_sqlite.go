@@ -155,6 +155,24 @@ func (c *ContentStore) DeleteAllForMemory(ctx context.Context, workspaceID, memo
 	return err
 }
 
+func (c *ContentStore) ListMemoryIDs(ctx context.Context, workspaceID string) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx,
+		`SELECT DISTINCT memory_id FROM memora_content WHERE workspace_id = ?`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func joinStrings(s []string, sep string) string {
 	out := ""
 	for i, v := range s {

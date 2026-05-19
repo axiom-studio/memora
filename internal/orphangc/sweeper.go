@@ -90,35 +90,55 @@ func (s *Sweeper) loop(ctx context.Context) {
 	}
 }
 
-// sweep runs one GC pass. It lists recently-forgotten memories from
-// the MetadataStore and deletes their content blobs. This is a
-// conservative approach — it only cleans up content for memories that
-// were explicitly forgotten, not content orphaned by metadata write
-// failures. A more thorough enumeration-based sweep would require a
-// ListKeys method on ContentStore (future enhancement).
+// sweep runs one GC pass. For each workspace it enumerates content
+// keys via ContentStore.ListMemoryIDs, cross-references each against
+// MetadataStore.GetMemory, and deletes content for memories that are
+// missing or forgotten (ErrNotFound).
 func (s *Sweeper) sweep(ctx context.Context) {
 	s.logger.Info("orphan_gc_pass_start")
-	deleted := 0
 
-	// Phase 1: check workspaces for forgotten memories by scanning
-	// recent ledger entries. This is a best-effort approach — a full
-	// content enumeration would require ContentStore.ListKeys which
-	// doesn't exist yet.
-	//
-	// For now, the sweeper logs its passes for observability. The
-	// content-first write ordering ensures that orphans (content
-	// without metadata) are harmless — they waste storage but don't
-	// affect correctness. The GC reclaims them when enumeration is
-	// available.
+	if s.metadata == nil || s.content == nil {
+		s.lastDeleted.Store(0)
+		s.logger.Info("orphan_gc_pass_skip", "reason", "nil metadata or content store")
+		return
+	}
+
+	workspaces, err := s.metadata.ListWorkspaces(ctx, 1000)
+	if err != nil {
+		s.logger.Warn("orphan_gc_list_workspaces_error", "err", err)
+		return
+	}
+
+	var scanned, deleted int
+	for _, ws := range workspaces {
+		memIDs, err := s.content.ListMemoryIDs(ctx, ws.ID)
+		if err != nil {
+			s.logger.Warn("orphan_gc_list_keys_error", "workspace", ws.ID, "err", err)
+			continue
+		}
+		for _, memID := range memIDs {
+			scanned++
+			_, err := s.metadata.GetMemory(ctx, memID)
+			if err == nil {
+				continue
+			}
+			if err := s.content.DeleteAllForMemory(ctx, ws.ID, memID); err != nil {
+				s.logger.Warn("orphan_gc_delete_error", "workspace", ws.ID, "memory", memID, "err", err)
+				continue
+			}
+			deleted++
+			s.logger.Info("orphan_gc_reclaimed", "workspace", ws.ID, "memory", memID)
+		}
+	}
 
 	s.lastDeleted.Store(int64(deleted))
 	s.totalDeleted.Add(int64(deleted))
-	s.logger.Info("orphan_gc_pass_done", "scanned", 0, "deleted", deleted)
+	s.logger.Info("orphan_gc_pass_done", "scanned", scanned, "deleted", deleted)
 
 	if s.ledger != nil {
 		s.ledger.AppendLedger(ctx, api.LedgerEntry{
 			Op:       "orphan_gc",
-			Metadata: map[string]any{"scanned": 0, "deleted": deleted},
+			Metadata: map[string]any{"scanned": scanned, "deleted": deleted},
 		})
 	}
 }
