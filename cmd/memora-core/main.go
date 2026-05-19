@@ -32,6 +32,7 @@ import (
 	_ "github.com/axiom-studio/memora/internal/ledger/file"
 	_ "github.com/axiom-studio/memora/internal/ledger/postgres"
 	_ "github.com/axiom-studio/memora/internal/ledger/sqlite"
+	_ "github.com/axiom-studio/memora/internal/store/file"
 	_ "github.com/axiom-studio/memora/internal/store/pgvector"
 	_ "github.com/axiom-studio/memora/internal/store/postgres"
 	_ "github.com/axiom-studio/memora/internal/store/sqlite"
@@ -146,6 +147,8 @@ func serve() {
 	primaryDriver := fs.String("primary-driver", getenv("MEMORA_PRIMARY_DRIVER", "sqlite"), "primary-store driver")
 	vectorDriver := fs.String("vector-driver", getenv("MEMORA_VECTOR_DRIVER", "sqlite-vec"), "vector-store driver")
 	ledgerDriver := fs.String("ledger-driver", getenv("MEMORA_LEDGER_DRIVER", "sqlite"), "ledger-store driver")
+	contentDriver := fs.String("content-driver", os.Getenv("MEMORA_CONTENT_DRIVER"), "content-store driver (empty = disabled; file | sqlite)")
+	contentDSN := fs.String("content-dsn", os.Getenv("MEMORA_CONTENT_DSN"), "content-store DSN (e.g. /var/lib/memora/content for file driver)")
 	embedModel := fs.String("embedding-model", getenv("MEMORA_EMBEDDING_MODEL", "noop:default"), "embedding model id")
 	apiKey := fs.String("api-key", os.Getenv("MEMORA_API_KEY"), "API bearer key (empty disables auth)")
 	allowNoAuth := fs.Bool("allow-no-auth", false, "explicit opt-in to run with an empty API key on a non-loopback bind")
@@ -214,6 +217,23 @@ func serve() {
 		Ledger:   led,
 		Embedder: embedProvider,
 		Identity: identityMap,
+	}
+	if *contentDriver != "" {
+		cdsn := *contentDSN
+		if cdsn == "" {
+			if *contentDriver == "sqlite" {
+				cdsn = dbPath
+			} else {
+				cdsn = filepath.Join(*dataDir, "content")
+			}
+		}
+		cs, err := adapter.OpenContent(ctx, adapter.ContentConfig{Driver: *contentDriver, DSN: cdsn})
+		if err != nil {
+			bootLog.Fatalf("open content: %v", err)
+		}
+		defer cs.Close()
+		svc.Content = cs
+		logger.Info("content store enabled", "driver", *contentDriver, "dsn", cdsn)
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{

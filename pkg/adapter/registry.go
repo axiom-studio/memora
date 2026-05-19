@@ -14,6 +14,7 @@ var (
 	primaryDrivers    = map[string]PrimaryFactory{}
 	vectorDrivers     = map[string]VectorFactory{}
 	ledgerDrivers     = map[string]LedgerFactory{}
+	contentDrivers    = map[string]ContentFactory{}
 	identityProviders = map[string]IdentityFactory{}
 )
 
@@ -46,6 +47,16 @@ func RegisterLedger(name string, factory LedgerFactory) {
 		panic(fmt.Sprintf("memora: LedgerStore driver %q registered twice", name))
 	}
 	ledgerDrivers[name] = factory
+}
+
+// RegisterContent registers a ContentStore factory.
+func RegisterContent(name string, factory ContentFactory) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	if _, dup := contentDrivers[name]; dup {
+		panic(fmt.Sprintf("memora: ContentStore driver %q registered twice", name))
+	}
+	contentDrivers[name] = factory
 }
 
 // RegisterIdentity registers an IdentityProvider factory.
@@ -103,6 +114,21 @@ func OpenLedger(ctx context.Context, cfg LedgerConfig) (LedgerStore, error) {
 	return store, nil
 }
 
+// OpenContent instantiates and opens a ContentStore by driver name.
+func OpenContent(ctx context.Context, cfg ContentConfig) (ContentStore, error) {
+	regMu.RLock()
+	factory, ok := contentDrivers[cfg.Driver]
+	regMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("memora: unknown ContentStore driver %q (registered: %v)", cfg.Driver, ListContentDrivers())
+	}
+	store := factory()
+	if err := store.Open(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("memora: open ContentStore %q: %w", cfg.Driver, err)
+	}
+	return store, nil
+}
+
 // OpenIdentity returns an IdentityProvider instance by name.
 func OpenIdentity(name string) (IdentityProvider, error) {
 	regMu.RLock()
@@ -122,6 +148,9 @@ func ListVectorDrivers() []string { return sortedKeys(vectorDrivers) }
 
 // ListLedgerDrivers returns the registered LedgerStore driver names.
 func ListLedgerDrivers() []string { return sortedKeys(ledgerDrivers) }
+
+// ListContentDrivers returns the registered ContentStore driver names.
+func ListContentDrivers() []string { return sortedKeys(contentDrivers) }
 
 // ListIdentityProviders returns the registered IdentityProvider names.
 func ListIdentityProviders() []string { return sortedKeys(identityProviders) }

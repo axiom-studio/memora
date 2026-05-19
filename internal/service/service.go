@@ -31,6 +31,7 @@ type Service struct {
 	Primary  adapter.PrimaryStore
 	Vector   adapter.VectorStore
 	Ledger   adapter.LedgerStore
+	Content  adapter.ContentStore // nil = legacy-only (no dual-write)
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
 	Pool     *embedqueue.Pool
@@ -91,6 +92,13 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	}
 	if err := s.Primary.UpsertCells(ctx, mem.ID, cells); err != nil {
 		return nil, err
+	}
+	// Dual-write: content first, per doc #301 §7.3 recommendation.
+	if s.Content != nil {
+		_ = s.Content.PutMemoryContent(ctx, workspaceID, mem.ID, mem.ContentMD5, req.Content)
+		for _, cell := range cells {
+			_ = s.Content.PutCellContent(ctx, workspaceID, mem.ID, cell.CellID, cell.TextMD5, cell.Text)
+		}
 	}
 	// Inline-embed so the response reports a finalized recall_ready.
 	embedRes, err := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
@@ -161,6 +169,12 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	if s.Content != nil {
+		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(req.Content), req.Content)
+		for _, cell := range newCells {
+			_ = s.Content.PutCellContent(ctx, workspaceID, memoryID, cell.CellID, cell.TextMD5, cell.Text)
+		}
+	}
 	// Drop cells beyond the new count.
 	if len(oldCells) > len(newCells) {
 		for _, c := range oldCells[len(newCells):] {
@@ -220,6 +234,12 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	if s.Content != nil {
+		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(newContent), newContent)
+		for _, cell := range newCells {
+			_ = s.Content.PutCellContent(ctx, workspaceID, memoryID, cell.CellID, cell.TextMD5, cell.Text)
+		}
+	}
 	if len(oldCells) > len(newCells) {
 		for _, c := range oldCells[len(newCells):] {
 			_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{{WorkspaceID: workspaceID, CellID: c.CellID}})
@@ -281,6 +301,12 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		Primary: s.Primary, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Primary.UpsertCells(ctx, memoryID, newCells)
+	if s.Content != nil {
+		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, md5, existing.Content)
+		for _, cell := range newCells {
+			_ = s.Content.PutCellContent(ctx, workspaceID, memoryID, cell.CellID, cell.TextMD5, cell.Text)
+		}
+	}
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
 		WorkspaceID: workspaceID, Op: "append", Target: memoryID, AgentID: agentID,
 		WatermarkAfter: newWmk,
@@ -302,6 +328,9 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID string) (*api.ForgetResponse, error) {
 	if err := s.Primary.ForgetMemory(ctx, memoryID); err != nil {
 		return nil, err
+	}
+	if s.Content != nil {
+		_ = s.Content.DeleteAllForMemory(ctx, workspaceID, memoryID)
 	}
 	n, _ := s.Primary.GraphCascadeForget(ctx, memoryID, agentID)
 	wmk := types.NewWatermark()
