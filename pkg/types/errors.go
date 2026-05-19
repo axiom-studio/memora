@@ -19,6 +19,7 @@ var (
 	ErrDepthExceeded  = errors.New("memora: graph traverse depth exceeded the adapter's cap")
 	ErrCapability     = errors.New("memora: adapter does not support this capability")
 	ErrEmbedPending   = errors.New("memora: memory has not finished embedding")
+	ErrNotEmpty       = errors.New("memora: container has live children")
 )
 
 func errEmpty(field string) error {

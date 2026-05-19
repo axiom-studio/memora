@@ -2,7 +2,11 @@ package sqlite
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -372,5 +376,89 @@ func TestTenantIsolation_GetWatermarkHistory(t *testing.T) {
 	}
 	if len(hist2) != 0 {
 		t.Fatalf("cross-workspace history should be empty, got %d entries", len(hist2))
+	}
+}
+
+func TestGetMemory_NotFound(t *testing.T) {
+	s, ctx := openStore(t)
+	_, err := s.GetMemory(ctx, "mem_does_not_exist")
+	if !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteWorkspace_NonEmpty(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "nonempty"}
+	_ = s.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "keep me", WrittenByAgentID: "agent_opaque_ne"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	err := s.DeleteWorkspace(ctx, ws.ID)
+	if !errors.Is(err, types.ErrNotEmpty) {
+		t.Fatalf("expected ErrNotEmpty, got %v", err)
+	}
+
+	_ = s.ForgetMemory(ctx, m.ID)
+	if err := s.DeleteWorkspace(ctx, ws.ID); err != nil {
+		t.Fatalf("delete after forget: %v", err)
+	}
+}
+
+func TestDeleteCollection_NonEmpty(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "coll_nonempty"}
+	_ = s.CreateWorkspace(ctx, ws)
+	c := &types.Collection{WorkspaceID: ws.ID, Name: "test_coll"}
+	_ = s.CreateCollection(ctx, c)
+	m := &types.Memory{WorkspaceID: ws.ID, CollectionID: c.ID, Content: "in coll", WrittenByAgentID: "agent_opaque_cn"}
+	_, _ = s.ImprintMemory(ctx, m)
+
+	err := s.DeleteCollection(ctx, c.ID)
+	if !errors.Is(err, types.ErrNotEmpty) {
+		t.Fatalf("expected ErrNotEmpty, got %v", err)
+	}
+
+	_ = s.ForgetMemory(ctx, m.ID)
+	if err := s.DeleteCollection(ctx, c.ID); err != nil {
+		t.Fatalf("delete after forget: %v", err)
+	}
+}
+
+func TestUpdateMemory_ConcurrentWriters(t *testing.T) {
+	s, ctx := openStore(t)
+	ws := &types.Workspace{Name: "race"}
+	_ = s.CreateWorkspace(ctx, ws)
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "v0", WrittenByAgentID: "agent_opaque_r"}
+	wmk, _ := s.ImprintMemory(ctx, m)
+
+	var winnerCount, loserCount atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			m2 := &types.Memory{
+				WorkspaceID:           ws.ID,
+				Content:               fmt.Sprintf("v%d", i+1),
+				LastModifiedByAgentID: "agent_opaque_r",
+			}
+			_, err := s.UpdateMemory(ctx, m.ID, wmk, m2)
+			switch {
+			case err == nil:
+				winnerCount.Add(1)
+			case errors.Is(err, types.ErrCAS):
+				loserCount.Add(1)
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if winnerCount.Load() != 1 {
+		t.Errorf("expected exactly one writer to succeed, got %d", winnerCount.Load())
+	}
+	if loserCount.Load() != 4 {
+		t.Errorf("expected 4 CAS losers, got %d", loserCount.Load())
 	}
 }

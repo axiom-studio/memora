@@ -715,7 +715,7 @@ func HTTPStatus(err error) int {
 		return 404
 	case errors.Is(err, types.ErrCAS):
 		return 412
-	case errors.Is(err, types.ErrAlreadyExists), errors.Is(err, types.ErrAlreadyLinked), errors.Is(err, types.ErrSyntheticEdge):
+	case errors.Is(err, types.ErrAlreadyExists), errors.Is(err, types.ErrAlreadyLinked), errors.Is(err, types.ErrSyntheticEdge), errors.Is(err, types.ErrNotEmpty):
 		return 409
 	case errors.Is(err, types.ErrQuotaExceeded):
 		return 429
@@ -749,6 +749,8 @@ func ErrorCode(err error) string {
 		return "graph_traverse_depth_exceeded"
 	case errors.Is(err, types.ErrCapability):
 		return "capability_unavailable"
+	case errors.Is(err, types.ErrNotEmpty):
+		return "not_empty"
 	case errors.Is(err, types.ErrInvalidInput):
 		return "invalid_input"
 	default:

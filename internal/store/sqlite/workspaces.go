@@ -132,14 +132,22 @@ WHERE id=?`, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJS
 	return nil
 }
 
-// DeleteWorkspace removes a Workspace and cascades.
+// DeleteWorkspace removes a Workspace only when no live memories remain.
 func (s *Store) DeleteWorkspace(ctx context.Context, id string) error {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM memora_memories WHERE workspace_id = ? AND deleted_at IS NULL", id).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: workspace has %d live memories; forget them first", types.ErrNotEmpty, n)
+	}
 	res, err := s.db.ExecContext(ctx, "DELETE FROM memora_workspaces WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
 		return types.ErrNotFound
 	}
 	return nil
@@ -198,14 +206,22 @@ SELECT id, workspace_id, name, created_at FROM memora_collections WHERE workspac
 	return out, rows.Err()
 }
 
-// DeleteCollection removes a Collection.
+// DeleteCollection removes a Collection only when no live memories reference it.
 func (s *Store) DeleteCollection(ctx context.Context, id string) error {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM memora_memories WHERE collection_id = ? AND deleted_at IS NULL", id).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: collection has %d live memories; forget them first", types.ErrNotEmpty, n)
+	}
 	res, err := s.db.ExecContext(ctx, "DELETE FROM memora_collections WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
 		return types.ErrNotFound
 	}
 	return nil
