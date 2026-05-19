@@ -69,9 +69,13 @@ type VectorStore interface {
 	Ping(ctx context.Context) error
 	Capabilities() VectorCapabilities
 
+	// PutVector inserts or replaces a single embedding vector. Key is the primary lookup for deletion.
 	PutVector(ctx context.Context, put VectorPut) error
+	// PutVectorsBatch inserts or replaces multiple vectors atomically. Implementations may batch internally.
 	PutVectorsBatch(ctx context.Context, puts []VectorPut) error
+	// Query returns the top-K vectors nearest to q.Embedding, filtered by q.Filter. Results are ordered by descending cosine similarity.
 	Query(ctx context.Context, q VectorQuery) ([]VectorHit, error)
+	// DeleteVectors removes vectors by key. No-op for keys that don't exist.
 	DeleteVectors(ctx context.Context, keys []VectorKey) error
 }
 

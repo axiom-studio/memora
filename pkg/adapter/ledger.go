@@ -45,9 +45,13 @@ type LedgerStore interface {
 	Ping(ctx context.Context) error
 	Capabilities() LedgerCapabilities
 
+	// Append writes a single audit-log entry. Implementations must be durable on return (fsync or WAL commit).
 	Append(ctx context.Context, e api.LedgerEntry) error
+	// AppendBatch writes multiple entries atomically. Returns error if any entry fails.
 	AppendBatch(ctx context.Context, entries []api.LedgerEntry) error
-	Query(ctx context.Context, q LedgerQuery) ([]api.LedgerEntry, string, error) // (entries, next_cursor, err)
+	// Query returns ledger entries matching the filter, plus a cursor for pagination. Requires SupportsQuery capability.
+	Query(ctx context.Context, q LedgerQuery) (entries []api.LedgerEntry, nextCursor string, err error)
+	// Redact tombstones specific fields on a ledger entry (GDPR Art. 17). The row is preserved with Redacted=true. Requires SupportsRedaction capability.
 	Redact(ctx context.Context, ledgerID string, fields []string) error
 }
 
