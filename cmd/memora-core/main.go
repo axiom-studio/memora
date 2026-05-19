@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/mcp"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
@@ -58,6 +59,11 @@ func main() {
 		runMCP()
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "init-cert" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runInitCert()
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
 		fmt.Printf("memora-core %s (commit=%s built=%s)\n", version, commit, buildDate)
 		return
@@ -73,8 +79,9 @@ func printHelp() {
 	fmt.Println(`memora-core — the Memora server.
 
 Usage:
-  memora-core serve [flags]   start the HTTP + MCP server
-  memora-core version         print version info
+  memora-core serve [flags]       start the HTTP + MCP server
+  memora-core init-cert [flags]   generate self-signed TLS certificate
+  memora-core version             print version info
 
 Common flags for 'serve':
   --config             path to TOML config file (search: $MEMORA_CONFIG → ~/.memora/config.toml → ./memora.toml)
@@ -481,4 +488,46 @@ func runMCP() {
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
 		bootLog.Fatalf("mcp serve: %v", err)
 	}
+}
+
+func runInitCert() {
+	fs := flag.NewFlagSet("init-cert", flag.ExitOnError)
+	host := fs.String("host", "", "hostname for the certificate CN and SAN (required)")
+	outputDir := fs.String("output", "", "output directory (default ~/.memora/tls/)")
+	useRSA := fs.Bool("rsa", false, "use RSA 4096 instead of ECDSA P-256")
+	var extraSANs stringSlice
+	fs.Var(&extraSANs, "san", "additional SAN (repeatable)")
+	_ = fs.Parse(os.Args[1:])
+
+	if *host == "" {
+		fmt.Fprintln(os.Stderr, "error: --host is required")
+		fmt.Fprintln(os.Stderr, "usage: memora-core init-cert --host <hostname> [--output <dir>] [--rsa] [--san <host>...]")
+		os.Exit(1)
+	}
+
+	res, err := certgen.Generate(certgen.Opts{
+		Host:      *host,
+		OutputDir: *outputDir,
+		UseRSA:    *useRSA,
+		ExtraSANs: extraSANs,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Certificate: %s\n", res.CertPath)
+	fmt.Printf("Private key: %s\n", res.KeyPath)
+	fmt.Printf("Fingerprint: SHA256:%s\n", res.Fingerprint)
+	fmt.Println()
+	fmt.Println("Add to your config.toml:")
+	fmt.Println(res.ConfigSnippet())
+}
+
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
 }
