@@ -599,9 +599,11 @@ func TestDashboardCards_WithData(t *testing.T) {
 			MemoryCount:     42,
 			RecallReadyPct:  95,
 			EmbedQueueDepth: 7,
-			FederationPeers: 2,
-			HealthyPeers:    1,
 		},
+	})
+	h.SetFederation(&FederationInfo{
+		FederationID: "test-fed",
+		Peers:        []PeerInfo{{ID: "p1", Name: "node2"}, {ID: "p2", Name: "node3"}},
 	})
 
 	mux := http.NewServeMux()
@@ -612,7 +614,7 @@ func TestDashboardCards_WithData(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	for _, want := range []string{"3", "42", "95%", "7", "1 / 2"} {
+	for _, want := range []string{"3", "42", "95%", "7", ">2<"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard cards missing %q in body: %s", want, body)
 		}

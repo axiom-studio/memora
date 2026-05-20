@@ -23,16 +23,11 @@ type ServiceDataSource struct {
 	PatchFunc       func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
 	AppendFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
 	ForgetFunc      func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
-	FederationPeers int
-	HealthyPeers    int
 	EmbedQueueDepth func() int
 }
 
 func (s *ServiceDataSource) DashboardStats(ctx context.Context) (DashboardStats, error) {
-	stats := DashboardStats{
-		FederationPeers: s.FederationPeers,
-		HealthyPeers:    s.HealthyPeers,
-	}
+	stats := DashboardStats{}
 
 	ws, err := s.Metadata.ListWorkspaces(ctx, 1000)
 	if err != nil {

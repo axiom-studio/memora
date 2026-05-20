@@ -43,7 +43,7 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 		)
 		fmt.Fprintf(w, `<td><button class="btn btn-sm" hx-get="/ui/partials/peer-edit-form?id=%s" hx-target="#fed-modal-container" hx-swap="innerHTML">Edit</button> `,
 			template.HTMLEscapeString(p.ID))
-		fmt.Fprintf(w, `<button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/peer-remove-form?id=%s" hx-target="#fed-modal-container" hx-swap="innerHTML">Remove</button></td></tr>`,
+		fmt.Fprintf(w, `<button class="btn btn-sm btn-danger" hx-get="/ui/partials/peer-remove-form?id=%s" hx-target="#fed-modal-container" hx-swap="innerHTML">Remove</button></td></tr>`,
 			template.HTMLEscapeString(p.ID))
 	}
 	fmt.Fprint(w, `</tbody></table></div>`)
@@ -297,7 +297,7 @@ func (h *Handler) partialPeerRemoveForm(w http.ResponseWriter, r *http.Request) 
     <label>Type <code>%s</code> to confirm <input type="text" name="confirm" required></label>
     <div class="modal-actions">
       <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Remove Peer</button>
+      <button type="submit" class="btn btn-danger">Remove Peer</button>
     </div>
   </form>
 </div>

@@ -217,6 +217,26 @@ tr:hover td { background: var(--bg); }
   border-color: var(--accent);
 }
 .btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary {
+  background: var(--bg);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.btn-secondary:hover { color: var(--text); }
+.btn-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-card);
+}
+.btn-danger:hover { background: #f8d7da; }
+[data-theme="dark"] .btn-danger:hover { background: #842029; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .btn-danger:hover { background: #842029; }
+}
+.btn-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
 
 /* Badges */
 .badge {

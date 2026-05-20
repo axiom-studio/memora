@@ -294,9 +294,9 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 		h.renderFallbackCards(w)
 		return
 	}
-	fedLabel := fmt.Sprintf("%d / %d", stats.HealthyPeers, stats.FederationPeers)
-	if stats.FederationPeers == 0 {
-		fedLabel = "—"
+	fedLabel := "—"
+	if h.federation != nil && len(h.federation.Peers) > 0 {
+		fedLabel = fmt.Sprintf("%d", len(h.federation.Peers))
 	}
 	healthBadge := `<span class="badge badge-ok">Ready</span>`
 	if h.data != nil {

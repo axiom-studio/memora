@@ -377,7 +377,7 @@ func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, me
 			for k, v := range mem.Tags {
 				fmt.Fprintf(w, `<tr><td class="mono">%s</td><td class="mono">%s</td>`,
 					template.HTMLEscapeString(k), template.HTMLEscapeString(v))
-				fmt.Fprintf(w, `<td><button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/tag-delete-form?ws=%s&amp;id=%s&amp;key=%s" hx-target="#tag-modal-container" hx-swap="innerHTML">Delete</button></td></tr>`,
+				fmt.Fprintf(w, `<td><button class="btn btn-sm btn-danger" hx-get="/ui/partials/tag-delete-form?ws=%s&amp;id=%s&amp;key=%s" hx-target="#tag-modal-container" hx-swap="innerHTML">Delete</button></td></tr>`,
 					template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID), template.HTMLEscapeString(k))
 			}
 			fmt.Fprint(w, `</tbody></table>`)

@@ -13,8 +13,6 @@ type DashboardStats struct {
 	MemoryCount     int
 	RecallReadyPct  int
 	EmbedQueueDepth int
-	FederationPeers int
-	HealthyPeers    int
 }
 
 type WorkspaceSummary struct {

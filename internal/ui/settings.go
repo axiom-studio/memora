@@ -126,7 +126,7 @@ func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) 
 			fmt.Fprintf(w, `<button class="btn btn-sm" hx-post="/ui/api/idp/verify?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Test</button> `,
 				template.HTMLEscapeString(p.Name))
 			if p.Name != "opaque" {
-				fmt.Fprintf(w, `<button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/idp-remove-form?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Remove</button>`,
+				fmt.Fprintf(w, `<button class="btn btn-sm btn-danger" hx-get="/ui/partials/idp-remove-form?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Remove</button>`,
 					template.HTMLEscapeString(p.Name))
 			}
 			fmt.Fprint(w, `</td></tr>`)
@@ -295,7 +295,7 @@ func (h *Handler) partialIDPRemoveForm(w http.ResponseWriter, r *http.Request) {
     <label>Type <code>%s</code> to confirm <input type="text" name="confirm" required></label>
     <div class="modal-actions">
       <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Remove Provider</button>
+      <button type="submit" class="btn btn-danger">Remove Provider</button>
     </div>
   </form>
 </div>
