@@ -1977,8 +1977,20 @@ func TestUploadForm(t *testing.T) {
 	if !strings.Contains(body, "docs") {
 		t.Error("missing collection option")
 	}
-	if !strings.Contains(body, "handleFiles") {
-		t.Error("missing file handler JS")
+	if !strings.Contains(body, "handleBatchFiles") {
+		t.Error("missing batch file handler JS")
+	}
+	if !strings.Contains(body, "startBatchUpload") {
+		t.Error("missing batch upload JS")
+	}
+	if !strings.Contains(body, "batch-progress") {
+		t.Error("missing batch progress bar")
+	}
+	if !strings.Contains(body, `multiple`) {
+		t.Error("missing multiple file input attribute")
+	}
+	if !strings.Contains(body, "CONCURRENCY") {
+		t.Error("missing concurrency constant")
 	}
 }
 
