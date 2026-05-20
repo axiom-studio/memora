@@ -468,6 +468,28 @@ func (m *mockDataSource) ImprintMemory(_ context.Context, _ string, _ api.Imprin
 		LatencyMS:    42,
 	}, nil
 }
+func (m *mockDataSource) AppendMemory(_ context.Context, _, _ string, _ api.AppendRequest) (*api.AppendResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &api.AppendResponse{
+		MemoryID:   "mem_test_123",
+		Watermark:  "wm_appended",
+		CellsAdded: 2,
+		LedgerID:   "led_app",
+	}, nil
+}
+func (m *mockDataSource) ForgetMemory(_ context.Context, _, _ string) (*api.ForgetResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &api.ForgetResponse{
+		MemoryID:      "mem_test_123",
+		Watermark:     "wm_forgotten",
+		CascadedEdges: 3,
+		LedgerID:      "led_forget",
+	}, nil
+}
 func (m *mockDataSource) PatchMemory(_ context.Context, _, _ string, _ api.PatchRequest) (*api.PatchResponse, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -1777,5 +1799,119 @@ func TestMemoryDetailHasPatchButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Patch") {
 		t.Error("memory detail missing Patch button")
+	}
+}
+
+func TestMemoryAppendForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: "hello", Watermark: "wm_123"},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-append-form?ws=ws_abc&id=mem_abc", nil)
+	h.partialMemoryAppendForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Append to Memory") {
+		t.Error("missing Append to Memory heading")
+	}
+	if !strings.Contains(body, "wm_123") {
+		t.Error("missing watermark")
+	}
+}
+
+func TestMemoryAppend(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content=appended+text&expected_watermark=wm_123"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryAppend(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Content Appended") {
+		t.Error("missing success heading")
+	}
+	if !strings.Contains(body, "wm_appended") {
+		t.Error("missing new watermark")
+	}
+}
+
+func TestMemoryAppend_MissingContent(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content="))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryAppend(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Content is required") {
+		t.Error("missing validation error")
+	}
+}
+
+func TestMemoryForgetForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+		cells:  []CellSummary{{CellID: "cell_1"}, {CellID: "cell_2"}},
+		edges:  []EdgeSummary{{EdgeID: "edge_1"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-forget-form?ws=ws_abc&id=mem_abc", nil)
+	h.partialMemoryForgetForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Forget Memory") {
+		t.Error("missing Forget Memory heading")
+	}
+	if !strings.Contains(body, "2 cells") {
+		t.Error("missing cell count in cascade preview")
+	}
+	if !strings.Contains(body, "1 edges") {
+		t.Error("missing edge count in cascade preview")
+	}
+}
+
+func TestMemoryForget(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&confirm=mem_abc"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryForget(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Memory Forgotten") {
+		t.Error("missing success heading")
+	}
+	if !strings.Contains(body, "3") {
+		t.Error("missing cascaded edges count")
+	}
+}
+
+func TestMemoryForget_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&confirm=wrong"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryForget(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Type the memory ID to confirm") {
+		t.Error("missing confirm error")
+	}
+}
+
+func TestMemoryDetailHasAppendAndForgetButtons(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_abc&ws=ws_abc&tab=content", nil)
+	h.partialMemoryDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Append") {
+		t.Error("memory detail missing Append button")
+	}
+	if !strings.Contains(body, "Forget") {
+		t.Error("memory detail missing Forget button")
 	}
 }

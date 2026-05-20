@@ -145,6 +145,10 @@ func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, me
 			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
 		fmt.Fprintf(w, `<button class="btn" hx-get="/ui/partials/memory-patch-form?ws=%s&amp;id=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">Patch</button>`,
 			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
+		fmt.Fprintf(w, `<button class="btn" hx-get="/ui/partials/memory-append-form?ws=%s&amp;id=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">Append</button>`,
+			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
+		fmt.Fprintf(w, `<button class="btn" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/memory-forget-form?ws=%s&amp;id=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">Forget</button>`,
+			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
 		fmt.Fprintf(w, `</div>`)
 	}
 	fmt.Fprint(w, `</div><div id="mem-modal-container"></div><table>`)

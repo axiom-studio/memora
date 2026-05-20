@@ -144,6 +144,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/memories/update", h.handleMemoryUpdate)
 	protected.HandleFunc("/ui/partials/memory-patch-form", h.partialMemoryPatchForm)
 	protected.HandleFunc("/ui/api/memories/patch", h.handleMemoryPatch)
+	protected.HandleFunc("/ui/partials/memory-append-form", h.partialMemoryAppendForm)
+	protected.HandleFunc("/ui/api/memories/append", h.handleMemoryAppend)
+	protected.HandleFunc("/ui/partials/memory-forget-form", h.partialMemoryForgetForm)
+	protected.HandleFunc("/ui/api/memories/forget", h.handleMemoryForget)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 

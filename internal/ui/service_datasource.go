@@ -19,6 +19,8 @@ type ServiceDataSource struct {
 	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
 	UpdateFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
 	PatchFunc       func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
+	AppendFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
+	ForgetFunc      func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
 	FederationPeers int
 	HealthyPeers    int
 	EmbedQueueDepth func() int
@@ -225,6 +227,20 @@ func (s *ServiceDataSource) PatchMemory(ctx context.Context, wsID, memID string,
 		return nil, fmt.Errorf("patch not configured")
 	}
 	return s.PatchFunc(ctx, wsID, memID, "ui-admin", "", req)
+}
+
+func (s *ServiceDataSource) AppendMemory(ctx context.Context, wsID, memID string, req api.AppendRequest) (*api.AppendResponse, error) {
+	if s.AppendFunc == nil {
+		return nil, fmt.Errorf("append not configured")
+	}
+	return s.AppendFunc(ctx, wsID, memID, "ui-admin", "", req)
+}
+
+func (s *ServiceDataSource) ForgetMemory(ctx context.Context, wsID, memID string) (*api.ForgetResponse, error) {
+	if s.ForgetFunc == nil {
+		return nil, fmt.Errorf("forget not configured")
+	}
+	return s.ForgetFunc(ctx, wsID, memID, "ui-admin")
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {

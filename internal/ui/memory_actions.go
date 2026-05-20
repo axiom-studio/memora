@@ -387,6 +387,185 @@ function addPatchOp() {
 	)
 }
 
+func (h *Handler) handleMemoryAppend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("workspace_id"))
+	memID := strings.TrimSpace(r.FormValue("memory_id"))
+	if wsID == "" || memID == "" {
+		h.writeFormError(w, "Workspace ID and Memory ID are required")
+		return
+	}
+
+	content := r.FormValue("content")
+	if strings.TrimSpace(content) == "" {
+		h.writeFormError(w, "Content is required")
+		return
+	}
+
+	req := api.AppendRequest{
+		Content:           content,
+		ExpectedWatermark: strings.TrimSpace(r.FormValue("expected_watermark")),
+	}
+
+	resp, err := h.data.AppendMemory(r.Context(), wsID, memID, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "cas conflict") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<div class="form-error">This memory was modified since you opened it. <a href="/ui/workspaces/%s/memories/%s">Reload</a> and reapply your changes.</div>`,
+				template.HTMLEscapeString(wsID), template.HTMLEscapeString(memID))
+			return
+		}
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Content Appended</h3><table>`)
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	fmt.Fprintf(w, `<tr><td><strong>Cells Added</strong></td><td>%d</td></tr>`, resp.CellsAdded)
+	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
+	fmt.Fprintf(w, `</table></div>`)
+}
+
+func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	if wsID == "" || memID == "" || h.data == nil {
+		h.writeFormError(w, "Memory not found")
+		return
+	}
+
+	mem, err := h.data.GetMemory(r.Context(), memID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal" open>
+<form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
+  <h3>Append to Memory</h3>
+  <div id="append-result"></div>
+  <input type="hidden" name="workspace_id" value="%s">
+  <input type="hidden" name="memory_id" value="%s">
+  <input type="hidden" name="expected_watermark" value="%s">
+  <p class="text-muted" style="font-size:0.85rem">Current length: %d chars · Watermark: <code>%s</code></p>
+  <label>Content to append <span class="text-muted">(required)</span>
+    <textarea name="content" required rows="6" style="width:100%%;font-family:var(--font-mono);font-size:0.9rem" placeholder="Content will be appended to the end..."></textarea>
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+    <button type="submit" class="btn btn-primary">Append</button>
+  </div>
+</form>
+</dialog>`,
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(mem.ID),
+		template.HTMLEscapeString(mem.Watermark),
+		len(mem.Content),
+		template.HTMLEscapeString(truncateStr(mem.Watermark, 20)),
+	)
+}
+
+func (h *Handler) handleMemoryForget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("workspace_id"))
+	memID := strings.TrimSpace(r.FormValue("memory_id"))
+	if wsID == "" || memID == "" {
+		h.writeFormError(w, "Workspace ID and Memory ID are required")
+		return
+	}
+
+	confirm := strings.TrimSpace(r.FormValue("confirm"))
+	if confirm != memID {
+		h.writeFormError(w, "Type the memory ID to confirm deletion")
+		return
+	}
+
+	resp, err := h.data.ForgetMemory(r.Context(), wsID, memID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Forgotten</h3><table>`)
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>Cascaded Edges</strong></td><td>%d</td></tr>`, resp.CascadedEdges)
+	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
+	fmt.Fprintf(w, `</table><p style="margin-top:0.75rem"><a href="/ui/workspaces/%s?tab=overview">Back to workspace</a></p></div>`,
+		template.HTMLEscapeString(wsID))
+}
+
+func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	if wsID == "" || memID == "" || h.data == nil {
+		h.writeFormError(w, "Memory not found")
+		return
+	}
+
+	mem, err := h.data.GetMemory(r.Context(), memID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	edges, _ := h.data.GetEdges(r.Context(), wsID, memID)
+	cells, _ := h.data.GetCells(r.Context(), memID)
+
+	fmt.Fprintf(w, `<dialog id="mem-forget-modal" class="modal" open>
+<form hx-post="/ui/api/memories/forget" hx-target="#forget-result" hx-swap="innerHTML" class="modal-form">
+  <h3>Forget Memory</h3>
+  <div id="forget-result"></div>
+  <input type="hidden" name="workspace_id" value="%s">
+  <input type="hidden" name="memory_id" value="%s">
+  <p>This will permanently delete memory <strong>%s</strong> and cascade to related data.</p>
+  <div class="card" style="background:var(--bg-secondary);padding:0.75rem;margin:0.5rem 0">
+    <p style="margin:0;font-size:0.9rem"><strong>Cascade effects:</strong></p>
+    <ul style="margin:0.25rem 0 0 1.25rem;font-size:0.9rem">
+      <li>%d cells will be deleted</li>
+      <li>%d edges will be removed</li>
+    </ul>
+  </div>
+  <label>Type <code>%s</code> to confirm
+    <input type="text" name="confirm" required autocomplete="off" placeholder="%s">
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+    <button type="submit" class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)">Forget</button>
+  </div>
+</form>
+</dialog>`,
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(mem.ID),
+		template.HTMLEscapeString(truncateStr(mem.ID, 24)),
+		len(cells),
+		len(edges),
+		template.HTMLEscapeString(mem.ID),
+		template.HTMLEscapeString(mem.ID),
+	)
+}
+
 func jsonEscapeString(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)

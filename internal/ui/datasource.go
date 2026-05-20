@@ -147,6 +147,8 @@ type DataSource interface {
 	ImprintMemory(ctx context.Context, wsID string, req api.ImprintRequest) (*api.ImprintResponse, error)
 	UpdateMemory(ctx context.Context, wsID, memID string, req api.UpdateRequest) (*api.UpdateResponse, error)
 	PatchMemory(ctx context.Context, wsID, memID string, req api.PatchRequest) (*api.PatchResponse, error)
+	AppendMemory(ctx context.Context, wsID, memID string, req api.AppendRequest) (*api.AppendResponse, error)
+	ForgetMemory(ctx context.Context, wsID, memID string) (*api.ForgetResponse, error)
 	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)
 	GetMemory(ctx context.Context, memID string) (*MemorySummary, error)
 	GetCells(ctx context.Context, memID string) ([]CellSummary, error)
