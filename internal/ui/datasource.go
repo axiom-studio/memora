@@ -144,6 +144,7 @@ type DataSource interface {
 	ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error)
 	CreateCollection(ctx context.Context, input CreateCollectionInput) (string, error)
 	DeleteCollection(ctx context.Context, id string) error
+	ImprintMemory(ctx context.Context, wsID string, req api.ImprintRequest) (*api.ImprintResponse, error)
 	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)
 	GetMemory(ctx context.Context, memID string) (*MemorySummary, error)
 	GetCells(ctx context.Context, memID string) ([]CellSummary, error)

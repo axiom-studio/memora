@@ -455,6 +455,19 @@ func (m *mockDataSource) CreateCollection(_ context.Context, input CreateCollect
 func (m *mockDataSource) DeleteCollection(_ context.Context, _ string) error {
 	return m.err
 }
+func (m *mockDataSource) ImprintMemory(_ context.Context, _ string, _ api.ImprintRequest) (*api.ImprintResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &api.ImprintResponse{
+		MemoryID:     "mem_test_123",
+		Watermark:    "wm_abc",
+		CellsCreated: 3,
+		RecallReady:  true,
+		LedgerID:     "led_xyz",
+		LatencyMS:    42,
+	}, nil
+}
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -1495,5 +1508,85 @@ func TestCollectionsTabHasCreateButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Create Collection") {
 		t.Error("collections tab missing Create Collection button")
+	}
+}
+
+func TestMemoryImprintForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-imprint-form?ws=ws_abc", nil)
+	h.partialMemoryImprintForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Imprint Memory") {
+		t.Error("missing Imprint Memory heading")
+	}
+	if !strings.Contains(body, `value="ws_abc"`) {
+		t.Error("missing workspace_id hidden field")
+	}
+	if !strings.Contains(body, "docs") {
+		t.Error("missing collection option")
+	}
+}
+
+func TestMemoryImprint(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content=hello+world&chunker_id=markdown"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryImprint(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_test_123") {
+		t.Error("missing memory ID in response")
+	}
+	if !strings.Contains(body, "Memory Created") {
+		t.Error("missing success heading")
+	}
+	if !strings.Contains(body, "3") {
+		t.Error("missing cells created count")
+	}
+}
+
+func TestMemoryImprint_MissingContent(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content="))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryImprint(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Content is required") {
+		t.Error("missing validation error for empty content")
+	}
+}
+
+func TestMemoryImprint_WithTags(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content=test&tag_key=env&tag_value=prod&tag_key=team&tag_value=backend"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryImprint(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_test_123") {
+		t.Error("missing memory ID in response")
+	}
+}
+
+func TestMemoryListHasNewMemoryButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	h.partialMemoryList(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "New Memory") {
+		t.Error("memory list missing New Memory button")
 	}
 }

@@ -22,8 +22,12 @@ func (h *Handler) partialMemoryList(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+
+	fmt.Fprintf(w, `<div style="margin-bottom:1rem"><button class="btn btn-primary" hx-get="/ui/partials/memory-imprint-form?ws=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">New Memory</button></div>`, template.HTMLEscapeString(wsID))
+	fmt.Fprint(w, `<div id="mem-modal-container"></div>`)
+
 	if len(mems) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Memories</h3><p>Imprint content via the API to get started.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Memories</h3><p>Click "New Memory" above to imprint content.</p></div>`)
 		return
 	}
 

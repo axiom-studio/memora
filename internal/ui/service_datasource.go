@@ -16,6 +16,7 @@ type ServiceDataSource struct {
 	Ledger          adapter.LedgerStore
 	Graph           adapter.GraphStore
 	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
+	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
 	FederationPeers int
 	HealthyPeers    int
 	EmbedQueueDepth func() int
@@ -201,6 +202,13 @@ func (s *ServiceDataSource) CreateCollection(ctx context.Context, input CreateCo
 
 func (s *ServiceDataSource) DeleteCollection(ctx context.Context, id string) error {
 	return s.Metadata.DeleteCollection(ctx, id)
+}
+
+func (s *ServiceDataSource) ImprintMemory(ctx context.Context, wsID string, req api.ImprintRequest) (*api.ImprintResponse, error) {
+	if s.ImprintFunc == nil {
+		return nil, fmt.Errorf("imprint not configured")
+	}
+	return s.ImprintFunc(ctx, wsID, "ui-admin", req)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {

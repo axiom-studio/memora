@@ -138,6 +138,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/collection-delete-form", h.partialCollectionDeleteForm)
 	protected.HandleFunc("/ui/api/collections/create", h.handleCollectionCreate)
 	protected.HandleFunc("/ui/api/collections/delete", h.handleCollectionDelete)
+	protected.HandleFunc("/ui/partials/memory-imprint-form", h.partialMemoryImprintForm)
+	protected.HandleFunc("/ui/api/memories/imprint", h.handleMemoryImprint)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
