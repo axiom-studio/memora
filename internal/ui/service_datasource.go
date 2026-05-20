@@ -177,13 +177,30 @@ func (s *ServiceDataSource) ListCollections(ctx context.Context, wsID string) ([
 	}
 	out := make([]CollectionSummary, len(colls))
 	for i, c := range colls {
+		mems, _ := s.Metadata.ListMemories(ctx, wsID, c.ID, 10000)
 		out[i] = CollectionSummary{
-			ID:        c.ID,
-			Name:      c.Name,
-			CreatedAt: c.CreatedAt,
+			ID:          c.ID,
+			Name:        c.Name,
+			MemoryCount: len(mems),
+			CreatedAt:   c.CreatedAt,
 		}
 	}
 	return out, nil
+}
+
+func (s *ServiceDataSource) CreateCollection(ctx context.Context, input CreateCollectionInput) (string, error) {
+	c := &types.Collection{
+		WorkspaceID: input.WorkspaceID,
+		Name:        input.Name,
+	}
+	if err := s.Metadata.CreateCollection(ctx, c); err != nil {
+		return "", err
+	}
+	return c.ID, nil
+}
+
+func (s *ServiceDataSource) DeleteCollection(ctx context.Context, id string) error {
+	return s.Metadata.DeleteCollection(ctx, id)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {

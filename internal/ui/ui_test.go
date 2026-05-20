@@ -449,6 +449,12 @@ func (m *mockDataSource) UpdateWorkspace(_ context.Context, _ string, _ UpdateWo
 func (m *mockDataSource) DeleteWorkspace(_ context.Context, _ string) error {
 	return m.err
 }
+func (m *mockDataSource) CreateCollection(_ context.Context, input CreateCollectionInput) (string, error) {
+	return "coll_test_new", m.err
+}
+func (m *mockDataSource) DeleteCollection(_ context.Context, _ string) error {
+	return m.err
+}
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -1386,5 +1392,108 @@ func TestWorkspaceListHasCreateButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Create Workspace") {
 		t.Error("workspace list missing Create Workspace button")
+	}
+}
+
+func TestCollectionCreateForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/collection-create-form?ws=ws_abc", nil)
+	h.partialCollectionCreateForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Create Collection") {
+		t.Error("missing Create Collection heading")
+	}
+	if !strings.Contains(body, `value="ws_abc"`) {
+		t.Error("missing workspace_id hidden field")
+	}
+}
+
+func TestCollectionCreate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=ws_abc&name=my-coll"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleCollectionCreate(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "ws_abc") {
+		t.Errorf("expected redirect to workspace, got %q", loc)
+	}
+}
+
+func TestCollectionCreate_MissingName(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=ws_abc&name="))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleCollectionCreate(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Name is required") {
+		t.Error("missing validation error for empty name")
+	}
+}
+
+func TestCollectionDelete(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=coll_xyz&workspace_id=ws_abc&confirm=coll_xyz"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleCollectionDelete(w, r)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "ws_abc") {
+		t.Errorf("expected redirect to workspace, got %q", loc)
+	}
+}
+
+func TestCollectionDelete_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=coll_xyz&workspace_id=ws_abc&confirm=wrong"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleCollectionDelete(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Type the collection ID to confirm") {
+		t.Error("missing confirm error")
+	}
+}
+
+func TestCollectionDeleteForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{
+			{ID: "coll_xyz", Name: "test-coll", MemoryCount: 5},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/collection-delete-form?id=coll_xyz&ws=ws_abc", nil)
+	h.partialCollectionDeleteForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Delete Collection") {
+		t.Error("missing Delete Collection heading")
+	}
+	if !strings.Contains(body, "5 memories") {
+		t.Error("missing memory count")
+	}
+}
+
+func TestCollectionsTabHasCreateButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{{ID: "coll_1", Name: "test"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=collections", nil)
+	h.partialWorkspaceDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Create Collection") {
+		t.Error("collections tab missing Create Collection button")
 	}
 }

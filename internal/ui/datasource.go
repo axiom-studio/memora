@@ -112,6 +112,11 @@ type PeerInfo struct {
 	Workspaces []string
 }
 
+type CreateCollectionInput struct {
+	WorkspaceID string
+	Name        string
+}
+
 type CreateWorkspaceInput struct {
 	Name           string
 	Region         string
@@ -137,6 +142,8 @@ type DataSource interface {
 	DeleteWorkspace(ctx context.Context, id string) error
 	ListAgents(ctx context.Context, wsID string) ([]AgentSummary, error)
 	ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error)
+	CreateCollection(ctx context.Context, input CreateCollectionInput) (string, error)
+	DeleteCollection(ctx context.Context, id string) error
 	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)
 	GetMemory(ctx context.Context, memID string) (*MemorySummary, error)
 	GetCells(ctx context.Context, memID string) ([]CellSummary, error)

@@ -157,17 +157,24 @@ func (h *Handler) renderWorkspaceCollections(w http.ResponseWriter, r *http.Requ
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+
+	fmt.Fprintf(w, `<div style="margin-bottom:1rem"><button class="btn btn-primary" hx-get="/ui/partials/collection-create-form?ws=%s" hx-target="#coll-modal-container" hx-swap="innerHTML">Create Collection</button></div>`, template.HTMLEscapeString(wsID))
+	fmt.Fprint(w, `<div id="coll-modal-container"></div>`)
+
 	if len(colls) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Collections</h3><p>No collections in this workspace.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Collections</h3><p>Click "Create Collection" above to get started.</p></div>`)
 		return
 	}
 
-	fmt.Fprint(w, `<table><thead><tr><th>ID</th><th>Name</th><th>Created</th></tr></thead><tbody>`)
+	fmt.Fprint(w, `<table><thead><tr><th>ID</th><th>Name</th><th>Memories</th><th>Created</th><th></th></tr></thead><tbody>`)
 	for _, c := range colls {
-		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td>%s</td></tr>`,
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="text-right">%d</td><td>%s</td><td><button class="btn" style="color:var(--danger);border-color:var(--danger);padding:0.25rem 0.5rem;font-size:0.85rem" hx-get="/ui/partials/collection-delete-form?id=%s&amp;ws=%s" hx-target="#coll-modal-container" hx-swap="innerHTML">Delete</button></td></tr>`,
 			template.HTMLEscapeString(c.ID),
 			template.HTMLEscapeString(c.Name),
+			c.MemoryCount,
 			template.HTMLEscapeString(c.CreatedAt.UTC().Format("2006-01-02")),
+			template.HTMLEscapeString(c.ID),
+			template.HTMLEscapeString(wsID),
 		)
 	}
 	fmt.Fprint(w, `</tbody></table>`)

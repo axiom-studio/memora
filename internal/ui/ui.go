@@ -134,6 +134,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/workspaces/create", h.handleWorkspaceCreate)
 	protected.HandleFunc("/ui/api/workspaces/update", h.handleWorkspaceUpdate)
 	protected.HandleFunc("/ui/api/workspaces/delete", h.handleWorkspaceDelete)
+	protected.HandleFunc("/ui/partials/collection-create-form", h.partialCollectionCreateForm)
+	protected.HandleFunc("/ui/partials/collection-delete-form", h.partialCollectionDeleteForm)
+	protected.HandleFunc("/ui/api/collections/create", h.handleCollectionCreate)
+	protected.HandleFunc("/ui/api/collections/delete", h.handleCollectionDelete)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
