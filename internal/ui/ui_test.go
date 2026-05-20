@@ -377,8 +377,10 @@ type mockDataSource struct {
 	memory      *MemorySummary
 	cells       []CellSummary
 	edges       []EdgeSummary
-	recallResp  *api.RecallResponse
-	err         error
+	recallResp   *api.RecallResponse
+	auditEntries []api.LedgerEntry
+	auditCursor  string
+	err          error
 }
 
 func (m *mockDataSource) DashboardStats(_ context.Context) (DashboardStats, error) {
@@ -428,6 +430,9 @@ func (m *mockDataSource) Recall(_ context.Context, _ string, _ string, _ string,
 		return m.recallResp, m.err
 	}
 	return nil, fmt.Errorf("recall not configured")
+}
+func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
+	return m.auditEntries, m.auditCursor, m.err
 }
 
 func TestDashboardCards_WithData(t *testing.T) {
@@ -851,5 +856,142 @@ func TestFuncMap(t *testing.T) {
 	}
 	if got := pl(5, "workspace", "workspaces"); got != "workspaces" {
 		t.Errorf("pluralize 5: got %q", got)
+	}
+}
+
+func TestAuditList(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		auditEntries: []api.LedgerEntry{
+			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+			{LedgerID: "led-2", Op: "forget", Target: "mem-xyz", AgentID: "agent-2", WorkspaceID: "ws-1", LatencyMS: 7, Timestamp: time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC)},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/audit-list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(body, "imprint") {
+		t.Error("missing op imprint")
+	}
+	if !strings.Contains(body, "led-1") {
+		t.Error("missing ledger ID")
+	}
+	if !strings.Contains(body, "42ms") {
+		t.Error("missing latency")
+	}
+}
+
+func TestAuditList_Empty(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/audit-list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "No Entries") {
+		t.Error("expected empty state")
+	}
+}
+
+func TestAuditList_Pagination(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		auditEntries: []api.LedgerEntry{
+			{LedgerID: "led-1", Op: "imprint", Timestamp: time.Now()},
+		},
+		auditCursor: "next-page-cursor",
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/audit-list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "Load More") {
+		t.Error("expected Load More button for pagination")
+	}
+}
+
+func TestAuditExport_CSV(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		auditEntries: []api.LedgerEntry{
+			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/audit/export?format=csv", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("want text/csv, got %s", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "led-1") {
+		t.Error("CSV missing ledger ID")
+	}
+	if !strings.Contains(body, "imprint") {
+		t.Error("CSV missing op")
+	}
+}
+
+func TestAuditExport_NDJSON(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		auditEntries: []api.LedgerEntry{
+			{LedgerID: "led-1", Op: "imprint", Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/audit/export?format=ndjson", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/x-ndjson" {
+		t.Errorf("want application/x-ndjson, got %s", ct)
+	}
+	if !strings.Contains(w.Body.String(), `"led-1"`) {
+		t.Error("NDJSON missing ledger ID")
+	}
+}
+
+func TestAuditPage(t *testing.T) {
+	h, _ := NewHandler()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/audit", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Audit Log") {
+		t.Error("missing page title")
+	}
+	if !strings.Contains(body, "Filters") {
+		t.Error("missing filter bar")
+	}
+	if !strings.Contains(body, "Export NDJSON") {
+		t.Error("missing export buttons")
 	}
 }

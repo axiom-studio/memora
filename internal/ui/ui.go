@@ -120,7 +120,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/memory-detail", h.partialMemoryDetail)
 	protected.HandleFunc("/ui/partials/recall-results", h.partialRecallResults)
 	protected.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
-	protected.HandleFunc("/ui/partials/audit-list", h.partialPlaceholder("Audit log will load here."))
+	protected.HandleFunc("/ui/partials/audit-list", h.partialAuditList)
+	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)
+	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
 
 	mux.Handle("/ui/partials/", h.authMiddleware(protected))

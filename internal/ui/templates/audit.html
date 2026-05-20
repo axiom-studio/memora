@@ -2,9 +2,71 @@
 <div class="page-header">
   <h1>Audit Log</h1>
 </div>
-<div hx-get="/ui/partials/audit-list"
-     hx-trigger="load"
-     hx-swap="innerHTML">
-  <div class="skeleton" style="height:10rem"></div>
+
+<div class="card mb-2">
+  <h3 class="card-title">Filters</h3>
+  <form hx-get="/ui/partials/audit-list"
+        hx-target="#audit-results"
+        hx-swap="innerHTML"
+        hx-include="[name]"
+        style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap">
+    <div>
+      <label for="ws" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Workspace</label>
+      <input type="text" id="ws" name="ws" placeholder="All workspaces" style="width:160px">
+    </div>
+    <div>
+      <label for="agent" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Agent</label>
+      <input type="text" id="agent" name="agent" placeholder="All agents" style="width:160px">
+    </div>
+    <div>
+      <label for="ops" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Ops (comma-sep)</label>
+      <input type="text" id="ops" name="ops" placeholder="imprint,forget,…" style="width:180px">
+    </div>
+    <div>
+      <label for="since" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Since</label>
+      <input type="date" id="since" name="since">
+    </div>
+    <div>
+      <label for="until" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Until</label>
+      <input type="date" id="until" name="until">
+    </div>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </form>
+  <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
+    <a class="btn btn-secondary" id="export-ndjson" href="/ui/audit/export?format=ndjson">Export NDJSON</a>
+    <a class="btn btn-secondary" id="export-csv" href="/ui/audit/export?format=csv">Export CSV</a>
+  </div>
 </div>
+
+<div style="display:flex;gap:1rem;align-items:start">
+  <div style="flex:2">
+    <div class="card">
+      <h3 class="card-title">Entries</h3>
+      <div id="audit-results"
+           hx-get="/ui/partials/audit-list"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="skeleton" style="height:10rem"></div>
+      </div>
+    </div>
+  </div>
+  <div style="flex:1">
+    <div id="audit-detail">
+      <div class="card">
+        <div class="empty-state"><p>Select an entry to view details.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelector('form[hx-get="/ui/partials/audit-list"]').addEventListener('htmx:afterRequest', function() {
+  var form = this;
+  var params = new URLSearchParams(new FormData(form));
+  var ndjson = document.getElementById('export-ndjson');
+  var csv = document.getElementById('export-csv');
+  if (ndjson) ndjson.href = '/ui/audit/export?format=ndjson&' + params.toString();
+  if (csv) csv.href = '/ui/audit/export?format=csv&' + params.toString();
+});
+</script>
 {{end}}

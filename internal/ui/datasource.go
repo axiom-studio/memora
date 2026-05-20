@@ -91,4 +91,5 @@ type DataSource interface {
 	GetCells(ctx context.Context, memID string) ([]CellSummary, error)
 	GetEdges(ctx context.Context, wsID, memID string) ([]EdgeSummary, error)
 	Recall(ctx context.Context, wsID string, query string, mode string, k int) (*api.RecallResponse, error)
+	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 }

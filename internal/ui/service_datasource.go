@@ -251,6 +251,25 @@ func (s *ServiceDataSource) Recall(ctx context.Context, wsID string, query strin
 	return s.RecallFunc(ctx, wsID, req)
 }
 
+func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
+	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
+		return nil, "", nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	q := adapter.LedgerQuery{
+		WorkspaceID:   wsID,
+		AgentID:       agentID,
+		Op:            ops,
+		Since:         since,
+		Until:         until,
+		SinceLedgerID: cursor,
+		Limit:         limit,
+	}
+	return s.Ledger.Query(ctx, q)
+}
+
 func marshalProps(m map[string]any) string {
 	if len(m) == 0 {
 		return ""
