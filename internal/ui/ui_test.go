@@ -440,6 +440,12 @@ func (m *mockDataSource) Recall(_ context.Context, _ string, _ string, _ string,
 	}
 	return nil, fmt.Errorf("recall not configured")
 }
+func (m *mockDataSource) RecallFull(_ context.Context, _ string, _ api.RecallRequest) (*api.RecallResponse, error) {
+	if m.recallResp != nil {
+		return m.recallResp, m.err
+	}
+	return nil, fmt.Errorf("recall not configured")
+}
 func (m *mockDataSource) CreateWorkspace(_ context.Context, input CreateWorkspaceInput) (string, error) {
 	return "ws_test_new", m.err
 }
@@ -874,8 +880,8 @@ func TestMemoriesPage(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Recall") {
-		t.Error("memories page missing recall section")
+	if !strings.Contains(body, "recall-query-bar") {
+		t.Error("memories page missing recall query bar loader")
 	}
 }
 
@@ -1977,5 +1983,124 @@ func TestMemoryListHasUploadButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Upload Document") {
 		t.Error("memory list missing Upload Document button")
+	}
+}
+
+func TestRecallQueryBar(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{
+			{ID: "coll_1", Name: "Notes"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-query-bar?ws=ws_abc", nil)
+	h.partialRecallQueryBar(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"recall-q", "recall-mode", "recall-k", "recall-filters", "graph_depth", "graph_direction", "include_cells", "Notes", "recall-full"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("query bar missing %q", want)
+		}
+	}
+}
+
+func TestRecallQueryBar_NoWS(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-query-bar", nil)
+	h.partialRecallQueryBar(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "No workspace") {
+		t.Error("expected empty state for missing ws")
+	}
+}
+
+func TestRecallFull_WithResults(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		recallResp: &api.RecallResponse{
+			Results: []api.RecallHit{
+				{MemoryID: "mem_1", Score: 0.95, Text: "hello world", Via: "seed"},
+				{MemoryID: "mem_2", Score: 0.8, Text: "graph result", Via: "graph",
+					GraphProvenance: &api.GraphProvenance{
+						FromMemoryID: "mem_1", EdgeID: "e1", EdgeType: "related", Layer: 1,
+					}},
+			},
+			TotalCandidatesScanned: 50,
+			LatencyMS:              12,
+			GraphNodesExpanded:     3,
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=hello&mode=hybrid&k=10&graph_depth=2&graph_direction=out", nil)
+	h.partialRecallFull(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"mem_1", "mem_2", "0.950", "graph nodes expanded", "Graph Path", "related", "L1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("recall full results missing %q", want)
+		}
+	}
+}
+
+func TestRecallFull_WithFilters(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		recallResp: &api.RecallResponse{
+			Results:                []api.RecallHit{{MemoryID: "mem_f", Score: 0.7, Text: "filtered", Via: "seed"}},
+			TotalCandidatesScanned: 10,
+			LatencyMS:              5,
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=test&collection_id=coll_1&agent_id=agent_x&ts_after=2025-01-01&ts_before=2025-12-31", nil)
+	h.partialRecallFull(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_f") {
+		t.Error("expected filtered result")
+	}
+}
+
+func TestRecallFull_NoQuery(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc", nil)
+	h.partialRecallFull(w, r)
+	if !strings.Contains(w.Body.String(), "Enter a query") {
+		t.Error("expected prompt for empty query")
+	}
+}
+
+func TestRecallFull_NoResults(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		recallResp: &api.RecallResponse{Results: nil, TotalCandidatesScanned: 5, LatencyMS: 3},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=nothing", nil)
+	h.partialRecallFull(w, r)
+	if !strings.Contains(w.Body.String(), "No Results") {
+		t.Error("expected no results message")
+	}
+}
+
+func TestRecallFull_EmbeddingPending(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		recallResp: &api.RecallResponse{
+			Results:          []api.RecallHit{{MemoryID: "m1", Score: 0.5, Text: "pending", Via: "seed"}},
+			LatencyMS:        2,
+			EmbeddingPending: true,
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=test", nil)
+	h.partialRecallFull(w, r)
+	if !strings.Contains(w.Body.String(), "still being embedded") {
+		t.Error("expected embedding pending notice")
 	}
 }

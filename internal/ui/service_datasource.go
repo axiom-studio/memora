@@ -337,6 +337,16 @@ func (s *ServiceDataSource) Recall(ctx context.Context, wsID string, query strin
 	return s.RecallFunc(ctx, wsID, req)
 }
 
+func (s *ServiceDataSource) RecallFull(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error) {
+	if s.RecallFunc == nil {
+		return nil, fmt.Errorf("recall not configured")
+	}
+	if req.K <= 0 {
+		req.K = 10
+	}
+	return s.RecallFunc(ctx, wsID, req)
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil

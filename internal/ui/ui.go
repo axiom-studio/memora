@@ -123,6 +123,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/memory-list", h.partialMemoryList)
 	protected.HandleFunc("/ui/partials/memory-detail", h.partialMemoryDetail)
 	protected.HandleFunc("/ui/partials/recall-results", h.partialRecallResults)
+	protected.HandleFunc("/ui/partials/recall-full", h.partialRecallFull)
+	protected.HandleFunc("/ui/partials/recall-query-bar", h.partialRecallQueryBar)
 	protected.HandleFunc("/ui/partials/federation-status", h.partialFederationStatus)
 	protected.HandleFunc("/ui/partials/audit-list", h.partialAuditList)
 	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)

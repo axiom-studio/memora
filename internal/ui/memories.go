@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 func (h *Handler) partialMemoryList(w http.ResponseWriter, r *http.Request) {
@@ -75,25 +78,222 @@ func (h *Handler) partialRecallResults(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<div class="empty-state"><p>Recall error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
-	if len(resp.Results) == 0 {
+	h.renderRecallResults(w, wsID, resp)
+}
+
+func (h *Handler) partialRecallFull(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	mode := r.URL.Query().Get("mode")
+	kStr := r.URL.Query().Get("k")
+	collectionID := strings.TrimSpace(r.URL.Query().Get("collection_id"))
+	agentID := strings.TrimSpace(r.URL.Query().Get("agent_id"))
+	tsAfterStr := strings.TrimSpace(r.URL.Query().Get("ts_after"))
+	tsBeforeStr := strings.TrimSpace(r.URL.Query().Get("ts_before"))
+	graphDepthStr := r.URL.Query().Get("graph_depth")
+	graphDir := r.URL.Query().Get("graph_direction")
+	includeCells := r.URL.Query().Get("include_cells") == "on"
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if h.data == nil || wsID == "" || query == "" {
+		fmt.Fprint(w, `<p class="text-muted">Enter a query to search.</p>`)
+		return
+	}
+	if mode == "" {
+		mode = "hybrid"
+	}
+	k, _ := strconv.Atoi(kStr)
+	if k <= 0 {
+		k = 10
+	}
+
+	req := api.RecallRequest{
+		Query:        query,
+		Mode:         api.RecallMode(mode),
+		K:            k,
+		IncludeCells: includeCells,
+	}
+
+	if collectionID != "" || agentID != "" || tsAfterStr != "" || tsBeforeStr != "" {
+		req.Filters = api.RecallFilters{
+			CollectionID: collectionID,
+			AgentID:      agentID,
+		}
+		if tsAfterStr != "" {
+			if t, err := time.Parse("2006-01-02", tsAfterStr); err == nil {
+				req.Filters.TsAfter = &t
+			}
+		}
+		if tsBeforeStr != "" {
+			if t, err := time.Parse("2006-01-02", tsBeforeStr); err == nil {
+				req.Filters.TsBefore = &t
+			}
+		}
+	}
+
+	graphDepth, _ := strconv.Atoi(graphDepthStr)
+	if graphDepth > 0 {
+		if graphDir == "" {
+			graphDir = "out"
+		}
+		req.GraphExpansion = &api.GraphExpansion{
+			Depth:     graphDepth,
+			Direction: api.GraphDirection(graphDir),
+		}
+	}
+
+	resp, err := h.data.RecallFull(r.Context(), wsID, req)
+	if err != nil {
+		fmt.Fprintf(w, `<div class="empty-state"><p>Recall error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+	h.renderRecallResults(w, wsID, resp)
+}
+
+func (h *Handler) partialRecallQueryBar(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if wsID == "" {
+		fmt.Fprint(w, `<div class="empty-state"><p>No workspace selected.</p></div>`)
+		return
+	}
+
+	var collOptions string
+	if h.data != nil {
+		colls, _ := h.data.ListCollections(r.Context(), wsID)
+		for _, c := range colls {
+			collOptions += fmt.Sprintf(`<option value="%s">%s</option>`,
+				template.HTMLEscapeString(c.ID),
+				template.HTMLEscapeString(c.Name))
+		}
+	}
+
+	fmt.Fprintf(w, `<div class="card" id="recall-query-bar">
+<h3 class="card-title">Recall Query</h3>
+<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
+  <label style="flex:1;min-width:200px">Query
+    <input type="text" name="q" id="recall-q" placeholder="Search memories..." required>
+  </label>
+  <label>Mode
+    <select name="mode" id="recall-mode">
+      <option value="hybrid" selected>hybrid</option>
+      <option value="vector">vector</option>
+      <option value="keyword">keyword</option>
+      <option value="lookup">lookup</option>
+    </select>
+  </label>
+  <label>K
+    <input type="number" name="k" id="recall-k" value="10" min="1" max="100" style="width:70px">
+  </label>
+  <button type="button" class="btn btn-primary" id="recall-search-btn"
+    hx-get="/ui/partials/recall-full" hx-target="#recall-results" hx-swap="innerHTML"
+    hx-include="#recall-query-bar input, #recall-query-bar select"
+    hx-vals='{"ws":"%s"}'>Search</button>
+  <button type="button" class="btn btn-secondary" onclick="document.getElementById('recall-filters').style.display=document.getElementById('recall-filters').style.display==='none'?'block':'none'">Filters</button>
+</div>
+<div id="recall-filters" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
+    <label>Collection
+      <select name="collection_id" id="recall-coll">
+        <option value="">(any)</option>
+        %s
+      </select>
+    </label>
+    <label>Agent ID
+      <input type="text" name="agent_id" id="recall-agent" placeholder="(any)">
+    </label>
+    <label>After
+      <input type="date" name="ts_after" id="recall-after">
+    </label>
+    <label>Before
+      <input type="date" name="ts_before" id="recall-before">
+    </label>
+  </div>
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-top:0.5rem">
+    <label>Graph Depth
+      <input type="number" name="graph_depth" id="recall-gdepth" value="0" min="0" max="5" style="width:70px">
+    </label>
+    <label>Graph Direction
+      <select name="graph_direction" id="recall-gdir">
+        <option value="out">out</option>
+        <option value="in">in</option>
+        <option value="both">both</option>
+      </select>
+    </label>
+    <label style="display:flex;align-items:center;gap:0.5rem;padding-top:1.4rem">
+      <input type="checkbox" name="include_cells" id="recall-cells"> Include cells
+    </label>
+  </div>
+</div>
+</div>
+<div id="recall-results" style="margin-top:1rem">
+  <p class="text-muted">Enter a query to search.</p>
+</div>`, template.HTMLEscapeString(wsID), collOptions)
+}
+
+func (h *Handler) renderRecallResults(w http.ResponseWriter, wsID string, resp *api.RecallResponse) {
+	if resp == nil || len(resp.Results) == 0 {
 		fmt.Fprint(w, `<div class="empty-state"><h3>No Results</h3><p>Try a different query or mode.</p></div>`)
 		return
 	}
 
-	fmt.Fprintf(w, `<p class="text-muted mb-1">%d results · %d candidates scanned · %d ms</p>`,
-		len(resp.Results), resp.TotalCandidatesScanned, resp.LatencyMS)
-	fmt.Fprint(w, `<table><thead><tr><th>Memory</th><th>Score</th><th>Via</th><th>Text (preview)</th></tr></thead><tbody>`)
+	metaParts := []string{
+		fmt.Sprintf("%d results", len(resp.Results)),
+		fmt.Sprintf("%d candidates scanned", resp.TotalCandidatesScanned),
+		fmt.Sprintf("%d ms", resp.LatencyMS),
+	}
+	if resp.GraphNodesExpanded > 0 {
+		metaParts = append(metaParts, fmt.Sprintf("%d graph nodes expanded", resp.GraphNodesExpanded))
+	}
+	if resp.FederationID != "" {
+		metaParts = append(metaParts, "federation: "+resp.FederationID)
+	}
+	if resp.PartialSuccess {
+		metaParts = append(metaParts, "partial success")
+	}
+	fmt.Fprintf(w, `<p class="text-muted mb-1">%s</p>`, template.HTMLEscapeString(strings.Join(metaParts, " · ")))
+
+	if resp.EmbeddingPending {
+		fmt.Fprint(w, `<p class="text-muted" style="font-style:italic">Some memories are still being embedded — results may be incomplete.</p>`)
+	}
+
+	hasGraph := false
+	for _, hit := range resp.Results {
+		if hit.GraphProvenance != nil {
+			hasGraph = true
+			break
+		}
+	}
+
+	fmt.Fprint(w, `<table><thead><tr><th>Memory</th><th>Score</th><th>Via</th>`)
+	if hasGraph {
+		fmt.Fprint(w, `<th>Graph Path</th>`)
+	}
+	fmt.Fprint(w, `<th>Text (preview)</th></tr></thead><tbody>`)
 	for _, hit := range resp.Results {
 		via := hit.Via
 		if hit.PeerID != "" {
 			via = "fed:" + hit.PeerID
 		}
-		fmt.Fprintf(w, `<tr><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td><td class="text-right">%.3f</td><td>%s</td><td>%s</td></tr>`,
+		fmt.Fprintf(w, `<tr><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td><td class="text-right">%.3f</td><td>%s</td>`,
 			template.HTMLEscapeString(wsID),
 			template.HTMLEscapeString(hit.MemoryID),
 			template.HTMLEscapeString(truncateStr(hit.MemoryID, 16)),
 			hit.Score,
 			template.HTMLEscapeString(via),
+		)
+		if hasGraph {
+			if hit.GraphProvenance != nil {
+				fmt.Fprintf(w, `<td class="mono">%s → %s (L%d)</td>`,
+					template.HTMLEscapeString(truncateStr(hit.GraphProvenance.FromMemoryID, 12)),
+					template.HTMLEscapeString(hit.GraphProvenance.EdgeType),
+					hit.GraphProvenance.Layer)
+			} else {
+				fmt.Fprint(w, `<td>—</td>`)
+			}
+		}
+		fmt.Fprintf(w, `<td>%s</td></tr>`,
 			template.HTMLEscapeString(truncateStr(hit.Text, 80)),
 		)
 	}
