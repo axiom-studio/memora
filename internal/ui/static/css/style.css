@@ -1,4 +1,4 @@
-:root {
+:root, [data-theme="light"] {
   --bg: #fafafa;
   --bg-card: #ffffff;
   --bg-nav: #1a1a2e;
@@ -12,6 +12,7 @@
   --accent-hover: #3a56d4;
   --danger: #dc3545;
   --success: #198754;
+  --success-bg: #d1e7dd;
   --warning: #ffc107;
   --mono: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -19,8 +20,24 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
+[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-card: #161b22;
+  --bg-nav: #010409;
+  --bg-nav-hover: #161b22;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-nav: #8b949e;
+  --text-nav-active: #e6edf3;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --success-bg: #0f5132;
+  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #0d1117;
     --bg-card: #161b22;
     --bg-nav: #010409;
@@ -32,6 +49,7 @@
     --border: #30363d;
     --accent: #58a6ff;
     --accent-hover: #79b8ff;
+    --success-bg: #0f5132;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
 }
@@ -212,10 +230,13 @@ tr:hover td { background: var(--bg); }
 .badge-warn { background: #fff3cd; color: #664d03; }
 .badge-err { background: #f8d7da; color: #842029; }
 
+[data-theme="dark"] .badge-ok { background: #0f5132; color: #d1e7dd; }
+[data-theme="dark"] .badge-warn { background: #664d03; color: #fff3cd; }
+[data-theme="dark"] .badge-err { background: #842029; color: #f8d7da; }
 @media (prefers-color-scheme: dark) {
-  .badge-ok { background: #0f5132; color: #d1e7dd; }
-  .badge-warn { background: #664d03; color: #fff3cd; }
-  .badge-err { background: #842029; color: #f8d7da; }
+  :root:not([data-theme]) .badge-ok { background: #0f5132; color: #d1e7dd; }
+  :root:not([data-theme]) .badge-warn { background: #664d03; color: #fff3cd; }
+  :root:not([data-theme]) .badge-err { background: #842029; color: #f8d7da; }
 }
 
 /* Forms */
@@ -336,6 +357,21 @@ input:focus, select:focus, textarea:focus {
   background: #f8d7da; color: #842029; border: 1px solid #f5c2c7;
   border-radius: var(--radius); padding: 0.5rem 0.75rem; font-size: 0.85rem;
 }
+[data-theme="dark"] .form-error { background: #842029; color: #f8d7da; border-color: #842029; }
 @media (prefers-color-scheme: dark) {
-  .form-error { background: #842029; color: #f8d7da; border-color: #842029; }
+  :root:not([data-theme]) .form-error { background: #842029; color: #f8d7da; border-color: #842029; }
 }
+
+/* Theme toggle */
+.theme-toggle {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0; margin-bottom: 0.5rem;
+  font-size: 0.8rem; color: var(--text-nav);
+}
+.theme-toggle button {
+  background: var(--bg-nav-hover); border: 1px solid rgba(255,255,255,0.15);
+  color: var(--text-nav); border-radius: 4px; cursor: pointer;
+  padding: 0.3rem 0.6rem; font-size: 0.8rem;
+  display: flex; align-items: center; gap: 0.35rem;
+}
+.theme-toggle button:hover { border-color: rgba(255,255,255,0.3); }

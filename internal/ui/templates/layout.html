@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{if .Title}}{{.Title}} — {{end}}Memora</title>
   <link rel="stylesheet" href="/ui/static/css/style.css">
+  <script>
+  (function(){
+    var s = localStorage.getItem('memora-theme');
+    if (s === 'light' || s === 'dark') document.documentElement.setAttribute('data-theme', s);
+  })();
+  </script>
   <script src="/ui/static/js/htmx.min.js" defer></script>
 </head>
 <body>
@@ -20,6 +26,11 @@
       </ul>
       <div class="sidebar-footer">
         <button class="search-trigger" onclick="document.getElementById('search-palette').showModal()" title="Search (Ctrl+K)">Search…</button>
+        <div class="theme-toggle">
+          <button id="theme-btn" onclick="window.__toggleTheme()" title="Toggle light/dark mode">
+            <span id="theme-icon"></span> <span id="theme-label"></span>
+          </button>
+        </div>
         <span>memora v0.3</span>
       </div>
     </nav>
@@ -58,6 +69,32 @@
   </dialog>
 
   <script>
+  (function(){
+    function getEffective() {
+      var s = localStorage.getItem('memora-theme');
+      if (s === 'light' || s === 'dark') return s;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function updateUI() {
+      var t = getEffective();
+      var icon = document.getElementById('theme-icon');
+      var label = document.getElementById('theme-label');
+      if (icon) icon.textContent = t === 'dark' ? '☀️' : '🌙';
+      if (label) label.textContent = t === 'dark' ? 'Light' : 'Dark';
+    }
+    window.__toggleTheme = function() {
+      var cur = getEffective();
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('memora-theme', next);
+      updateUI();
+    };
+    updateUI();
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+      if (!localStorage.getItem('memora-theme')) updateUI();
+    });
+  })();
+
   document.addEventListener('keydown', function(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
