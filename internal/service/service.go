@@ -124,6 +124,14 @@ func (s *Service) IdentityFor(name string) adapter.IdentityProvider {
 	return s.Identity[string(types.IdentityProviderOpaque)]
 }
 
+func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chunker.Chunker, error) {
+	ws, err := s.Metadata.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return chunker.Get(ws.ChunkerID)
+}
+
 // Imprint creates a Memory, chunks it, persists the cells, and runs
 // embedding inline so the returned response reflects recall_ready
 // for the synchronous test/dev path. For high-throughput production
@@ -261,10 +269,9 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	if err != nil {
 		return nil, err
 	}
-	// Re-chunk + selective re-embed.
-	ck, _ := chunker.Get(existing.WorkspaceID) // ignore; not workspace-aware here
-	if ck == nil {
-		ck, _ = chunker.Get("default")
+	ck, err := s.workspaceChunker(ctx, workspaceID)
+	if err != nil {
+		return nil, err
 	}
 	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, req.Content)
@@ -330,7 +337,10 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		return nil, err
 	}
 	existing, _ := s.Metadata.GetMemory(ctx, memoryID)
-	ck, _ := chunker.Get("default")
+	ck, err := s.workspaceChunker(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, newContent)
 	if err != nil {
@@ -397,7 +407,10 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		return nil, err
 	}
 	existing, _ := s.Metadata.GetMemory(ctx, memoryID)
-	ck, _ := chunker.Get("default")
+	ck, err := s.workspaceChunker(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
 	newCells, err := ck.Chunk(ctx, existing.Content)
 	if err != nil {
