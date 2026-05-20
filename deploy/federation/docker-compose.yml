@@ -1,0 +1,65 @@
+services:
+  memora-node1:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7771:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node1-data:/data
+      - ./node1.toml:/etc/memora/config.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  memora-node2:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7772:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node2-data:/data
+      - ./node2.toml:/etc/memora/config.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  memora-node3:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7773:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node3-data:/data
+      - ./node3.toml:/etc/memora/config.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:

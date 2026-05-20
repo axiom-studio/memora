@@ -1,0 +1,29 @@
+[server]
+addr = ":7777"
+mode = "single-tenant"
+api_key = "memora-fed-key-2"
+
+[storage]
+data_dir = "/data"
+metadata_driver = "sqlite"
+vector_driver = "sqlite-vec"
+ledger_driver = "sqlite"
+graph_driver = "sqlite_graph"
+content_driver = "file"
+
+[embedding]
+model = "noop:default"
+
+[federation]
+enabled = true
+federation_id = "fed_demo_cluster"
+
+[[federation.peers]]
+name = "node1"
+url = "http://memora-node1:7777"
+api_key = "memora-fed-key-1"
+
+[[federation.peers]]
+name = "node3"
+url = "http://memora-node3:7777"
+api_key = "memora-fed-key-3"
