@@ -18,8 +18,11 @@ func (h *Handler) partialWorkspaceList(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error loading workspaces: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+	fmt.Fprint(w, `<div style="margin-bottom:1rem"><button class="btn btn-primary" hx-get="/ui/partials/workspace-create-form" hx-target="#modal-container" hx-swap="innerHTML">Create Workspace</button></div>`)
+	fmt.Fprint(w, `<div id="modal-container"></div>`)
+
 	if len(workspaces) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Workspaces</h3><p>Create a workspace via the API to get started.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Workspaces</h3><p>Click "Create Workspace" above to get started.</p></div>`)
 		return
 	}
 
@@ -101,7 +104,11 @@ func (h *Handler) renderWorkspaceOverview(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Workspace Details</h3>`)
+	fmt.Fprintf(w, `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Workspace Details</h3><div style="display:flex;gap:0.5rem">`)
+	fmt.Fprintf(w, `<button class="btn" hx-get="/ui/partials/workspace-edit-form?id=%s" hx-target="#modal-container" hx-swap="innerHTML">Edit</button>`, template.HTMLEscapeString(ws.ID))
+	fmt.Fprintf(w, `<button class="btn" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/workspace-delete-form?id=%s" hx-target="#modal-container" hx-swap="innerHTML">Delete</button>`, template.HTMLEscapeString(ws.ID))
+	fmt.Fprintf(w, `</div></div>`)
+	fmt.Fprintf(w, `<div id="modal-container"></div>`)
 	fmt.Fprintf(w, `<table>`)
 	fmt.Fprintf(w, `<tr><td><strong>ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(ws.ID))
 	fmt.Fprintf(w, `<tr><td><strong>Name</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(ws.Name))

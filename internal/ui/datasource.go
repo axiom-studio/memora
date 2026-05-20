@@ -112,12 +112,29 @@ type PeerInfo struct {
 	Workspaces []string
 }
 
+type CreateWorkspaceInput struct {
+	Name           string
+	Region         string
+	ChunkerID      string
+	EmbeddingModel string
+}
+
+type UpdateWorkspaceInput struct {
+	Name           string
+	Region         string
+	ChunkerID      string
+	EmbeddingModel string
+}
+
 type DataSource interface {
 	DashboardStats(ctx context.Context) (DashboardStats, error)
 	RecentLedgerEntries(ctx context.Context, limit int) ([]api.LedgerEntry, error)
 	LedgerEntriesSince(ctx context.Context, since time.Time, ops []string, limit int) ([]api.LedgerEntry, error)
 	ListWorkspaces(ctx context.Context) ([]WorkspaceSummary, error)
 	GetWorkspace(ctx context.Context, id string) (*WorkspaceDetail, error)
+	CreateWorkspace(ctx context.Context, input CreateWorkspaceInput) (string, error)
+	UpdateWorkspace(ctx context.Context, id string, input UpdateWorkspaceInput) error
+	DeleteWorkspace(ctx context.Context, id string) error
 	ListAgents(ctx context.Context, wsID string) ([]AgentSummary, error)
 	ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error)
 	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -119,6 +120,34 @@ func (s *ServiceDataSource) GetWorkspace(ctx context.Context, id string) (*Works
 		AutoLinkEnabled: w.AutoLinkEnabled,
 		Meta:            w.Meta,
 	}, nil
+}
+
+func (s *ServiceDataSource) CreateWorkspace(ctx context.Context, input CreateWorkspaceInput) (string, error) {
+	ws := &types.Workspace{
+		Name:           input.Name,
+		Region:         input.Region,
+		ChunkerID:      input.ChunkerID,
+		EmbeddingModel: input.EmbeddingModel,
+	}
+	if err := s.Metadata.CreateWorkspace(ctx, ws); err != nil {
+		return "", err
+	}
+	return ws.ID, nil
+}
+
+func (s *ServiceDataSource) UpdateWorkspace(ctx context.Context, id string, input UpdateWorkspaceInput) error {
+	ws := &types.Workspace{
+		ID:             id,
+		Name:           input.Name,
+		Region:         input.Region,
+		ChunkerID:      input.ChunkerID,
+		EmbeddingModel: input.EmbeddingModel,
+	}
+	return s.Metadata.UpdateWorkspace(ctx, ws)
+}
+
+func (s *ServiceDataSource) DeleteWorkspace(ctx context.Context, id string) error {
+	return s.Metadata.DeleteWorkspace(ctx, id)
 }
 
 func (s *ServiceDataSource) ListAgents(ctx context.Context, wsID string) ([]AgentSummary, error) {

@@ -366,6 +366,15 @@ func TestAuth_PartialsRequireSession(t *testing.T) {
 	}
 }
 
+func mustHandler(t *testing.T) *Handler {
+	t.Helper()
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
 type mockDataSource struct {
 	stats       DashboardStats
 	entries     []api.LedgerEntry
@@ -430,6 +439,15 @@ func (m *mockDataSource) Recall(_ context.Context, _ string, _ string, _ string,
 		return m.recallResp, m.err
 	}
 	return nil, fmt.Errorf("recall not configured")
+}
+func (m *mockDataSource) CreateWorkspace(_ context.Context, input CreateWorkspaceInput) (string, error) {
+	return "ws_test_new", m.err
+}
+func (m *mockDataSource) UpdateWorkspace(_ context.Context, _ string, _ UpdateWorkspaceInput) error {
+	return m.err
+}
+func (m *mockDataSource) DeleteWorkspace(_ context.Context, _ string) error {
+	return m.err
 }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
@@ -1214,5 +1232,159 @@ func TestLayoutHasActivityRail(t *testing.T) {
 	}
 	if !strings.Contains(body, "EventSource") {
 		t.Error("layout missing SSE EventSource JS")
+	}
+}
+
+func TestWorkspaceCreateForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-create-form", nil)
+	h.partialWorkspaceCreateForm(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Create Workspace") {
+		t.Error("missing Create Workspace heading")
+	}
+	if !strings.Contains(body, `hx-post="/ui/api/workspaces/create"`) {
+		t.Error("missing create form action")
+	}
+}
+
+func TestWorkspaceCreate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	form := strings.NewReader("name=test-ws&region=us-east-1")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/create", form)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceCreate(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/ws_test_new") {
+		t.Errorf("expected redirect to new workspace, got %q", loc)
+	}
+}
+
+func TestWorkspaceCreate_MissingName(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	form := strings.NewReader("region=us-east-1")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/create", form)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceCreate(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Name is required") {
+		t.Error("expected name-required error")
+	}
+}
+
+func TestWorkspaceUpdate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	form := strings.NewReader("id=ws_123&name=updated-ws")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/update", form)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceUpdate(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/ws_123") {
+		t.Errorf("expected redirect to workspace, got %q", loc)
+	}
+}
+
+func TestWorkspaceDelete(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	form := strings.NewReader("id=ws_123&confirm=ws_123")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/delete", form)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceDelete(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); loc != "/ui/workspaces" {
+		t.Errorf("expected redirect to workspace list, got %q", loc)
+	}
+}
+
+func TestWorkspaceDelete_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	form := strings.NewReader("id=ws_123&confirm=wrong")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/delete", form)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceDelete(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Type the workspace ID to confirm") {
+		t.Error("expected confirmation error")
+	}
+}
+
+func TestWorkspaceEditForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspace: &WorkspaceDetail{
+			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", EmbeddingModel: "noop:default"},
+			Region:           "us-east-1",
+			ChunkerID:        "default",
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-edit-form?id=ws_123", nil)
+	h.partialWorkspaceEditForm(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Edit Workspace") {
+		t.Error("missing Edit Workspace heading")
+	}
+	if !strings.Contains(body, "test-ws") {
+		t.Error("missing workspace name value")
+	}
+}
+
+func TestWorkspaceDeleteForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspace: &WorkspaceDetail{
+			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", MemoryCount: 5, AgentCount: 2},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-delete-form?id=ws_123", nil)
+	h.partialWorkspaceDeleteForm(w, r)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Delete Workspace") {
+		t.Error("missing Delete Workspace heading")
+	}
+	if !strings.Contains(body, "5 memories") {
+		t.Error("missing memory count")
+	}
+}
+
+func TestWorkspaceListHasCreateButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspaces: []WorkspaceSummary{{ID: "ws_1", Name: "test"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-list", nil)
+	h.partialWorkspaceList(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Create Workspace") {
+		t.Error("workspace list missing Create Workspace button")
 	}
 }

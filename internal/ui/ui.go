@@ -128,6 +128,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)
 	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialSettingsDetail)
+	protected.HandleFunc("/ui/partials/workspace-create-form", h.partialWorkspaceCreateForm)
+	protected.HandleFunc("/ui/partials/workspace-edit-form", h.partialWorkspaceEditForm)
+	protected.HandleFunc("/ui/partials/workspace-delete-form", h.partialWorkspaceDeleteForm)
+	protected.HandleFunc("/ui/api/workspaces/create", h.handleWorkspaceCreate)
+	protected.HandleFunc("/ui/api/workspaces/update", h.handleWorkspaceUpdate)
+	protected.HandleFunc("/ui/api/workspaces/delete", h.handleWorkspaceDelete)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
