@@ -114,7 +114,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/", h.handlePage)
 	protected.HandleFunc("/ui/partials/dashboard-cards", h.partialDashboardCards)
 	protected.HandleFunc("/ui/partials/recent-activity", h.partialRecentActivity)
-	protected.HandleFunc("/ui/partials/workspace-list", h.partialPlaceholder("Workspaces will load here."))
+	protected.HandleFunc("/ui/partials/workspace-list", h.partialWorkspaceList)
+	protected.HandleFunc("/ui/partials/workspace-detail", h.partialWorkspaceDetail)
 	protected.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
 	protected.HandleFunc("/ui/partials/audit-list", h.partialPlaceholder("Audit log will load here."))
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
@@ -133,6 +134,7 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 	name := "home"
 	nav := "home"
 	title := "Dashboard"
+	var data any
 
 	switch {
 	case path == "" || path == "index":
@@ -141,6 +143,20 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 		name = "workspaces"
 		nav = "workspaces"
 		title = "Workspaces"
+		wsPath := strings.TrimPrefix(path, "workspaces")
+		wsPath = strings.TrimPrefix(wsPath, "/")
+		if wsPath != "" {
+			wsID := wsPath
+			if i := strings.IndexByte(wsID, '/'); i >= 0 {
+				wsID = wsID[:i]
+			}
+			tab := r.URL.Query().Get("tab")
+			if tab == "" {
+				tab = "overview"
+			}
+			data = map[string]string{"wsID": wsID, "tab": tab}
+			title = "Workspace " + truncateStr(wsID, 12)
+		}
 	case strings.HasPrefix(path, "federation"):
 		name = "federation"
 		nav = "federation"
@@ -165,7 +181,7 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, pageData{Title: title, Nav: nav}); err != nil {
+	if err := tmpl.Execute(w, pageData{Title: title, Nav: nav, Data: data}); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
 }

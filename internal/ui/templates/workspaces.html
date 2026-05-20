@@ -1,10 +1,35 @@
 {{define "content"}}
 <div class="page-header">
-  <h1>Workspaces</h1>
+  <h1>{{if .Data}}Workspace {{with index .Data "wsID"}}{{.}}{{end}}{{else}}Workspaces{{end}}</h1>
 </div>
-<div hx-get="/ui/partials/workspace-list"
-     hx-trigger="load"
-     hx-swap="innerHTML">
-  <div class="skeleton" style="height:10rem"></div>
-</div>
+{{if .Data}}
+  {{$wsID := index .Data "wsID"}}
+  {{$tab := index .Data "tab"}}
+  <div class="tabs">
+    <a class="tab {{if eq $tab "overview"}}active{{end}}"
+       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=overview"
+       hx-target="#ws-content" hx-swap="innerHTML"
+       hx-push-url="/ui/workspaces/{{$wsID}}?tab=overview">Overview</a>
+    <a class="tab {{if eq $tab "agents"}}active{{end}}"
+       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=agents"
+       hx-target="#ws-content" hx-swap="innerHTML"
+       hx-push-url="/ui/workspaces/{{$wsID}}?tab=agents">Agents</a>
+    <a class="tab {{if eq $tab "collections"}}active{{end}}"
+       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=collections"
+       hx-target="#ws-content" hx-swap="innerHTML"
+       hx-push-url="/ui/workspaces/{{$wsID}}?tab=collections">Collections</a>
+  </div>
+  <div id="ws-content"
+       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab={{$tab}}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skeleton" style="height:10rem"></div>
+  </div>
+{{else}}
+  <div hx-get="/ui/partials/workspace-list"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skeleton" style="height:10rem"></div>
+  </div>
+{{end}}
 {{end}}

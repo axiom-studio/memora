@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -366,9 +367,13 @@ func TestAuth_PartialsRequireSession(t *testing.T) {
 }
 
 type mockDataSource struct {
-	stats   DashboardStats
-	entries []api.LedgerEntry
-	err     error
+	stats       DashboardStats
+	entries     []api.LedgerEntry
+	workspaces  []WorkspaceSummary
+	workspace   *WorkspaceDetail
+	agents      []AgentSummary
+	collections []CollectionSummary
+	err         error
 }
 
 func (m *mockDataSource) DashboardStats(_ context.Context) (DashboardStats, error) {
@@ -382,6 +387,21 @@ func (m *mockDataSource) RecentLedgerEntries(_ context.Context, limit int) ([]ap
 }
 func (m *mockDataSource) LedgerEntriesSince(_ context.Context, _ time.Time, _ []string, limit int) ([]api.LedgerEntry, error) {
 	return m.RecentLedgerEntries(nil, limit)
+}
+func (m *mockDataSource) ListWorkspaces(_ context.Context) ([]WorkspaceSummary, error) {
+	return m.workspaces, m.err
+}
+func (m *mockDataSource) GetWorkspace(_ context.Context, id string) (*WorkspaceDetail, error) {
+	if m.workspace != nil {
+		return m.workspace, m.err
+	}
+	return nil, fmt.Errorf("workspace %s not found", id)
+}
+func (m *mockDataSource) ListAgents(_ context.Context, _ string) ([]AgentSummary, error) {
+	return m.agents, m.err
+}
+func (m *mockDataSource) ListCollections(_ context.Context, _ string) ([]CollectionSummary, error) {
+	return m.collections, m.err
 }
 
 func TestDashboardCards_WithData(t *testing.T) {
@@ -474,6 +494,151 @@ func TestRecentActivity_Empty(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if !strings.Contains(w.Body.String(), "No recent activity") {
 		t.Error("expected 'No recent activity' message")
+	}
+}
+
+func TestWorkspaceList(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		workspaces: []WorkspaceSummary{
+			{ID: "ws_abc", Name: "Production", EmbeddingModel: "text-embedding-3-small", AgentCount: 3, MemoryCount: 42, CreatedAt: time.Now()},
+			{ID: "ws_def", Name: "Staging", EmbeddingModel: "text-embedding-3-small", AgentCount: 1, MemoryCount: 5, CreatedAt: time.Now()},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	if !strings.Contains(body, "ws_abc") || !strings.Contains(body, "Production") {
+		t.Errorf("workspace list missing first workspace: %s", body)
+	}
+	if !strings.Contains(body, "ws_def") || !strings.Contains(body, "Staging") {
+		t.Errorf("workspace list missing second workspace: %s", body)
+	}
+	if !strings.Contains(body, "<table>") {
+		t.Error("expected table in workspace list")
+	}
+}
+
+func TestWorkspaceList_Empty(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-list", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "No Workspaces") {
+		t.Error("expected empty state message")
+	}
+}
+
+func TestWorkspaceDetail_Overview(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		workspace: &WorkspaceDetail{
+			WorkspaceSummary: WorkspaceSummary{
+				ID: "ws_abc", Name: "Production", EmbeddingModel: "text-embedding-3-small",
+				AgentCount: 3, MemoryCount: 42, CreatedAt: time.Now(),
+			},
+			Region: "us-east-1", ChunkerID: "paragraph", AutoLinkEnabled: true,
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=overview", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	for _, want := range []string{"ws_abc", "Production", "us-east-1", "paragraph", "Enabled"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("workspace detail missing %q", want)
+		}
+	}
+}
+
+func TestWorkspaceDetail_Agents(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		agents: []AgentSummary{
+			{AgentID: "agent_1", DisplayName: "Bot A", IdentityProvider: "opaque", AgentType: "chat"},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=agents", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	if !strings.Contains(body, "agent_1") || !strings.Contains(body, "Bot A") {
+		t.Errorf("agent tab missing agent data: %s", body)
+	}
+}
+
+func TestWorkspaceDetail_Collections(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{
+			{ID: "coll_1", Name: "Knowledge Base", CreatedAt: time.Now()},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=collections", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+
+	if !strings.Contains(body, "coll_1") || !strings.Contains(body, "Knowledge Base") {
+		t.Errorf("collections tab missing data: %s", body)
+	}
+}
+
+func TestWorkspaceDetailPage(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "ws_abc") {
+		t.Error("workspace detail page should contain workspace ID")
+	}
+	if !strings.Contains(body, "Overview") {
+		t.Error("workspace detail page should have Overview tab")
 	}
 }
 
