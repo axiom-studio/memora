@@ -112,6 +112,14 @@ type PeerInfo struct {
 	Workspaces []string
 }
 
+type RegisterAgentInput struct {
+	AgentID          string
+	DisplayName      string
+	IdentityProvider string
+	AgentType        string
+	Model            string
+}
+
 type CreateCollectionInput struct {
 	WorkspaceID string
 	Name        string
@@ -141,6 +149,8 @@ type DataSource interface {
 	UpdateWorkspace(ctx context.Context, id string, input UpdateWorkspaceInput) error
 	DeleteWorkspace(ctx context.Context, id string) error
 	ListAgents(ctx context.Context, wsID string) ([]AgentSummary, error)
+	RegisterAgent(ctx context.Context, wsID string, req RegisterAgentInput) error
+	DeactivateAgent(ctx context.Context, wsID, agentID string) error
 	ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error)
 	CreateCollection(ctx context.Context, input CreateCollectionInput) (string, error)
 	DeleteCollection(ctx context.Context, id string) error

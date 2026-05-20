@@ -175,6 +175,23 @@ func (s *ServiceDataSource) ListAgents(ctx context.Context, wsID string) ([]Agen
 	return out, nil
 }
 
+func (s *ServiceDataSource) RegisterAgent(ctx context.Context, wsID string, req RegisterAgentInput) error {
+	a := &types.Agent{
+		AgentID:          req.AgentID,
+		WorkspaceID:      wsID,
+		DisplayName:      req.DisplayName,
+		IdentityProvider: req.IdentityProvider,
+		AgentType:        req.AgentType,
+		Model:            req.Model,
+		Active:           true,
+	}
+	return s.Metadata.RegisterAgent(ctx, a)
+}
+
+func (s *ServiceDataSource) DeactivateAgent(ctx context.Context, wsID, agentID string) error {
+	return s.Metadata.DeactivateAgent(ctx, wsID, agentID)
+}
+
 func (s *ServiceDataSource) ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error) {
 	colls, err := s.Metadata.ListCollections(ctx, wsID)
 	if err != nil {

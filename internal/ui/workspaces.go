@@ -128,24 +128,34 @@ func (h *Handler) renderWorkspaceAgents(w http.ResponseWriter, r *http.Request, 
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+
+	fmt.Fprintf(w, `<div style="margin-bottom:1rem"><button class="btn btn-primary" hx-get="/ui/partials/agent-register-form?ws=%s" hx-target="#agent-modal-container" hx-swap="innerHTML">Register Agent</button></div>`, template.HTMLEscapeString(wsID))
+	fmt.Fprint(w, `<div id="agent-modal-container"></div>`)
+
 	if len(agents) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Agents</h3><p>No agents registered in this workspace.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Agents</h3><p>Click "Register Agent" above to get started.</p></div>`)
 		return
 	}
 
-	fmt.Fprint(w, `<table><thead><tr><th>Agent ID</th><th>Display Name</th><th>Provider</th><th>Type</th><th>Model</th><th>Status</th></tr></thead><tbody>`)
+	fmt.Fprint(w, `<table><thead><tr><th>Agent ID</th><th>Display Name</th><th>Provider</th><th>Type</th><th>Model</th><th>Status</th><th></th></tr></thead><tbody>`)
 	for _, a := range agents {
 		status := `<span class="badge badge-ok">Active</span>`
 		if a.Deactivated {
 			status = `<span class="badge badge-err">Deactivated</span>`
 		}
-		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td>%s</td><td>%s</td><td class="mono">%s</td><td>%s</td></tr>`,
+		var actionBtn string
+		if !a.Deactivated {
+			actionBtn = fmt.Sprintf(`<button class="btn" style="color:var(--danger);border-color:var(--danger);padding:0.25rem 0.5rem;font-size:0.85rem" hx-get="/ui/partials/agent-deactivate-form?ws=%s&amp;id=%s" hx-target="#agent-modal-container" hx-swap="innerHTML">Deactivate</button>`,
+				template.HTMLEscapeString(wsID), template.HTMLEscapeString(a.AgentID))
+		}
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td>%s</td><td>%s</td><td class="mono">%s</td><td>%s</td><td>%s</td></tr>`,
 			template.HTMLEscapeString(a.AgentID),
 			template.HTMLEscapeString(orDash(a.DisplayName)),
 			template.HTMLEscapeString(orDash(a.IdentityProvider)),
 			template.HTMLEscapeString(orDash(a.AgentType)),
 			template.HTMLEscapeString(orDash(a.Model)),
 			status,
+			actionBtn,
 		)
 	}
 	fmt.Fprint(w, `</tbody></table>`)

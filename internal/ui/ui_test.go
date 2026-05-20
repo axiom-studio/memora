@@ -416,6 +416,12 @@ func (m *mockDataSource) GetWorkspace(_ context.Context, id string) (*WorkspaceD
 func (m *mockDataSource) ListAgents(_ context.Context, _ string) ([]AgentSummary, error) {
 	return m.agents, m.err
 }
+func (m *mockDataSource) RegisterAgent(_ context.Context, _ string, _ RegisterAgentInput) error {
+	return m.err
+}
+func (m *mockDataSource) DeactivateAgent(_ context.Context, _, _ string) error {
+	return m.err
+}
 func (m *mockDataSource) ListCollections(_ context.Context, _ string) ([]CollectionSummary, error) {
 	return m.collections, m.err
 }
@@ -2102,5 +2108,137 @@ func TestRecallFull_EmbeddingPending(t *testing.T) {
 	h.partialRecallFull(w, r)
 	if !strings.Contains(w.Body.String(), "still being embedded") {
 		t.Error("expected embedding pending notice")
+	}
+}
+
+func TestAgentRegisterForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/agent-register-form?ws=ws_abc", nil)
+	h.partialAgentRegisterForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"agent_id", "display_name", "identity_provider", "agent_type", "model", "Register"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("register form missing %q", want)
+		}
+	}
+	for _, prov := range []string{"opaque", "anthropic_session", "a2a", "did", "oauth_agent", "oidc_agent"} {
+		if !strings.Contains(body, prov) {
+			t.Errorf("register form missing provider %q", prov)
+		}
+	}
+}
+
+func TestAgentRegisterForm_NoWS(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/agent-register-form", nil)
+	h.partialAgentRegisterForm(w, r)
+	if !strings.Contains(w.Body.String(), "Missing workspace") {
+		t.Error("expected error for missing ws")
+	}
+}
+
+func TestAgentRegister(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&agent_id=agent_test_bot&display_name=Test+Bot&identity_provider=opaque&agent_type=assistant&model=claude"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleAgentRegister(w, r)
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Error("expected HX-Redirect after register")
+	}
+	if !strings.Contains(w.Header().Get("HX-Redirect"), "tab=agents") {
+		t.Error("redirect should go to agents tab")
+	}
+}
+
+func TestAgentRegister_BadPrefix(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&agent_id=bad_id&identity_provider=opaque"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleAgentRegister(w, r)
+	if !strings.Contains(w.Body.String(), "must start with agent_") {
+		t.Error("expected prefix validation error")
+	}
+}
+
+func TestAgentRegister_MissingID(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&agent_id=&identity_provider=opaque"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleAgentRegister(w, r)
+	if !strings.Contains(w.Body.String(), "required") {
+		t.Error("expected required validation error")
+	}
+}
+
+func TestAgentDeactivateForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/agent-deactivate-form?ws=ws_abc&id=agent_bot", nil)
+	h.partialAgentDeactivateForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "agent_bot") {
+		t.Error("deactivate form missing agent ID")
+	}
+	if !strings.Contains(body, "Deactivate") {
+		t.Error("deactivate form missing button")
+	}
+}
+
+func TestAgentDeactivate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&agent_id=agent_bot&confirm=agent_bot"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/agents/deactivate", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleAgentDeactivate(w, r)
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Error("expected HX-Redirect after deactivate")
+	}
+}
+
+func TestAgentDeactivate_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&agent_id=agent_bot&confirm=wrong"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/agents/deactivate", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleAgentDeactivate(w, r)
+	if !strings.Contains(w.Body.String(), "does not match") {
+		t.Error("expected confirmation mismatch error")
+	}
+}
+
+func TestWorkspaceAgentsHasRegisterButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		agents: []AgentSummary{
+			{AgentID: "agent_test", DisplayName: "Test", IdentityProvider: "opaque", Deactivated: false},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=agents", nil)
+	h.partialWorkspaceDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Register Agent") {
+		t.Error("agents tab missing Register Agent button")
+	}
+	if !strings.Contains(body, "Deactivate") {
+		t.Error("active agent missing Deactivate button")
 	}
 }
