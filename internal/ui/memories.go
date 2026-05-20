@@ -438,7 +438,7 @@ func (h *Handler) renderMemoryCells(w http.ResponseWriter, r *http.Request, memI
 			c.Sequence,
 			template.HTMLEscapeString(truncateStr(c.CellID, 16)),
 			template.HTMLEscapeString(truncateStr(c.TextMD5, 12)),
-			template.HTMLEscapeString(truncateStr(c.Text, 80)),
+			template.HTMLEscapeString(cellPreview(c.Text, 80)),
 		)
 	}
 	fmt.Fprint(w, `</tbody></table>`)

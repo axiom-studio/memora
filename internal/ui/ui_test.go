@@ -3718,3 +3718,25 @@ func TestSettingsDetail_DiagnosticsSection(t *testing.T) {
 		t.Error("expected OK badge for healthy adapter")
 	}
 }
+
+func TestCellPreview(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"plain", "Hello world", "Hello world"},
+		{"heading then body", "# Title\nSome body content here", "Some body content here"},
+		{"heading+bold then body", "# Title\n**Subtitle**\nActual content", "Actual content"},
+		{"all headings", "# A\n## B\n### C", "# A ## B ### C"},
+		{"empty lines", "\n\n# Heading\n\nBody text", "Body text"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cellPreview(tt.text, 80)
+			if !strings.Contains(got, tt.want[:min(len(tt.want), 20)]) {
+				t.Errorf("cellPreview(%q) = %q, want substring %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}

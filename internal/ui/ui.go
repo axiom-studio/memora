@@ -351,6 +351,18 @@ func truncateStr(s string, n int) string {
 	return s[:n] + "…"
 }
 
+func cellPreview(text string, n int) string {
+	lines := strings.SplitN(text, "\n", 10)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "**") {
+			continue
+		}
+		return truncateStr(line, n)
+	}
+	return truncateStr(strings.ReplaceAll(text, "\n", " "), n)
+}
+
 func (h *Handler) partialPlaceholder(msg string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

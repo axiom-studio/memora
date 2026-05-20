@@ -362,6 +362,32 @@ input:focus, select:focus, textarea:focus {
   :root:not([data-theme]) .form-error { background: #842029; color: #f8d7da; border-color: #842029; }
 }
 
+/* Nav icons */
+.nav-icon { flex-shrink: 0; vertical-align: middle; }
+.sidebar-nav a { display: flex; align-items: center; gap: 0.65rem; }
+
+/* Sidebar collapse */
+.sidebar { transition: width 0.2s ease; overflow: hidden; }
+.sidebar-brand { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+.sidebar-collapse-btn {
+  background: none; border: none; color: var(--text-nav); cursor: pointer;
+  padding: 0.25rem; border-radius: 4px; opacity: 0.6; flex-shrink: 0;
+}
+.sidebar-collapse-btn:hover { opacity: 1; background: var(--bg-nav-hover); }
+.sidebar.collapsed { width: 56px; }
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .sidebar-brand-text,
+.sidebar.collapsed .sidebar-version { display: none; }
+.sidebar.collapsed .sidebar-brand { padding: 0.5rem 0.75rem 1.5rem; justify-content: center; }
+.sidebar.collapsed .sidebar-nav a { padding: 0.5rem 0; justify-content: center; border-left: 3px solid transparent; }
+.sidebar.collapsed .sidebar-footer { padding: 0.75rem 0.5rem; text-align: center; }
+.sidebar.collapsed .search-trigger { padding: 0.4rem; text-align: center; }
+.sidebar.collapsed .theme-toggle button { padding: 0.3rem; justify-content: center; }
+.sidebar.collapsed .sidebar-collapse-btn svg { transform: rotate(180deg); }
+
+/* Search trigger with icon */
+.search-trigger { display: flex; align-items: center; gap: 0.5rem; }
+
 /* Theme toggle */
 .theme-toggle {
   display: flex; align-items: center; gap: 0.5rem;

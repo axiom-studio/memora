@@ -64,7 +64,7 @@ func (h *Handler) partialUploadForm(w http.ResponseWriter, r *http.Request) {
     <select id="batch-chunker">
       <option value="">default</option>
       <option value="markdown">markdown</option>
-      <option value="noop">no-chunk</option>
+      <option value="no-chunk">no-chunk</option>
     </select>
   </label>
   <div class="modal-actions">
