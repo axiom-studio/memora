@@ -321,6 +321,8 @@ func (h *Handler) partialMemoryDetail(w http.ResponseWriter, r *http.Request) {
 		h.renderMemoryEdges(w, r, wsID, memID)
 	case "cells":
 		h.renderMemoryCells(w, r, memID)
+	case "watermarks":
+		h.renderMemoryWatermarks(w, r, wsID, memID)
 	default:
 		h.renderMemoryContent(w, r, memID)
 	}
@@ -426,4 +428,43 @@ func (h *Handler) renderMemoryCells(w http.ResponseWriter, r *http.Request, memI
 		)
 	}
 	fmt.Fprint(w, `</tbody></table>`)
+}
+
+func (h *Handler) renderMemoryWatermarks(w http.ResponseWriter, r *http.Request, wsID, memID string) {
+	since := time.Now().AddDate(0, 0, -7)
+	hist, err := h.data.GetWatermarkHistory(r.Context(), wsID, memID, since)
+	if err != nil {
+		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+
+	fmt.Fprint(w, `<div class="card"><h3 class="card-title">Watermark History</h3>`)
+	fmt.Fprint(w, `<p class="text-muted" style="font-size:0.85rem;margin-bottom:0.75rem">Last 7 days of version history for this memory.</p>`)
+
+	if len(hist) == 0 {
+		fmt.Fprint(w, `<p class="text-muted">No watermark history found.</p></div>`)
+		return
+	}
+
+	fmt.Fprint(w, `<table><thead><tr><th>Watermark</th><th>Op</th><th>Agent</th><th>MD5 Before</th><th>MD5 After</th><th>Time</th></tr></thead><tbody>`)
+	for _, e := range hist {
+		md5Before := "—"
+		if e.ContentMD5Before != "" {
+			md5Before = truncateStr(e.ContentMD5Before, 12)
+		}
+		md5After := "—"
+		if e.ContentMD5After != "" {
+			md5After = truncateStr(e.ContentMD5After, 12)
+		}
+		opBadge := template.HTMLEscapeString(e.Op)
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td class="mono">%s</td><td class="mono">%s</td><td>%s</td></tr>`,
+			template.HTMLEscapeString(truncateStr(e.Watermark, 20)),
+			opBadge,
+			template.HTMLEscapeString(truncateStr(e.AgentID, 20)),
+			template.HTMLEscapeString(md5Before),
+			template.HTMLEscapeString(md5After),
+			template.HTMLEscapeString(e.CreatedAt.UTC().Format("2006-01-02 15:04:05")),
+		)
+	}
+	fmt.Fprint(w, `</tbody></table></div>`)
 }

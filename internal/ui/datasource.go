@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -191,5 +192,6 @@ type DataSource interface {
 	GraphStats(ctx context.Context, wsID string) (int, map[string]int, error)
 	LinkEdge(ctx context.Context, wsID, sourceMemID, targetMemID, edgeType string) (string, error)
 	UnlinkEdge(ctx context.Context, edgeID string) error
+	GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 }

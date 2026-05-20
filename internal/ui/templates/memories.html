@@ -17,6 +17,9 @@
   <a class="tab {{if eq $tab "edges"}}active{{end}}"
      hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab=edges"
      hx-target="#mem-content" hx-swap="innerHTML">Edges</a>
+  <a class="tab {{if eq $tab "watermarks"}}active{{end}}"
+     hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab=watermarks"
+     hx-target="#mem-content" hx-swap="innerHTML">Watermarks</a>
 </div>
 <div id="mem-content"
      hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab={{$tab}}"

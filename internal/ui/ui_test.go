@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -388,6 +389,7 @@ type mockDataSource struct {
 	edges       []EdgeSummary
 	recallResp   *api.RecallResponse
 	graphData    *GraphData
+	watermarks   []types.WatermarkHistoryEntry
 	auditEntries []api.LedgerEntry
 	auditCursor  string
 	err          error
@@ -557,6 +559,9 @@ func (m *mockDataSource) LinkEdge(_ context.Context, _, _, _, _ string) (string,
 }
 func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
 	return m.err
+}
+func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
+	return m.watermarks, m.err
 }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
@@ -873,6 +878,77 @@ func TestMemoryDetail_Edges(t *testing.T) {
 	}
 }
 
+func TestMemoryDetail_Watermarks(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		watermarks: []types.WatermarkHistoryEntry{
+			{
+				TargetID:        "mem_abc",
+				Watermark:       "wmk_01EXAMPLE",
+				Op:              "imprint",
+				AgentID:         "agent_test",
+				CreatedAt:       time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC),
+				ContentMD5After: "abc123",
+			},
+			{
+				TargetID:         "mem_abc",
+				Watermark:        "wmk_02EXAMPLE",
+				Op:               "update",
+				AgentID:          "agent_test",
+				CreatedAt:        time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
+				ContentMD5Before: "abc123",
+				ContentMD5After:  "def456",
+			},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=watermarks", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Watermark History") {
+		t.Error("missing Watermark History heading")
+	}
+	if !strings.Contains(body, "wmk_01EXAMPLE") {
+		t.Error("missing first watermark entry")
+	}
+	if !strings.Contains(body, "imprint") {
+		t.Error("missing imprint op")
+	}
+	if !strings.Contains(body, "update") {
+		t.Error("missing update op")
+	}
+	if !strings.Contains(body, "agent_test") {
+		t.Error("missing agent ID")
+	}
+	if !strings.Contains(body, "def456") {
+		t.Error("missing content MD5 after")
+	}
+}
+
+func TestMemoryDetail_WatermarksEmpty(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=watermarks", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "No watermark history") {
+		t.Error("missing empty state message")
+	}
+}
+
 func TestRecallResults(t *testing.T) {
 	h, err := NewHandler()
 	if err != nil {
@@ -942,6 +1018,9 @@ func TestMemoryDetailPage(t *testing.T) {
 	}
 	if !strings.Contains(body, "Content") && !strings.Contains(body, "Cells") {
 		t.Error("memory detail page missing tabs")
+	}
+	if !strings.Contains(body, "Watermarks") {
+		t.Error("memory detail page missing Watermarks tab")
 	}
 }
 

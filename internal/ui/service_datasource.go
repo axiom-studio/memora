@@ -624,6 +624,10 @@ func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, edgeID string) error
 	return s.Graph.Unlink(ctx, edgeID, "ui-admin")
 }
 
+func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {
+	return s.Metadata.GetWatermarkHistory(ctx, wsID, memID, since)
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil
