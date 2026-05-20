@@ -112,7 +112,7 @@ func NewHandler() (*Handler, error) {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/login", h.handleLogin)
 	mux.HandleFunc("/ui/logout", h.handleLogout)
-	mux.Handle("/ui/static/", h.staticFS)
+	mux.Handle("/ui/static/", noCacheStatic(h.staticFS))
 
 	protected := http.NewServeMux()
 	protected.HandleFunc("/ui/", h.handlePage)
@@ -368,4 +368,11 @@ func (h *Handler) partialPlaceholder(msg string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<div class="empty-state"><h3>Coming Soon</h3><p>%s</p></div>`, template.HTMLEscapeString(msg))
 	}
+}
+
+func noCacheStatic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		next.ServeHTTP(w, r)
+	})
 }
