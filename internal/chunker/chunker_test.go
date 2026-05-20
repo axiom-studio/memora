@@ -2,9 +2,12 @@ package chunker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 var ctx = context.Background()
@@ -280,5 +283,80 @@ func TestApproxTokens_DefaultHeuristic(t *testing.T) {
 	got := ApproxTokens("abcdefghijklmnop") // 16 chars
 	if got != 4 {
 		t.Errorf("want 4 tokens for 16 chars, got %d", got)
+	}
+}
+
+type fakeConfigurableChunker struct {
+	configured map[string]string
+}
+
+func (f *fakeConfigurableChunker) Name() string { return "test-configurable" }
+
+func (f *fakeConfigurableChunker) Chunk(_ context.Context, content string) ([]types.Cell, error) {
+	return []types.Cell{mkCell(0, content)}, nil
+}
+
+func (f *fakeConfigurableChunker) Configure(opts map[string]string) error {
+	if v, ok := opts["bad"]; ok && v == "true" {
+		return errors.New("invalid config: bad=true is not allowed")
+	}
+	f.configured = opts
+	return nil
+}
+
+func init() {
+	Register("test-configurable", func() Chunker { return &fakeConfigurableChunker{} })
+}
+
+func TestConfigurable_GoodConfig(t *testing.T) {
+	ck, err := Get("test-configurable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := ck.(Configurable)
+	if !ok {
+		t.Fatal("test-configurable does not implement Configurable")
+	}
+	if err := c.Configure(map[string]string{"rows_per_cell": "10"}); err != nil {
+		t.Fatalf("Configure failed: %v", err)
+	}
+	fc := ck.(*fakeConfigurableChunker)
+	if fc.configured["rows_per_cell"] != "10" {
+		t.Errorf("config not applied: %v", fc.configured)
+	}
+}
+
+func TestConfigurable_BadConfig(t *testing.T) {
+	ck, err := Get("test-configurable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := ck.(Configurable)
+	if !ok {
+		t.Fatal("test-configurable does not implement Configurable")
+	}
+	if err := c.Configure(map[string]string{"bad": "true"}); err == nil {
+		t.Fatal("expected Configure to fail with bad config")
+	}
+}
+
+func TestNonConfigurable_IgnoresConfig(t *testing.T) {
+	ck, err := Get("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ck.(Configurable); ok {
+		t.Fatal("default chunker should NOT implement Configurable")
+	}
+}
+
+func TestConfigurable_EmptyConfig(t *testing.T) {
+	ck, err := Get("test-configurable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ck.(Configurable)
+	if err := c.Configure(map[string]string{}); err != nil {
+		t.Fatalf("empty config should not error: %v", err)
 	}
 }

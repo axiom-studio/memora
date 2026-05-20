@@ -19,6 +19,12 @@ type Chunker interface {
 	Chunk(ctx context.Context, content string) ([]types.Cell, error)
 }
 
+// Configurable is implemented by chunkers that accept per-upload options.
+// Unknown keys are silently ignored for forward-compatibility.
+type Configurable interface {
+	Configure(opts map[string]string) error
+}
+
 // Factory builds a Chunker.
 type Factory func() Chunker
 

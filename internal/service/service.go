@@ -145,6 +145,13 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	if err != nil {
 		return nil, err
 	}
+	if cfg := req.ChunkerConfig; len(cfg) > 0 {
+		if c, ok := ck.(chunker.Configurable); ok {
+			if err := c.Configure(cfg); err != nil {
+				return nil, fmt.Errorf("%w: chunker config: %s", types.ErrInvalidInput, err)
+			}
+		}
+	}
 	mem := &types.Memory{
 		WorkspaceID:      workspaceID,
 		CollectionID:     req.CollectionID,

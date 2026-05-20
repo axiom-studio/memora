@@ -8,11 +8,12 @@ import "github.com/axiom-studio/memora/pkg/types"
 
 // ImprintRequest creates a new Memory.
 type ImprintRequest struct {
-	CollectionID string            `json:"collection_id,omitempty"`
-	Content      string            `json:"content"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	ChunkerID    string            `json:"chunker_id,omitempty"`
-	AutoLink     *bool             `json:"auto_link,omitempty"`
+	CollectionID  string            `json:"collection_id,omitempty"`
+	Content       string            `json:"content"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	ChunkerID     string            `json:"chunker_id,omitempty"`
+	ChunkerConfig map[string]string `json:"chunker_config,omitempty"`
+	AutoLink      *bool             `json:"auto_link,omitempty"`
 }
 
 // ImprintResponse is returned synchronously after Imprint commits.
