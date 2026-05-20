@@ -121,6 +121,118 @@ func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Reques
 </dialog>`, template.HTMLEscapeString(wsID), collOptions)
 }
 
+func (h *Handler) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("workspace_id"))
+	memID := strings.TrimSpace(r.FormValue("memory_id"))
+	if wsID == "" || memID == "" {
+		h.writeFormError(w, "Workspace ID and Memory ID are required")
+		return
+	}
+
+	content := r.FormValue("content")
+	if strings.TrimSpace(content) == "" {
+		h.writeFormError(w, "Content is required")
+		return
+	}
+
+	req := api.UpdateRequest{
+		Content:           content,
+		ExpectedWatermark: strings.TrimSpace(r.FormValue("expected_watermark")),
+	}
+
+	tags := parseTags(r)
+	if len(tags) > 0 {
+		req.Tags = tags
+	}
+
+	resp, err := h.data.UpdateMemory(r.Context(), wsID, memID, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "cas conflict") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<div class="form-error">This memory was modified since you opened it. <a href="/ui/workspaces/%s/memories/%s">Reload</a> and reapply your changes.</div>`,
+				template.HTMLEscapeString(wsID), template.HTMLEscapeString(memID))
+			return
+		}
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Updated</h3><table>`)
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
+	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
+	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
+	fmt.Fprintf(w, `</table></div>`)
+}
+
+func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	if wsID == "" || memID == "" || h.data == nil {
+		h.writeFormError(w, "Memory not found")
+		return
+	}
+
+	mem, err := h.data.GetMemory(r.Context(), memID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	var tagRows string
+	if len(mem.Tags) > 0 {
+		for k, v := range mem.Tags {
+			tagRows += fmt.Sprintf(`<div style="display:flex;gap:0.5rem;margin-bottom:0.25rem"><input type="text" name="tag_key" value="%s" style="flex:1"><input type="text" name="tag_value" value="%s" style="flex:1"></div>`,
+				template.HTMLEscapeString(k), template.HTMLEscapeString(v))
+		}
+	} else {
+		tagRows = `<div style="display:flex;gap:0.5rem;margin-bottom:0.25rem"><input type="text" name="tag_key" placeholder="key" style="flex:1"><input type="text" name="tag_value" placeholder="value" style="flex:1"></div>`
+	}
+
+	fmt.Fprintf(w, `<dialog id="mem-edit-modal" class="modal" open>
+<form hx-post="/ui/api/memories/update" hx-target="#update-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
+  <h3>Edit Memory</h3>
+  <div id="update-result"></div>
+  <input type="hidden" name="workspace_id" value="%s">
+  <input type="hidden" name="memory_id" value="%s">
+  <input type="hidden" name="expected_watermark" value="%s">
+  <p class="text-muted" style="font-size:0.85rem">Watermark: <code>%s</code></p>
+  <label>Content <span class="text-muted">(required)</span>
+    <textarea name="content" required rows="10" style="width:100%%;font-family:var(--font-mono);font-size:0.9rem">%s</textarea>
+  </label>
+  <fieldset style="border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-top:0.5rem">
+    <legend style="font-size:0.9rem;font-weight:600;padding:0 0.25rem">Tags</legend>
+    <div id="edit-tag-rows">%s</div>
+    <button type="button" class="btn btn-secondary" style="font-size:0.8rem;padding:0.2rem 0.5rem" onclick="var d=document.createElement('div');d.style.cssText='display:flex;gap:0.5rem;margin-bottom:0.25rem';d.innerHTML='<input type=\'text\' name=\'tag_key\' placeholder=\'key\' style=\'flex:1\'><input type=\'text\' name=\'tag_value\' placeholder=\'value\' style=\'flex:1\'>';document.getElementById('edit-tag-rows').appendChild(d)">+ Add Tag</button>
+  </fieldset>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+    <button type="submit" class="btn btn-primary">Update</button>
+  </div>
+</form>
+</dialog>`,
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(mem.ID),
+		template.HTMLEscapeString(mem.Watermark),
+		template.HTMLEscapeString(truncateStr(mem.Watermark, 20)),
+		template.HTMLEscapeString(mem.Content),
+		tagRows,
+	)
+}
+
 func parseTags(r *http.Request) map[string]string {
 	keys := r.Form["tag_key"]
 	vals := r.Form["tag_value"]

@@ -113,6 +113,7 @@ func New(cfg Config) *Server {
 				Graph:       cfg.Service.Graph,
 				RecallFunc:  cfg.Service.Recall,
 				ImprintFunc: cfg.Service.Imprint,
+				UpdateFunc:  cfg.Service.Update,
 			}
 			uiHandler.SetDataSource(ds)
 		}

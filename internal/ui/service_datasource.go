@@ -17,6 +17,7 @@ type ServiceDataSource struct {
 	Graph           adapter.GraphStore
 	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
 	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
+	UpdateFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
 	FederationPeers int
 	HealthyPeers    int
 	EmbedQueueDepth func() int
@@ -209,6 +210,13 @@ func (s *ServiceDataSource) ImprintMemory(ctx context.Context, wsID string, req 
 		return nil, fmt.Errorf("imprint not configured")
 	}
 	return s.ImprintFunc(ctx, wsID, "ui-admin", req)
+}
+
+func (s *ServiceDataSource) UpdateMemory(ctx context.Context, wsID, memID string, req api.UpdateRequest) (*api.UpdateResponse, error) {
+	if s.UpdateFunc == nil {
+		return nil, fmt.Errorf("update not configured")
+	}
+	return s.UpdateFunc(ctx, wsID, memID, "ui-admin", "", req)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {
