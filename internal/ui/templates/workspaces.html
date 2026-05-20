@@ -5,13 +5,6 @@
 {{if .Data}}
   {{$wsID := index .Data "wsID"}}
   {{$tab := index .Data "tab"}}
-  {{if eq $tab "graph"}}
-  <div class="empty-state">
-    <h3>Context Graph</h3>
-    <p>Graph visualization is coming in v0.5.</p>
-    <p class="text-muted">In the meantime, use the <a href="/ui/workspaces/{{$wsID}}/memories">Memories</a> page to browse edges, or query the Traverse / Neighbors API directly.</p>
-  </div>
-  {{else}}
   <div class="tabs">
     <a class="tab {{if eq $tab "overview"}}active{{end}}"
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=overview"
@@ -25,14 +18,18 @@
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=collections"
        hx-target="#ws-content" hx-swap="innerHTML"
        hx-push-url="/ui/workspaces/{{$wsID}}?tab=collections">Collections</a>
+    <a class="tab {{if eq $tab "graph"}}active{{end}}"
+       hx-get="/ui/partials/graph-view?ws={{$wsID}}"
+       hx-target="#ws-content" hx-swap="innerHTML"
+       hx-push-url="/ui/workspaces/{{$wsID}}/graph">Graph</a>
   </div>
   <div id="ws-content"
-       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab={{$tab}}"
-       hx-trigger="load"
+       {{if eq $tab "graph"}}hx-get="/ui/partials/graph-view?ws={{$wsID}}"
+       {{else}}hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab={{$tab}}"
+       {{end}}hx-trigger="load"
        hx-swap="innerHTML">
     <div class="skeleton" style="height:10rem"></div>
   </div>
-  {{end}}
 {{else}}
   <div hx-get="/ui/partials/workspace-list"
        hx-trigger="load"

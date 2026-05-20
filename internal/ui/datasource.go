@@ -139,6 +139,26 @@ type UpdateWorkspaceInput struct {
 	EmbeddingModel string
 }
 
+type GraphNode struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Type  string `json:"type"`
+}
+
+type GraphEdge struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Label  string `json:"label"`
+}
+
+type GraphData struct {
+	Nodes           []GraphNode    `json:"nodes"`
+	Edges           []GraphEdge    `json:"edges"`
+	NodeCount       int            `json:"node_count"`
+	EdgeCountByType map[string]int `json:"edge_count_by_type"`
+}
+
 type DataSource interface {
 	DashboardStats(ctx context.Context) (DashboardStats, error)
 	RecentLedgerEntries(ctx context.Context, limit int) ([]api.LedgerEntry, error)
@@ -165,5 +185,6 @@ type DataSource interface {
 	GetEdges(ctx context.Context, wsID, memID string) ([]EdgeSummary, error)
 	Recall(ctx context.Context, wsID string, query string, mode string, k int) (*api.RecallResponse, error)
 	RecallFull(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
+	GraphData(ctx context.Context, wsID string, seedMemID string, depth int) (*GraphData, error)
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 }

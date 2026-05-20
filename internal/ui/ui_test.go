@@ -387,6 +387,7 @@ type mockDataSource struct {
 	cells       []CellSummary
 	edges       []EdgeSummary
 	recallResp   *api.RecallResponse
+	graphData    *GraphData
 	auditEntries []api.LedgerEntry
 	auditCursor  string
 	err          error
@@ -526,6 +527,12 @@ func (m *mockDataSource) UpdateMemory(_ context.Context, _, _ string, _ api.Upda
 		CellsSkipped: 1,
 		LedgerID:     "led_uvw",
 	}, nil
+}
+func (m *mockDataSource) GraphData(_ context.Context, _ string, _ string, _ int) (*GraphData, error) {
+	if m.graphData != nil {
+		return m.graphData, m.err
+	}
+	return &GraphData{Nodes: nil, Edges: nil}, m.err
 }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
@@ -1187,7 +1194,7 @@ func TestFederationStatus_Disabled(t *testing.T) {
 	}
 }
 
-func TestGraphStubPage(t *testing.T) {
+func TestGraphPage(t *testing.T) {
 	h, _ := NewHandler()
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -1199,8 +1206,8 @@ func TestGraphStubPage(t *testing.T) {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "coming in v0.5") {
-		t.Error("missing graph stub message")
+	if !strings.Contains(body, "graph-view") {
+		t.Error("graph page should load graph-view partial")
 	}
 }
 
@@ -2240,5 +2247,87 @@ func TestWorkspaceAgentsHasRegisterButton(t *testing.T) {
 	}
 	if !strings.Contains(body, "Deactivate") {
 		t.Error("active agent missing Deactivate button")
+	}
+}
+
+func TestGraphView(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=ws_abc", nil)
+	h.partialGraphView(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"graph-container", "graph-canvas", "graph-seed", "graph-depth", "loadGraph", "Context Graph"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("graph view missing %q", want)
+		}
+	}
+}
+
+func TestGraphView_NoWS(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/graph-view", nil)
+	h.partialGraphView(w, r)
+	if !strings.Contains(w.Body.String(), "No workspace") {
+		t.Error("expected empty state for missing ws")
+	}
+}
+
+func TestGraphDataEndpoint(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		graphData: &GraphData{
+			Nodes:           []GraphNode{{ID: "mem_1", Label: "mem_1", Type: "memory"}, {ID: "mem_2", Label: "mem_2", Type: "memory"}},
+			Edges:           []GraphEdge{{ID: "e_1", Source: "mem_1", Target: "mem_2", Label: "related_to"}},
+			NodeCount:       2,
+			EdgeCountByType: map[string]int{"related_to": 1},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/data?ws=ws_abc", nil)
+	h.handleGraphData(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"mem_1", "mem_2", "related_to", "node_count"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("graph data response missing %q", want)
+		}
+	}
+	if w.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("expected JSON content type, got %q", w.Header().Get("Content-Type"))
+	}
+}
+
+func TestGraphDataEndpoint_NoWS(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/data", nil)
+	h.handleGraphData(w, r)
+	if w.Code != 400 {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestGraphTabInWorkspacePage(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/workspaces/ws_abc/graph", nil)
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "graph-view") {
+		t.Error("graph page should load graph-view partial")
 	}
 }

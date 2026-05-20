@@ -364,6 +364,128 @@ func (s *ServiceDataSource) RecallFull(ctx context.Context, wsID string, req api
 	return s.RecallFunc(ctx, wsID, req)
 }
 
+func (s *ServiceDataSource) GraphData(ctx context.Context, wsID string, seedMemID string, depth int) (*GraphData, error) {
+	if s.Graph == nil {
+		return nil, fmt.Errorf("graph store not configured")
+	}
+	if depth <= 0 {
+		depth = 2
+	}
+
+	nodeCount, edgeCountByType, _ := s.Graph.Stats(ctx, wsID)
+
+	if seedMemID != "" {
+		result, err := s.Graph.Traverse(ctx, wsID, seedMemID, adapter.TraverseOpts{
+			Depth:     depth,
+			Direction: "both",
+			MaxEdges:  500,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("traverse: %w", err)
+		}
+
+		nodeSet := map[string]bool{result.Seed.MemoryID: true}
+		var nodes []GraphNode
+		nodes = append(nodes, GraphNode{
+			ID:    result.Seed.MemoryID,
+			Label: truncateStr(result.Seed.MemoryID, 16),
+			Type:  "seed",
+		})
+
+		var edges []GraphEdge
+		for _, layer := range result.Layers {
+			for _, hit := range layer {
+				if !nodeSet[hit.Memory.MemoryID] {
+					nodeSet[hit.Memory.MemoryID] = true
+					nodes = append(nodes, GraphNode{
+						ID:    hit.Memory.MemoryID,
+						Label: truncateStr(hit.Memory.MemoryID, 16),
+						Type:  "neighbor",
+					})
+				}
+				edges = append(edges, GraphEdge{
+					ID:     hit.ViaEdgeID,
+					Source: result.Seed.MemoryID,
+					Target: hit.Memory.MemoryID,
+					Label:  hit.ViaEdgeType,
+				})
+			}
+		}
+
+		return &GraphData{
+			Nodes:           nodes,
+			Edges:           edges,
+			NodeCount:       nodeCount,
+			EdgeCountByType: edgeCountByType,
+		}, nil
+	}
+
+	mems, err := s.Metadata.ListMemories(ctx, wsID, "", 200)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeSet := map[string]bool{}
+	var nodes []GraphNode
+	var edges []GraphEdge
+
+	for _, m := range mems {
+		nodeSet[m.ID] = true
+		nodes = append(nodes, GraphNode{
+			ID:    m.ID,
+			Label: truncateStr(m.ID, 16),
+			Type:  "memory",
+		})
+	}
+
+	for _, m := range mems {
+		neighborEdges, _, _ := s.Graph.Neighbors(ctx, wsID, m.ID, adapter.NeighborsOpts{
+			Direction: "both",
+			K:         50,
+		})
+		for _, e := range neighborEdges {
+			if !nodeSet[e.TargetMemoryID] {
+				nodeSet[e.TargetMemoryID] = true
+				nodes = append(nodes, GraphNode{
+					ID:    e.TargetMemoryID,
+					Label: truncateStr(e.TargetMemoryID, 16),
+					Type:  "memory",
+				})
+			}
+			if !nodeSet[e.SourceMemoryID] {
+				nodeSet[e.SourceMemoryID] = true
+				nodes = append(nodes, GraphNode{
+					ID:    e.SourceMemoryID,
+					Label: truncateStr(e.SourceMemoryID, 16),
+					Type:  "memory",
+				})
+			}
+			edges = append(edges, GraphEdge{
+				ID:     e.EdgeID,
+				Source: e.SourceMemoryID,
+				Target: e.TargetMemoryID,
+				Label:  string(e.EdgeType),
+			})
+		}
+	}
+
+	seen := map[string]bool{}
+	deduped := edges[:0]
+	for _, e := range edges {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			deduped = append(deduped, e)
+		}
+	}
+
+	return &GraphData{
+		Nodes:           nodes,
+		Edges:           deduped,
+		NodeCount:       nodeCount,
+		EdgeCountByType: edgeCountByType,
+	}, nil
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil
