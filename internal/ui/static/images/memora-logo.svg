@@ -1,0 +1,57 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Memora Logo</title>
+  <desc id="desc">Hexagonal Memora logo mark with a stylized M, no dots.</desc>
+  <defs>
+    <linearGradient id="hexStroke" x1="170" y1="145" x2="850" y2="875" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.55" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="markFill" x1="270" y1="240" x2="730" y2="770" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.5" stop-color="#5B3FD6"/>
+      <stop offset="1" stop-color="#312E81"/>
+    </linearGradient>
+  </defs>
+
+  <path
+    d="M512 78
+       C539 78 566 85 590 99
+       L829 237
+       C877 265 907 316 907 372
+       V648
+       C907 704 877 756 829 783
+       L590 921
+       C566 935 539 942 512 942
+       C485 942 458 935 434 921
+       L195 783
+       C147 756 117 704 117 648
+       V372
+       C117 316 147 265 195 237
+       L434 99
+       C458 85 485 78 512 78Z"
+    stroke="url(#hexStroke)"
+    stroke-width="56"
+    stroke-linejoin="round"
+  />
+
+  <path
+    d="M300 700
+       V335
+       C300 303 326 277 358 277
+       C377 277 395 286 406 301
+       L512 441
+       L618 301
+       C629 286 647 277 666 277
+       C698 277 724 303 724 335
+       V700
+       H626
+       V437
+       L548 539
+       C530 563 494 563 476 539
+       L398 437
+       V700
+       H300Z"
+    fill="url(#markFill)"
+  />
+</svg>

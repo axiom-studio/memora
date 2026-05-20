@@ -71,6 +71,15 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   color: var(--text-nav-active);
   letter-spacing: -0.025em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sidebar-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .sidebar-nav { list-style: none; margin: 0; padding: 0; flex: 1; }
