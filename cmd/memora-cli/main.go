@@ -49,15 +49,18 @@ func main() {
 		printRootHelp()
 		return
 	}
-	if os.Args[1] == "version" {
+
+	cmd, rest := extractCommand(os.Args[1:])
+	if cmd == "" || cmd == "--help" || cmd == "-h" {
+		printRootHelp()
+		return
+	}
+	if cmd == "version" {
 		fmt.Printf("memora-cli %s (commit=%s built=%s)\n", version, commit, buildDate)
 		return
 	}
 
-	cmd := os.Args[1]
-	args := os.Args[2:]
-
-	g := parseGlobal(args)
+	g := parseGlobal(rest)
 	c := client.New(g.Endpoint, g.APIKey)
 	c.AgentID = g.AgentID
 	c.Workspace = g.Workspace
@@ -184,6 +187,38 @@ func parseGlobal(args []string) globalFlags {
 	}
 	g.Args = out
 	return g
+}
+
+var globalFlagsWithValue = map[string]bool{
+	"--endpoint": true, "--api-key": true, "--agent-id": true,
+	"--workspace": true, "-w": true, "--output": true, "-o": true,
+	"--timeout": true,
+}
+
+var globalFlagsBool = map[string]bool{
+	"--no-color": true, "--quiet": true, "-q": true,
+	"--verbose": true, "-v": true,
+}
+
+func extractCommand(args []string) (cmd string, rest []string) {
+	var before []string
+	for i := 0; i < len(args); i++ {
+		if globalFlagsWithValue[args[i]] {
+			before = append(before, args[i])
+			if i+1 < len(args) {
+				i++
+				before = append(before, args[i])
+			}
+			continue
+		}
+		if globalFlagsBool[args[i]] {
+			before = append(before, args[i])
+			continue
+		}
+		rest = append(before, args[i+1:]...)
+		return args[i], rest
+	}
+	return "", before
 }
 
 func getenv(k, def string) string {
