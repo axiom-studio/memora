@@ -79,6 +79,12 @@ type CellSummary struct {
 	Sequence int
 }
 
+type IdentityProviderSummary struct {
+	Name        string
+	Description string
+	Configured  bool
+}
+
 type SettingsInfo struct {
 	ServerAddr      string
 	ServerMode      string
@@ -98,6 +104,7 @@ type SettingsInfo struct {
 	PeerCount         int
 	TelemetryLogLevel  string
 	TelemetryLogFormat string
+	IdentityProviders  []IdentityProviderSummary
 }
 
 type FederationInfo struct {

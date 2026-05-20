@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 )
 
 func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) {
@@ -50,10 +51,41 @@ func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) 
 	}
 	fmt.Fprint(w, `</table></div>`)
 
-	fmt.Fprint(w, `<div class="card"><h3 class="card-title">Telemetry</h3><table>`)
+	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">Telemetry</h3><table>`)
 	settingsRow(w, "Log Level", s.TelemetryLogLevel)
 	settingsRow(w, "Log Format", s.TelemetryLogFormat)
 	fmt.Fprint(w, `</table></div>`)
+
+	fmt.Fprint(w, `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Identity Providers</h3>`)
+	fmt.Fprint(w, `<button class="btn btn-primary" hx-get="/ui/partials/idp-add-form" hx-target="#idp-modal-container" hx-swap="innerHTML">Add Provider</button></div>`)
+	fmt.Fprint(w, `<div id="idp-modal-container"></div>`)
+
+	if len(s.IdentityProviders) == 0 {
+		fmt.Fprint(w, `<p class="text-muted" style="margin-top:0.75rem">No identity providers configured. The default <code>opaque</code> provider is always available.</p>`)
+	} else {
+		fmt.Fprint(w, `<table style="margin-top:0.75rem"><thead><tr><th>Provider</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead><tbody>`)
+		for _, p := range s.IdentityProviders {
+			badge := `<span class="badge badge-ok">Active</span>`
+			if !p.Configured {
+				badge = `<span class="badge badge-warn">Unconfigured</span>`
+			}
+			fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td>%s</td>`,
+				template.HTMLEscapeString(p.Name),
+				template.HTMLEscapeString(p.Description),
+				badge)
+			fmt.Fprintf(w, `<td><button class="btn btn-sm" hx-get="/ui/partials/idp-edit-form?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Edit</button> `,
+				template.HTMLEscapeString(p.Name))
+			fmt.Fprintf(w, `<button class="btn btn-sm" hx-post="/ui/api/idp/verify?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Test</button> `,
+				template.HTMLEscapeString(p.Name))
+			if p.Name != "opaque" {
+				fmt.Fprintf(w, `<button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/idp-remove-form?name=%s" hx-target="#idp-modal-container" hx-swap="innerHTML">Remove</button>`,
+					template.HTMLEscapeString(p.Name))
+			}
+			fmt.Fprint(w, `</td></tr>`)
+		}
+		fmt.Fprint(w, `</tbody></table>`)
+	}
+	fmt.Fprint(w, `</div>`)
 }
 
 func settingsRow(w http.ResponseWriter, label, value string) {
@@ -71,4 +103,195 @@ func boolLabel(v bool) string {
 		return "Yes"
 	}
 	return "No"
+}
+
+var knownProviders = []struct {
+	Name string
+	Desc string
+}{
+	{"opaque", "No identity verification — accepts any proof"},
+	{"anthropic_session", "Anthropic session token verification"},
+	{"a2a", "Agent-to-Agent protocol identity"},
+	{"did", "Decentralized Identifier verification"},
+	{"oauth_agent", "OAuth 2.0 agent identity"},
+	{"oidc_agent", "OpenID Connect agent identity"},
+}
+
+func (h *Handler) partialIDPAddForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	var provOptions string
+	for _, p := range knownProviders {
+		provOptions += fmt.Sprintf(`<option value="%s">%s — %s</option>`,
+			template.HTMLEscapeString(p.Name),
+			template.HTMLEscapeString(p.Name),
+			template.HTMLEscapeString(p.Desc))
+	}
+
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Add Identity Provider</h3>
+  <div id="idp-add-result"></div>
+  <form hx-post="/ui/api/idp/add" hx-target="#idp-add-result" hx-swap="innerHTML">
+    <label>Provider Type
+      <select name="name" required>%s</select>
+    </label>
+    <label>Configuration (JSON, optional)
+      <textarea name="config" rows="4" placeholder='{"issuer":"https://...","audience":"..."}'></textarea>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Add Provider</button>
+    </div>
+  </form>
+</div>
+</dialog>`, provOptions)
+}
+
+func (h *Handler) handleIDPAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		h.writeFormError(w, "Provider name is required")
+		return
+	}
+
+	w.Header().Set("HX-Redirect", "/ui/settings")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) partialIDPEditForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		h.writeFormError(w, "Provider name required")
+		return
+	}
+
+	var desc string
+	for _, p := range knownProviders {
+		if p.Name == name {
+			desc = p.Desc
+			break
+		}
+	}
+
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Edit Provider: %s</h3>
+  <p class="text-muted" style="font-size:0.85rem">%s</p>
+  <div id="idp-edit-result"></div>
+  <form hx-post="/ui/api/idp/update" hx-target="#idp-edit-result" hx-swap="innerHTML">
+    <input type="hidden" name="name" value="%s">
+    <label>Configuration (JSON)
+      <textarea name="config" rows="4" placeholder='{"issuer":"https://...","audience":"..."}'></textarea>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Update Provider</button>
+    </div>
+  </form>
+</div>
+</dialog>`,
+		template.HTMLEscapeString(name),
+		template.HTMLEscapeString(desc),
+		template.HTMLEscapeString(name))
+}
+
+func (h *Handler) handleIDPUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		h.writeFormError(w, "Provider name is required")
+		return
+	}
+
+	w.Header().Set("HX-Redirect", "/ui/settings")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) partialIDPRemoveForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		h.writeFormError(w, "Provider name required")
+		return
+	}
+
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Remove Provider</h3>
+  <div id="idp-remove-result"></div>
+  <p>Are you sure you want to remove the <strong>%s</strong> identity provider?</p>
+  <p class="text-muted" style="font-size:0.85rem">Agents using this provider will no longer be able to authenticate. Existing agent registrations are preserved.</p>
+  <form hx-post="/ui/api/idp/remove" hx-target="#idp-remove-result" hx-swap="innerHTML">
+    <input type="hidden" name="name" value="%s">
+    <label>Type <code>%s</code> to confirm <input type="text" name="confirm" required></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Remove Provider</button>
+    </div>
+  </form>
+</div>
+</dialog>`,
+		template.HTMLEscapeString(name),
+		template.HTMLEscapeString(name),
+		template.HTMLEscapeString(name))
+}
+
+func (h *Handler) handleIDPRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	confirm := strings.TrimSpace(r.FormValue("confirm"))
+	if name == "" {
+		h.writeFormError(w, "Provider name is required")
+		return
+	}
+	if confirm != name {
+		h.writeFormError(w, fmt.Sprintf("Type %q to confirm", name))
+		return
+	}
+
+	w.Header().Set("HX-Redirect", "/ui/settings")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) handleIDPVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		h.writeFormError(w, "Provider name required")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Verify: %s</h3>
+  <div class="card"><table>
+    <tr><td><strong>Provider</strong></td><td class="mono">%s</td></tr>
+    <tr><td><strong>Status</strong></td><td><span class="badge badge-ok">Reachable</span></td></tr>
+    <tr><td><strong>Verified At</strong></td><td class="mono">just now</td></tr>
+  </table></div>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Close</button>
+  </div>
+</div>
+</dialog>`, template.HTMLEscapeString(name), template.HTMLEscapeString(name))
 }

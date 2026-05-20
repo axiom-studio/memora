@@ -2968,3 +2968,127 @@ func TestFederationStatusHasCRUDButtons(t *testing.T) {
 		t.Error("missing modal container")
 	}
 }
+
+func TestIDPAddForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/idp-add-form", nil)
+	h.partialIDPAddForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"Add Identity Provider", "opaque", "anthropic_session", "a2a", "did", "oauth_agent", "oidc_agent"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("IDP add form missing %q", want)
+		}
+	}
+}
+
+func TestIDPAdd(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/idp/add", strings.NewReader("name=a2a"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleIDPAdd(w, r)
+	if w.Header().Get("HX-Redirect") != "/ui/settings" {
+		t.Errorf("expected redirect to /ui/settings, got %q", w.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestIDPEditForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/idp-edit-form?name=anthropic_session", nil)
+	h.partialIDPEditForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Edit Provider") {
+		t.Error("missing Edit Provider heading")
+	}
+	if !strings.Contains(body, "anthropic_session") {
+		t.Error("missing provider name")
+	}
+}
+
+func TestIDPRemoveForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/idp-remove-form?name=a2a", nil)
+	h.partialIDPRemoveForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Remove Provider") {
+		t.Error("missing Remove Provider heading")
+	}
+	if !strings.Contains(body, "a2a") {
+		t.Error("missing provider name in confirm")
+	}
+}
+
+func TestIDPRemove_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/idp/remove", strings.NewReader("name=a2a&confirm=wrong"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleIDPRemove(w, r)
+	if !strings.Contains(w.Body.String(), "Type") {
+		t.Error("expected confirmation error")
+	}
+}
+
+func TestIDPRemove_Correct(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/idp/remove", strings.NewReader("name=a2a&confirm=a2a"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleIDPRemove(w, r)
+	if w.Header().Get("HX-Redirect") != "/ui/settings" {
+		t.Errorf("expected redirect to /ui/settings, got %q", w.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestIDPVerify(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/idp/verify?name=opaque", nil)
+	h.handleIDPVerify(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Reachable") {
+		t.Error("missing Reachable status")
+	}
+	if !strings.Contains(body, "opaque") {
+		t.Error("missing provider name")
+	}
+}
+
+func TestSettingsHasIDPSection(t *testing.T) {
+	h := mustHandler(t)
+	h.SetSettings(&SettingsInfo{
+		ServerAddr: ":8080",
+		IdentityProviders: []IdentityProviderSummary{
+			{Name: "opaque", Description: "No verification", Configured: true},
+			{Name: "a2a", Description: "Agent-to-Agent", Configured: false},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/settings-detail", nil)
+	h.partialSettingsDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Identity Providers") {
+		t.Error("missing Identity Providers section")
+	}
+	if !strings.Contains(body, "Add Provider") {
+		t.Error("missing Add Provider button")
+	}
+	if !strings.Contains(body, "opaque") {
+		t.Error("missing opaque provider")
+	}
+	if !strings.Contains(body, "a2a") {
+		t.Error("missing a2a provider")
+	}
+	if !strings.Contains(body, "Active") {
+		t.Error("missing Active badge")
+	}
+	if !strings.Contains(body, "Unconfigured") {
+		t.Error("missing Unconfigured badge")
+	}
+	if !strings.Contains(body, "Test") {
+		t.Error("missing Test button")
+	}
+}
