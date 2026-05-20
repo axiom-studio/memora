@@ -120,7 +120,7 @@ func (h *Handler) renderWorkspaceOverview(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<tr><td><strong>Chunker</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(orDash(ws.ChunkerID)))
 	fmt.Fprintf(w, `<tr><td><strong>Auto-Link</strong></td><td>%s</td></tr>`, boolBadge(ws.AutoLinkEnabled))
 	fmt.Fprintf(w, `<tr><td><strong>Agents</strong></td><td>%d</td></tr>`, ws.AgentCount)
-	fmt.Fprintf(w, `<tr><td><strong>Memories</strong></td><td>%d</td></tr>`, ws.MemoryCount)
+	fmt.Fprintf(w, `<tr><td><strong>Memories</strong></td><td><a href="/ui/workspaces/%s/memories">%d</a></td></tr>`, template.HTMLEscapeString(ws.ID), ws.MemoryCount)
 	fmt.Fprintf(w, `<tr><td><strong>Created</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(ws.CreatedAt.UTC().Format("2006-01-02 15:04:05 UTC")))
 	fmt.Fprintf(w, `</table></div>`)
 }

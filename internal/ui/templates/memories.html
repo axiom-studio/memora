@@ -4,6 +4,12 @@
 {{$tab := index .Data "tab"}}
 
 {{if $memID}}
+<nav class="breadcrumb" style="font-size:0.85rem;margin-bottom:0.75rem">
+  <a href="/ui/workspaces">Workspaces</a> &rsaquo;
+  <a href="/ui/workspaces/{{$wsID}}">{{$wsID}}</a> &rsaquo;
+  <a href="/ui/workspaces/{{$wsID}}/memories">Memories</a> &rsaquo;
+  <span>{{$memID}}</span>
+</nav>
 <div class="page-header">
   <h1>Memory {{$memID}}</h1>
 </div>
@@ -29,6 +35,11 @@
 </div>
 
 {{else}}
+<nav class="breadcrumb" style="font-size:0.85rem;margin-bottom:0.75rem">
+  <a href="/ui/workspaces">Workspaces</a> &rsaquo;
+  <a href="/ui/workspaces/{{$wsID}}">{{$wsID}}</a> &rsaquo;
+  <span>Memories</span>
+</nav>
 <div class="page-header">
   <h1>Memories</h1>
 </div>

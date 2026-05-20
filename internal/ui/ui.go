@@ -298,11 +298,11 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 	if stats.FederationPeers == 0 {
 		fedLabel = "—"
 	}
-	fmt.Fprintf(w, `<div class="card"><p class="card-title">Workspaces</p><p class="card-value">%d</p></div>`, stats.WorkspaceCount)
-	fmt.Fprintf(w, `<div class="card"><p class="card-title">Memories</p><p class="card-value">%d</p></div>`, stats.MemoryCount)
+	fmt.Fprintf(w, `<a class="card" href="/ui/workspaces" style="text-decoration:none;color:inherit"><p class="card-title">Workspaces</p><p class="card-value">%d</p></a>`, stats.WorkspaceCount)
+	fmt.Fprintf(w, `<a class="card" href="/ui/workspaces" style="text-decoration:none;color:inherit"><p class="card-title">Memories</p><p class="card-value">%d</p></a>`, stats.MemoryCount)
 	fmt.Fprintf(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">%d%%</p></div>`, stats.RecallReadyPct)
 	fmt.Fprintf(w, `<div class="card"><p class="card-title">Embed Queue</p><p class="card-value">%d</p></div>`, stats.EmbedQueueDepth)
-	fmt.Fprintf(w, `<div class="card"><p class="card-title">Federation Peers</p><p class="card-value">%s</p></div>`, template.HTMLEscapeString(fedLabel))
+	fmt.Fprintf(w, `<a class="card" href="/ui/federation" style="text-decoration:none;color:inherit"><p class="card-title">Federation Peers</p><p class="card-value">%s</p></a>`, template.HTMLEscapeString(fedLabel))
 }
 
 func (h *Handler) renderFallbackCards(w http.ResponseWriter) {

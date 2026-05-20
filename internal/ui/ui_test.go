@@ -609,6 +609,11 @@ func TestDashboardCards_WithData(t *testing.T) {
 			t.Errorf("dashboard cards missing %q in body: %s", want, body)
 		}
 	}
+	for _, link := range []string{`href="/ui/workspaces"`, `href="/ui/federation"`} {
+		if !strings.Contains(body, link) {
+			t.Errorf("dashboard cards missing clickable link %q", link)
+		}
+	}
 }
 
 func TestDashboardCards_NoDataSource(t *testing.T) {

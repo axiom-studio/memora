@@ -10,6 +10,7 @@
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=overview"
        hx-target="#ws-content" hx-swap="innerHTML"
        hx-push-url="/ui/workspaces/{{$wsID}}?tab=overview">Overview</a>
+    <a class="tab" href="/ui/workspaces/{{$wsID}}/memories">Memories</a>
     <a class="tab {{if eq $tab "agents"}}active{{end}}"
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=agents"
        hx-target="#ws-content" hx-swap="innerHTML"
