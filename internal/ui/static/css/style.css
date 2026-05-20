@@ -287,3 +287,24 @@ input:focus, select:focus, textarea:focus {
 }
 .search-result:hover { background: var(--primary); color: #fff; }
 .search-result:hover .text-muted { color: rgba(255,255,255,0.8); }
+
+/* Activity right-rail */
+.activity-rail {
+  width: 320px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--bg-card); overflow: hidden; transition: width 0.2s, min-width 0.2s;
+  display: flex; flex-direction: column;
+}
+.activity-rail.collapsed { width: 0; min-width: 0; border-left: none; }
+.activity-rail.collapsed .activity-rail-body { display: none; }
+.activity-rail-toggle {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%) rotate(-90deg);
+  transform-origin: right center; background: var(--primary); color: #fff;
+  border: none; padding: 0.3rem 0.8rem; font-size: 0.75rem; cursor: pointer;
+  border-radius: 4px 4px 0 0; z-index: 10;
+}
+.activity-rail-body {
+  padding: 0.75rem; overflow-y: auto; flex: 1; font-size: 0.8rem;
+}
+.activity-rail-body table { font-size: 0.75rem; }
+.activity-new { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; background: var(--primary-light, #e8f0fe); } to { opacity: 1; } }

@@ -26,6 +26,16 @@
     <main class="main" role="main">
       {{template "content" .}}
     </main>
+    <aside id="activity-rail" class="activity-rail collapsed">
+      <button class="activity-rail-toggle" onclick="document.getElementById('activity-rail').classList.toggle('collapsed')" title="Toggle activity feed">Activity</button>
+      <div class="activity-rail-body">
+        <h4 style="margin:0 0 0.5rem;font-size:0.85rem">Live Activity</h4>
+        <table>
+          <thead><tr><th>Time</th><th>Op</th><th>Target</th><th>Agent</th></tr></thead>
+          <tbody id="activity-entries"></tbody>
+        </table>
+      </div>
+    </aside>
   </div>
 
   <dialog id="search-palette" class="search-palette">
@@ -62,6 +72,15 @@
   document.getElementById('search-palette').addEventListener('click', function(e) {
     if (e.target === this) this.close();
   });
+
+  (function() {
+    var es = new EventSource('/ui/events/activity');
+    var tbody = document.getElementById('activity-entries');
+    es.addEventListener('activity', function(e) {
+      tbody.insertAdjacentHTML('afterbegin', e.data);
+      while (tbody.children.length > 50) tbody.removeChild(tbody.lastChild);
+    });
+  })();
   </script>
 </body>
 </html>

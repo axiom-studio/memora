@@ -1180,3 +1180,39 @@ func TestLayoutHasSearchPalette(t *testing.T) {
 		t.Error("layout missing keyboard shortcut binding")
 	}
 }
+
+func TestActivitySSE_Headers(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest(http.MethodGet, "/ui/events/activity", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("want text/event-stream, got %s", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("want no-cache, got %s", cc)
+	}
+}
+
+func TestLayoutHasActivityRail(t *testing.T) {
+	h, _ := NewHandler()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "activity-rail") {
+		t.Error("layout missing activity rail")
+	}
+	if !strings.Contains(body, "EventSource") {
+		t.Error("layout missing SSE EventSource JS")
+	}
+}

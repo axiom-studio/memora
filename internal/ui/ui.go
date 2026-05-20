@@ -129,6 +129,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialSettingsDetail)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
+	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
 	mux.Handle("/ui/partials/", h.authMiddleware(protected))
 	mux.Handle("/ui/", h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
