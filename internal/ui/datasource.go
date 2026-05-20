@@ -99,6 +99,19 @@ type PinSummary struct {
 	CreatedAt time.Time
 }
 
+type AdapterHealth struct {
+	Name    string
+	Status  string // "ok" | "down"
+	Error   string // non-empty when Status == "down"
+	Latency time.Duration
+}
+
+type HealthInfo struct {
+	OK       bool
+	Status   string // "ready" | "degraded"
+	Adapters []AdapterHealth
+}
+
 type SettingsInfo struct {
 	ServerAddr      string
 	ServerMode      string
@@ -231,4 +244,5 @@ type DataSource interface {
 	ListPins(ctx context.Context, wsID string) ([]PinSummary, error)
 	CreatePin(ctx context.Context, wsID string, query, mode string, k int, watermark, label string) (string, error)
 	DeletePin(ctx context.Context, pinID string) error
+	HealthStatus(ctx context.Context) (*HealthInfo, error)
 }

@@ -579,6 +579,14 @@ func (m *mockDataSource) CreatePin(_ context.Context, _, _, _ string, _ int, _, 
 	return "pin_test", m.err
 }
 func (m *mockDataSource) DeletePin(_ context.Context, _ string) error { return m.err }
+func (m *mockDataSource) HealthStatus(_ context.Context) (*HealthInfo, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &HealthInfo{OK: true, Status: "ready", Adapters: []AdapterHealth{
+		{Name: "metadata", Status: "ok"},
+	}}, nil
+}
 
 func TestDashboardCards_WithData(t *testing.T) {
 	h, err := NewHandler()
@@ -3637,5 +3645,76 @@ func TestPinDelete_MethodNotAllowed(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("want 405, got %d", w.Code)
+	}
+}
+
+func TestDashboardCards_HealthBadgeReady(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		stats: DashboardStats{WorkspaceCount: 1},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/dashboard-cards", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Ready") {
+		t.Error("expected Ready badge on dashboard")
+	}
+	if !strings.Contains(body, `href="/ui/settings?tab=diagnostics"`) {
+		t.Error("expected health badge to link to settings diagnostics")
+	}
+}
+
+func TestDashboardCards_FallbackIncludesHealth(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/dashboard-cards", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Health") {
+		t.Error("expected Health card in fallback dashboard")
+	}
+	if !strings.Contains(body, "Unknown") {
+		t.Error("expected Unknown badge in fallback dashboard")
+	}
+}
+
+func TestSettingsDetail_DiagnosticsSection(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		ServerAddr: ":7777",
+		ServerMode: "single-tenant",
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Diagnostics") {
+		t.Error("expected Diagnostics section in settings")
+	}
+	if !strings.Contains(body, "metadata") {
+		t.Error("expected metadata adapter in diagnostics")
+	}
+	if !strings.Contains(body, `badge-ok`) {
+		t.Error("expected OK badge for healthy adapter")
 	}
 }

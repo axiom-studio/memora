@@ -298,6 +298,13 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 	if stats.FederationPeers == 0 {
 		fedLabel = "—"
 	}
+	healthBadge := `<span class="badge badge-ok">Ready</span>`
+	if h.data != nil {
+		if hi, err := h.data.HealthStatus(r.Context()); err == nil && !hi.OK {
+			healthBadge = `<span class="badge badge-err">Degraded</span>`
+		}
+	}
+	fmt.Fprintf(w, `<a class="card" href="/ui/settings?tab=diagnostics" style="text-decoration:none;color:inherit"><p class="card-title">Health</p><p class="card-value">%s</p></a>`, healthBadge)
 	fmt.Fprintf(w, `<a class="card" href="/ui/workspaces" style="text-decoration:none;color:inherit"><p class="card-title">Workspaces</p><p class="card-value">%d</p></a>`, stats.WorkspaceCount)
 	fmt.Fprintf(w, `<a class="card" href="/ui/workspaces" style="text-decoration:none;color:inherit"><p class="card-title">Memories</p><p class="card-value">%d</p></a>`, stats.MemoryCount)
 	fmt.Fprintf(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">%d%%</p></div>`, stats.RecallReadyPct)
@@ -306,6 +313,7 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) renderFallbackCards(w http.ResponseWriter) {
+	fmt.Fprint(w, `<div class="card"><p class="card-title">Health</p><p class="card-value"><span class="badge badge-warn">Unknown</span></p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Workspaces</p><p class="card-value">—</p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Memories</p><p class="card-value">—</p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">—</p></div>`)

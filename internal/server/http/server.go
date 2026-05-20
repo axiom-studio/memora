@@ -109,7 +109,9 @@ func New(cfg Config) *Server {
 		if cfg.Service != nil {
 			ds := &ui.ServiceDataSource{
 				Metadata:    cfg.Service.Metadata,
+				Vector:      cfg.Service.Vector,
 				Ledger:      cfg.Service.Ledger,
+				Content:     cfg.Service.Content,
 				Graph:       cfg.Service.Graph,
 				RecallFunc:  cfg.Service.Recall,
 				ImprintFunc: cfg.Service.Imprint,

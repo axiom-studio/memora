@@ -13,7 +13,9 @@ import (
 
 type ServiceDataSource struct {
 	Metadata        adapter.MetadataStore
+	Vector          adapter.VectorStore
 	Ledger          adapter.LedgerStore
+	Content         adapter.ContentStore
 	Graph           adapter.GraphStore
 	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
 	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
@@ -707,6 +709,41 @@ func (s *ServiceDataSource) CreatePin(ctx context.Context, wsID string, query, m
 
 func (s *ServiceDataSource) DeletePin(ctx context.Context, pinID string) error {
 	return s.Metadata.DeletePin(ctx, pinID)
+}
+
+func (s *ServiceDataSource) HealthStatus(ctx context.Context) (*HealthInfo, error) {
+	info := &HealthInfo{OK: true, Status: "ready"}
+
+	ping := func(name string, p interface{ Ping(context.Context) error }) {
+		ah := AdapterHealth{Name: name, Status: "ok"}
+		start := time.Now()
+		if err := p.Ping(ctx); err != nil {
+			ah.Status = "down"
+			ah.Error = err.Error()
+			info.OK = false
+		}
+		ah.Latency = time.Since(start)
+		info.Adapters = append(info.Adapters, ah)
+	}
+
+	ping("metadata", s.Metadata)
+	if s.Vector != nil {
+		ping("vector", s.Vector)
+	}
+	if s.Ledger != nil {
+		ping("ledger", s.Ledger)
+	}
+	if s.Content != nil {
+		ping("content", s.Content)
+	}
+	if s.Graph != nil {
+		ping("graph", s.Graph)
+	}
+
+	if !info.OK {
+		info.Status = "degraded"
+	}
+	return info, nil
 }
 
 func marshalProps(m map[string]any) string {

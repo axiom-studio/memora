@@ -17,6 +17,29 @@ func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) 
 	}
 	s := h.settings
 
+	if h.data != nil {
+		if hi, err := h.data.HealthStatus(r.Context()); err == nil {
+			statusBadge := `<span class="badge badge-ok">Ready</span>`
+			if !hi.OK {
+				statusBadge = `<span class="badge badge-err">Degraded</span>`
+			}
+			fmt.Fprintf(w, `<div class="card mb-2"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Diagnostics</h3>%s</div><table><thead><tr><th>Adapter</th><th>Status</th><th>Latency</th><th>Error</th></tr></thead><tbody>`, statusBadge)
+			for _, a := range hi.Adapters {
+				badge := `<span class="badge badge-ok">OK</span>`
+				if a.Status == "down" {
+					badge = `<span class="badge badge-err">Down</span>`
+				}
+				errMsg := "—"
+				if a.Error != "" {
+					errMsg = template.HTMLEscapeString(a.Error)
+				}
+				fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td>%s</td></tr>`,
+					template.HTMLEscapeString(a.Name), badge, a.Latency.Truncate(time.Microsecond).String(), errMsg)
+			}
+			fmt.Fprint(w, `</tbody></table></div>`)
+		}
+	}
+
 	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">Server</h3><table>`)
 	settingsRow(w, "Listen Address", s.ServerAddr)
 	settingsRow(w, "Mode", s.ServerMode)
