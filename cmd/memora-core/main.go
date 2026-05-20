@@ -232,20 +232,27 @@ func serve() {
 	}
 	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
 
+	dsnOr := func(explicit, fallback string) string {
+		if explicit != "" {
+			return explicit
+		}
+		return fallback
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dsnOr(cfg.Storage.MetadataDSN, dbPath)})
 	if err != nil {
 		bootLog.Fatalf("open metadata: %v", err)
 	}
 	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dbPath, Dim: 384})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN, dbPath), Dim: 384})
 	if err != nil {
 		bootLog.Fatalf("open vector: %v", err)
 	}
 	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dbPath})
+	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN, dbPath)})
 	if err != nil {
 		bootLog.Fatalf("open ledger: %v", err)
 	}
@@ -292,7 +299,7 @@ func serve() {
 		svc.Content = cs
 		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", cdsn)
 	}
-	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: dbPath})
+	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: dsnOr(cfg.Storage.GraphDSN, dbPath)})
 	if err != nil {
 		bootLog.Fatalf("open graph: %v", err)
 	}
@@ -520,20 +527,27 @@ func runMCP() {
 	}
 	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
 
+	dsnOr := func(explicit, fallback string) string {
+		if explicit != "" {
+			return explicit
+		}
+		return fallback
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dbPath})
+	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dsnOr(cfg.Storage.MetadataDSN, dbPath)})
 	if err != nil {
 		bootLog.Fatalf("open metadata: %v", err)
 	}
 	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dbPath, Dim: 384})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN, dbPath), Dim: 384})
 	if err != nil {
 		bootLog.Fatalf("open vector: %v", err)
 	}
 	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dbPath})
+	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN, dbPath)})
 	if err != nil {
 		bootLog.Fatalf("open ledger: %v", err)
 	}

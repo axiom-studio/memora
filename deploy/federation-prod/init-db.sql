@@ -1,0 +1,14 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE DATABASE memora_node1;
+CREATE DATABASE memora_node2;
+CREATE DATABASE memora_node3;
+
+\c memora_node1
+CREATE EXTENSION IF NOT EXISTS vector;
+
+\c memora_node2
+CREATE EXTENSION IF NOT EXISTS vector;
+
+\c memora_node3
+CREATE EXTENSION IF NOT EXISTS vector;

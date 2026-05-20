@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: memora
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-memora-dev-pw}"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memora"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  memora-node1:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7771:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node1-data:/data
+      - ./node1.toml:/etc/memora/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  memora-node2:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7772:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node2-data:/data
+      - ./node2.toml:/etc/memora/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  memora-node3:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "7773:7777"
+    environment:
+      MEMORA_CONFIG: /etc/memora/config.toml
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - node3-data:/data
+      - ./node3.toml:/etc/memora/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  pg-data:
+  node1-data:
+  node2-data:
+  node3-data:

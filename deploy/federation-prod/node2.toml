@@ -1,0 +1,33 @@
+[server]
+addr = ":7777"
+mode = "single-tenant"
+api_key = "memora-fed-key-2"
+
+[storage]
+data_dir = "/data"
+metadata_driver = "postgres"
+metadata_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
+vector_driver = "pgvector"
+vector_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
+ledger_driver = "postgres"
+ledger_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
+graph_driver = "sqlite_graph"
+content_driver = "postgres"
+content_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
+
+[embedding]
+model = "noop:default"
+
+[federation]
+enabled = true
+federation_id = "fed_prod_cluster"
+
+[[federation.peers]]
+name = "node1"
+url = "http://memora-node1:7777"
+api_key = "memora-fed-key-1"
+
+[[federation.peers]]
+name = "node3"
+url = "http://memora-node3:7777"
+api_key = "memora-fed-key-3"

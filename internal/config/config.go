@@ -46,9 +46,13 @@ type TLSConfig struct {
 type StorageConfig struct {
 	DataDir        string `toml:"data_dir"`
 	MetadataDriver string `toml:"metadata_driver"`
+	MetadataDSN    string `toml:"metadata_dsn"`
 	VectorDriver   string `toml:"vector_driver"`
+	VectorDSN      string `toml:"vector_dsn"`
 	LedgerDriver   string `toml:"ledger_driver"`
+	LedgerDSN      string `toml:"ledger_dsn"`
 	GraphDriver    string `toml:"graph_driver"`
+	GraphDSN       string `toml:"graph_dsn"`
 	ContentDriver  string `toml:"content_driver"`
 	ContentDSN     string `toml:"content_dsn"`
 }
@@ -160,6 +164,10 @@ func expandTilde(path string) string {
 
 func (c *Config) expandPaths() {
 	c.Storage.DataDir = expandTilde(c.Storage.DataDir)
+	c.Storage.MetadataDSN = expandTilde(c.Storage.MetadataDSN)
+	c.Storage.VectorDSN = expandTilde(c.Storage.VectorDSN)
+	c.Storage.LedgerDSN = expandTilde(c.Storage.LedgerDSN)
+	c.Storage.GraphDSN = expandTilde(c.Storage.GraphDSN)
 	c.Storage.ContentDSN = expandTilde(c.Storage.ContentDSN)
 	c.Server.TLS.CertFile = expandTilde(c.Server.TLS.CertFile)
 	c.Server.TLS.KeyFile = expandTilde(c.Server.TLS.KeyFile)
@@ -252,6 +260,10 @@ func (c *Config) ApplyEnv() {
 	setIfEnv(&c.Storage.LedgerDriver, "MEMORA_LEDGER_DRIVER")
 	setIfEnv(&c.Storage.GraphDriver, "MEMORA_GRAPH_DRIVER")
 	setIfEnv(&c.Storage.ContentDriver, "MEMORA_CONTENT_DRIVER")
+	setIfEnv(&c.Storage.MetadataDSN, "MEMORA_METADATA_DSN")
+	setIfEnv(&c.Storage.VectorDSN, "MEMORA_VECTOR_DSN")
+	setIfEnv(&c.Storage.LedgerDSN, "MEMORA_LEDGER_DSN")
+	setIfEnv(&c.Storage.GraphDSN, "MEMORA_GRAPH_DSN")
 	setIfEnv(&c.Storage.ContentDSN, "MEMORA_CONTENT_DSN")
 	setIfEnv(&c.Embedding.Model, "MEMORA_EMBEDDING_MODEL")
 	if os.Getenv("MEMORA_MCP_ENABLE") == "true" {
