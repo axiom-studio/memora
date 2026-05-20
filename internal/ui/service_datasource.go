@@ -628,6 +628,18 @@ func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID
 	return s.Metadata.GetWatermarkHistory(ctx, wsID, memID, since)
 }
 
+func (s *ServiceDataSource) AddPeer(_ context.Context, _ PeerInfo) error {
+	return fmt.Errorf("federation peer management requires config file changes")
+}
+
+func (s *ServiceDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error {
+	return fmt.Errorf("federation peer management requires config file changes")
+}
+
+func (s *ServiceDataSource) RemovePeer(_ context.Context, _ string) error {
+	return fmt.Errorf("federation peer management requires config file changes")
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil

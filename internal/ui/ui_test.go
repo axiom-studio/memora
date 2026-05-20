@@ -563,6 +563,9 @@ func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return m.watermarks, m.err
 }
+func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error    { return m.err }
+func (m *mockDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error { return m.err }
+func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error   { return m.err }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -2815,5 +2818,153 @@ func TestMemoryListHasBulkOpsButton(t *testing.T) {
 	}
 	if !strings.Contains(body, "bulk-ops-form") {
 		t.Error("memory list missing bulk-ops-form link")
+	}
+}
+
+func TestPeerAddForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspaces: []WorkspaceSummary{{ID: "ws_1", Name: "test-ws"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/peer-add-form", nil)
+	h.partialPeerAddForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"Add Federation Peer", "trust_mode", "mtls", "api_key", "test-ws"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("peer add form missing %q", want)
+		}
+	}
+}
+
+func TestPeerAdd(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("name=west-peer&endpoint=https://peer.example.com&trust_mode=mtls"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handlePeerAdd(w, r)
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestPeerAdd_MissingName(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("endpoint=https://peer.example.com"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handlePeerAdd(w, r)
+	if !strings.Contains(w.Body.String(), "Name and endpoint are required") {
+		t.Error("expected validation error for missing name")
+	}
+}
+
+func TestPeerEditForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed_1",
+		Peers: []PeerInfo{
+			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws_1"}},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=peer_1", nil)
+	h.partialPeerEditForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", "api_key"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("peer edit form missing %q", want)
+		}
+	}
+}
+
+func TestPeerEditForm_NotFound(t *testing.T) {
+	h := mustHandler(t)
+	h.SetFederation(&FederationInfo{FederationID: "fed_1"})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=nonexistent", nil)
+	h.partialPeerEditForm(w, r)
+	if !strings.Contains(w.Body.String(), "Peer not found") {
+		t.Error("expected peer not found error")
+	}
+}
+
+func TestPeerRemoveForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed_1",
+		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/peer-remove-form?id=peer_1", nil)
+	h.partialPeerRemoveForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Remove Peer") {
+		t.Error("missing Remove Peer heading")
+	}
+	if !strings.Contains(body, "west") {
+		t.Error("missing peer name in confirm")
+	}
+}
+
+func TestPeerRemove_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed_1",
+		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=wrong"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handlePeerRemove(w, r)
+	if !strings.Contains(w.Body.String(), "Type") {
+		t.Error("expected confirmation error")
+	}
+}
+
+func TestPeerRemove_Correct(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed_1",
+		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=west"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handlePeerRemove(w, r)
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+	}
+}
+
+func TestFederationStatusHasCRUDButtons(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed_1",
+		Peers: []PeerInfo{
+			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "mtls"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/federation-status", nil)
+	h.partialFederationStatus(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Add Peer") {
+		t.Error("missing Add Peer button")
+	}
+	if !strings.Contains(body, "Edit") {
+		t.Error("missing Edit button on peer row")
+	}
+	if !strings.Contains(body, "Remove") {
+		t.Error("missing Remove button on peer row")
+	}
+	if !strings.Contains(body, "fed-modal-container") {
+		t.Error("missing modal container")
 	}
 }

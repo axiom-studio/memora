@@ -193,5 +193,8 @@ type DataSource interface {
 	LinkEdge(ctx context.Context, wsID, sourceMemID, targetMemID, edgeType string) (string, error)
 	UnlinkEdge(ctx context.Context, edgeID string) error
 	GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
+	AddPeer(ctx context.Context, peer PeerInfo) error
+	UpdatePeer(ctx context.Context, peerID string, peer PeerInfo) error
+	RemovePeer(ctx context.Context, peerID string) error
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 }
