@@ -549,6 +549,15 @@ func (m *mockDataSource) GraphTraverse(_ context.Context, _, _, _ string, _ []st
 func (m *mockDataSource) GraphStats(_ context.Context, _ string) (int, map[string]int, error) {
 	return 5, map[string]int{"references": 3, "derived_from": 2}, m.err
 }
+func (m *mockDataSource) LinkEdge(_ context.Context, _, _, _, _ string) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	return "edge_test_new", nil
+}
+func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
+	return m.err
+}
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -2435,5 +2444,119 @@ func TestGraphViewHasQueryTabs(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("graph view missing %q", want)
 		}
+	}
+}
+
+func TestEdgeLinkForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/edge-link-form?ws=ws_abc&source=mem_1", nil)
+	h.partialEdgeLinkForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"source_memory_id", "target_memory_id", "edge_type", "references", "parent_of", "mem_1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("link form missing %q", want)
+		}
+	}
+}
+
+func TestEdgeLink(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&source_memory_id=mem_1&target_memory_id=mem_2&edge_type=references"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleEdgeLink(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "edge_test_new") {
+		t.Error("expected edge ID in response")
+	}
+}
+
+func TestEdgeLink_SelfLoop(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&source_memory_id=mem_1&target_memory_id=mem_1&edge_type=references"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleEdgeLink(w, r)
+	if !strings.Contains(w.Body.String(), "self-loop") {
+		t.Error("expected self-loop rejection")
+	}
+}
+
+func TestEdgeLink_MissingFields(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&source_memory_id=mem_1"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleEdgeLink(w, r)
+	if !strings.Contains(w.Body.String(), "required") {
+		t.Error("expected validation error")
+	}
+}
+
+func TestEdgeUnlinkForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/edge-unlink-form?ws=ws_abc&id=edge_123", nil)
+	h.partialEdgeUnlinkForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "edge_123") || !strings.Contains(body, "Unlink") {
+		t.Error("unlink form missing edge ID or button")
+	}
+}
+
+func TestEdgeUnlink(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&edge_id=edge_123&confirm=edge_123"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/edges/unlink", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleEdgeUnlink(w, r)
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Error("expected HX-Redirect after unlink")
+	}
+}
+
+func TestEdgeUnlink_WrongConfirm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&edge_id=edge_123&confirm=wrong"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/edges/unlink", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleEdgeUnlink(w, r)
+	if !strings.Contains(w.Body.String(), "does not match") {
+		t.Error("expected confirmation mismatch error")
+	}
+}
+
+func TestEdgesTabHasLinkButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_x", Content: "test"},
+		edges: []EdgeSummary{
+			{EdgeID: "edge_1", SourceMemoryID: "mem_x", TargetMemoryID: "mem_y", EdgeType: "references", AgentID: "agent_1"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_x&ws=ws_abc&tab=edges", nil)
+	h.partialMemoryDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Link Edge") {
+		t.Error("edges tab missing Link Edge button")
+	}
+	if !strings.Contains(body, "Unlink") {
+		t.Error("edges tab missing Unlink button")
 	}
 }

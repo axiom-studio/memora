@@ -380,19 +380,26 @@ func (h *Handler) renderMemoryEdges(w http.ResponseWriter, r *http.Request, wsID
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
+
+	fmt.Fprintf(w, `<div style="margin-bottom:1rem"><button class="btn btn-primary" hx-get="/ui/partials/edge-link-form?ws=%s&amp;source=%s" hx-target="#edge-modal-container" hx-swap="innerHTML">Link Edge</button></div>`,
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(memID))
+	fmt.Fprint(w, `<div id="edge-modal-container"></div>`)
+
 	if len(edges) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Edges</h3><p>This memory has no graph connections.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Edges</h3><p>Click "Link Edge" above to create a connection.</p></div>`)
 		return
 	}
 
-	fmt.Fprint(w, `<table><thead><tr><th>Edge ID</th><th>Type</th><th>Source</th><th>Target</th><th>Agent</th></tr></thead><tbody>`)
+	fmt.Fprint(w, `<table><thead><tr><th>Edge ID</th><th>Type</th><th>Source</th><th>Target</th><th>Agent</th><th></th></tr></thead><tbody>`)
 	for _, e := range edges {
-		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td class="mono">%s</td><td class="mono">%s</td></tr>`,
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td class="mono">%s</td><td class="mono">%s</td><td><button class="btn" style="color:var(--danger);border-color:var(--danger);padding:0.25rem 0.5rem;font-size:0.85rem" hx-get="/ui/partials/edge-unlink-form?ws=%s&amp;id=%s" hx-target="#edge-modal-container" hx-swap="innerHTML">Unlink</button></td></tr>`,
 			template.HTMLEscapeString(truncateStr(e.EdgeID, 16)),
 			template.HTMLEscapeString(e.EdgeType),
 			template.HTMLEscapeString(truncateStr(e.SourceMemoryID, 16)),
 			template.HTMLEscapeString(truncateStr(e.TargetMemoryID, 16)),
 			template.HTMLEscapeString(truncateStr(e.AgentID, 16)),
+			template.HTMLEscapeString(wsID),
+			template.HTMLEscapeString(e.EdgeID),
 		)
 	}
 	fmt.Fprint(w, `</tbody></table>`)

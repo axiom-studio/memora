@@ -189,5 +189,7 @@ type DataSource interface {
 	GraphNeighbors(ctx context.Context, wsID, memoryID, direction string, edgeTypes []string, k int) (*GraphData, error)
 	GraphTraverse(ctx context.Context, wsID, seedMemID, direction string, edgeTypes []string, depth int) (*GraphData, error)
 	GraphStats(ctx context.Context, wsID string) (int, map[string]int, error)
+	LinkEdge(ctx context.Context, wsID, sourceMemID, targetMemID, edgeType string) (string, error)
+	UnlinkEdge(ctx context.Context, edgeID string) error
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 }

@@ -599,6 +599,31 @@ func (s *ServiceDataSource) GraphStats(ctx context.Context, wsID string) (int, m
 	return s.Graph.Stats(ctx, wsID)
 }
 
+func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, targetMemID, edgeType string) (string, error) {
+	if s.Graph == nil {
+		return "", fmt.Errorf("graph store not configured")
+	}
+	e := types.Edge{
+		WorkspaceID:      wsID,
+		SourceMemoryID:   sourceMemID,
+		TargetMemoryID:   targetMemID,
+		EdgeType:         types.EdgeType(edgeType),
+		CreatedByAgentID: "ui-admin",
+	}
+	out, err := s.Graph.Link(ctx, e)
+	if err != nil {
+		return "", err
+	}
+	return out.EdgeID, nil
+}
+
+func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, edgeID string) error {
+	if s.Graph == nil {
+		return fmt.Errorf("graph store not configured")
+	}
+	return s.Graph.Unlink(ctx, edgeID, "ui-admin")
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil
