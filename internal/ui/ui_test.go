@@ -1049,3 +1049,44 @@ func TestSettingsDetail_Nil(t *testing.T) {
 		t.Error("expected empty state when settings is nil")
 	}
 }
+
+func TestFederationStatus(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetFederation(&FederationInfo{
+		FederationID: "fed-test-123",
+		Peers: []PeerInfo{
+			{ID: "peer-0", Name: "us-east", Endpoint: "https://east.example.com", TrustMode: "mtls"},
+			{ID: "peer-1", Name: "eu-west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws-1", "ws-2"}},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/federation-status", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"fed-test-123", "us-east", "eu-west", "mtls", "api_key", "east.example.com"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in federation status", want)
+		}
+	}
+}
+
+func TestFederationStatus_Disabled(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/federation-status", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "Federation Disabled") {
+		t.Error("expected disabled state when federation is nil")
+	}
+}

@@ -310,6 +310,26 @@ func serve() {
 		bootLog.Fatalf("compatibility check failed: %v", err)
 	}
 
+	var uiFederation *ui.FederationInfo
+	if cfg.Federation.Enabled {
+		uiFederation = &ui.FederationInfo{
+			FederationID: cfg.Federation.FederationID,
+			Peers:        make([]ui.PeerInfo, len(cfg.Federation.Peers)),
+		}
+		for i, p := range cfg.Federation.Peers {
+			trust := "api_key"
+			if p.TLSCert != "" {
+				trust = "mtls"
+			}
+			uiFederation.Peers[i] = ui.PeerInfo{
+				ID:        fmt.Sprintf("peer-%d", i),
+				Name:      p.Name,
+				Endpoint:  p.URL,
+				TrustMode: trust,
+			}
+		}
+	}
+
 	httpsrv := httpserver.New(httpserver.Config{
 		Addr:        cfg.Server.Addr,
 		APIKey:      resolvedKey,
@@ -344,6 +364,7 @@ func serve() {
 			TelemetryLogLevel:  cfg.Telemetry.LogLevel,
 			TelemetryLogFormat: cfg.Telemetry.LogFormat,
 		},
+		UIFederation: uiFederation,
 	})
 
 	if cfg.Server.MCPEnable {

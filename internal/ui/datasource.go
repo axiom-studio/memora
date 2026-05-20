@@ -99,6 +99,19 @@ type SettingsInfo struct {
 	TelemetryLogFormat string
 }
 
+type FederationInfo struct {
+	FederationID string
+	Peers        []PeerInfo
+}
+
+type PeerInfo struct {
+	ID        string
+	Name      string
+	Endpoint  string
+	TrustMode string
+	Workspaces []string
+}
+
 type DataSource interface {
 	DashboardStats(ctx context.Context) (DashboardStats, error)
 	RecentLedgerEntries(ctx context.Context, limit int) ([]api.LedgerEntry, error)

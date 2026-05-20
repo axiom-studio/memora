@@ -55,12 +55,14 @@ type Handler struct {
 	loginTmpl *template.Template
 	staticFS http.Handler
 	authCfg  AuthConfig
-	data     DataSource
-	settings *SettingsInfo
+	data       DataSource
+	settings   *SettingsInfo
+	federation *FederationInfo
 }
 
-func (h *Handler) SetDataSource(ds DataSource) { h.data = ds }
-func (h *Handler) SetSettings(s *SettingsInfo)  { h.settings = s }
+func (h *Handler) SetDataSource(ds DataSource)    { h.data = ds }
+func (h *Handler) SetSettings(s *SettingsInfo)     { h.settings = s }
+func (h *Handler) SetFederation(f *FederationInfo) { h.federation = f }
 
 func NewHandler() (*Handler, error) {
 	layoutBytes, err := templateFS.ReadFile("templates/layout.html")
@@ -121,7 +123,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/memory-list", h.partialMemoryList)
 	protected.HandleFunc("/ui/partials/memory-detail", h.partialMemoryDetail)
 	protected.HandleFunc("/ui/partials/recall-results", h.partialRecallResults)
-	protected.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
+	protected.HandleFunc("/ui/partials/federation-status", h.partialFederationStatus)
 	protected.HandleFunc("/ui/partials/audit-list", h.partialAuditList)
 	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)
 	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
