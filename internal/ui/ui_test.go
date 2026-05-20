@@ -534,6 +534,21 @@ func (m *mockDataSource) GraphData(_ context.Context, _ string, _ string, _ int)
 	}
 	return &GraphData{Nodes: nil, Edges: nil}, m.err
 }
+func (m *mockDataSource) GraphNeighbors(_ context.Context, _, _, _ string, _ []string, _ int) (*GraphData, error) {
+	if m.graphData != nil {
+		return m.graphData, m.err
+	}
+	return &GraphData{Nodes: nil, Edges: nil}, m.err
+}
+func (m *mockDataSource) GraphTraverse(_ context.Context, _, _, _ string, _ []string, _ int) (*GraphData, error) {
+	if m.graphData != nil {
+		return m.graphData, m.err
+	}
+	return &GraphData{Nodes: nil, Edges: nil}, m.err
+}
+func (m *mockDataSource) GraphStats(_ context.Context, _ string) (int, map[string]int, error) {
+	return 5, map[string]int{"references": 3, "derived_from": 2}, m.err
+}
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -2329,5 +2344,96 @@ func TestGraphTabInWorkspacePage(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "graph-view") {
 		t.Error("graph page should load graph-view partial")
+	}
+}
+
+func TestGraphNeighborsEndpoint(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		graphData: &GraphData{
+			Nodes: []GraphNode{{ID: "mem_1", Label: "mem_1", Type: "seed"}, {ID: "mem_2", Label: "mem_2", Type: "neighbor"}},
+			Edges: []GraphEdge{{ID: "e_1", Source: "mem_1", Target: "mem_2", Label: "references"}},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=ws_abc&memory_id=mem_1&direction=both&k=10", nil)
+	h.handleGraphNeighbors(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"mem_1", "mem_2", "references"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("neighbors response missing %q", want)
+		}
+	}
+}
+
+func TestGraphNeighborsEndpoint_NoMemID(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=ws_abc", nil)
+	h.handleGraphNeighbors(w, r)
+	if w.Code != 400 {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestGraphTraverseEndpoint(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		graphData: &GraphData{
+			Nodes: []GraphNode{{ID: "mem_s", Label: "mem_s", Type: "seed"}},
+			Edges: nil,
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=ws_abc&seed=mem_s&depth=3&direction=out", nil)
+	h.handleGraphTraverse(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "mem_s") {
+		t.Error("traverse response missing seed node")
+	}
+}
+
+func TestGraphTraverseEndpoint_NoSeed(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=ws_abc", nil)
+	h.handleGraphTraverse(w, r)
+	if w.Code != 400 {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
+
+func TestGraphStatsEndpoint(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/graph/stats?ws=ws_abc", nil)
+	h.handleGraphStats(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "node_count") || !strings.Contains(body, "references") {
+		t.Error("stats response missing expected fields")
+	}
+}
+
+func TestGraphViewHasQueryTabs(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=ws_abc", nil)
+	h.partialGraphView(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"graph-tab-overview", "graph-tab-neighbors", "graph-tab-traverse", "showGraphTab", "loadNeighbors", "loadTraverse", "nb-memory-id", "tr-seed", "edge-type-filter"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("graph view missing %q", want)
+		}
 	}
 }

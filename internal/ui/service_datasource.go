@@ -486,6 +486,119 @@ func (s *ServiceDataSource) GraphData(ctx context.Context, wsID string, seedMemI
 	}, nil
 }
 
+func (s *ServiceDataSource) GraphNeighbors(ctx context.Context, wsID, memoryID, direction string, edgeTypes []string, k int) (*GraphData, error) {
+	if s.Graph == nil {
+		return nil, fmt.Errorf("graph store not configured")
+	}
+	if k <= 0 {
+		k = 50
+	}
+	if direction == "" {
+		direction = "both"
+	}
+
+	edges, headers, err := s.Graph.Neighbors(ctx, wsID, memoryID, adapter.NeighborsOpts{
+		Direction: api.GraphDirection(direction),
+		EdgeTypes: edgeTypes,
+		K:         k,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	nodeSet := map[string]bool{memoryID: true}
+	nodes := []GraphNode{{ID: memoryID, Label: truncateStr(memoryID, 16), Type: "seed"}}
+	for _, h := range headers {
+		if !nodeSet[h.MemoryID] {
+			nodeSet[h.MemoryID] = true
+			nodes = append(nodes, GraphNode{ID: h.MemoryID, Label: truncateStr(h.MemoryID, 16), Type: "neighbor"})
+		}
+	}
+
+	var graphEdges []GraphEdge
+	for _, e := range edges {
+		if !nodeSet[e.SourceMemoryID] {
+			nodeSet[e.SourceMemoryID] = true
+			nodes = append(nodes, GraphNode{ID: e.SourceMemoryID, Label: truncateStr(e.SourceMemoryID, 16), Type: "neighbor"})
+		}
+		if !nodeSet[e.TargetMemoryID] {
+			nodeSet[e.TargetMemoryID] = true
+			nodes = append(nodes, GraphNode{ID: e.TargetMemoryID, Label: truncateStr(e.TargetMemoryID, 16), Type: "neighbor"})
+		}
+		graphEdges = append(graphEdges, GraphEdge{
+			ID:     e.EdgeID,
+			Source: e.SourceMemoryID,
+			Target: e.TargetMemoryID,
+			Label:  string(e.EdgeType),
+		})
+	}
+
+	nodeCount, edgeCountByType, _ := s.Graph.Stats(ctx, wsID)
+	return &GraphData{
+		Nodes:           nodes,
+		Edges:           graphEdges,
+		NodeCount:       nodeCount,
+		EdgeCountByType: edgeCountByType,
+	}, nil
+}
+
+func (s *ServiceDataSource) GraphTraverse(ctx context.Context, wsID, seedMemID, direction string, edgeTypes []string, depth int) (*GraphData, error) {
+	if s.Graph == nil {
+		return nil, fmt.Errorf("graph store not configured")
+	}
+	if depth <= 0 {
+		depth = 2
+	}
+	if direction == "" {
+		direction = "both"
+	}
+
+	result, err := s.Graph.Traverse(ctx, wsID, seedMemID, adapter.TraverseOpts{
+		Depth:     depth,
+		Direction: api.GraphDirection(direction),
+		EdgeTypes: edgeTypes,
+		MaxEdges:  500,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("traverse: %w", err)
+	}
+
+	nodeSet := map[string]bool{result.Seed.MemoryID: true}
+	nodes := []GraphNode{{ID: result.Seed.MemoryID, Label: truncateStr(result.Seed.MemoryID, 16), Type: "seed"}}
+	var edges []GraphEdge
+
+	for layerIdx, layer := range result.Layers {
+		layerType := fmt.Sprintf("layer_%d", layerIdx+1)
+		for _, hit := range layer {
+			if !nodeSet[hit.Memory.MemoryID] {
+				nodeSet[hit.Memory.MemoryID] = true
+				nodes = append(nodes, GraphNode{ID: hit.Memory.MemoryID, Label: truncateStr(hit.Memory.MemoryID, 16), Type: layerType})
+			}
+			edges = append(edges, GraphEdge{
+				ID:     hit.ViaEdgeID,
+				Source: result.Seed.MemoryID,
+				Target: hit.Memory.MemoryID,
+				Label:  hit.ViaEdgeType,
+			})
+		}
+	}
+
+	nodeCount, edgeCountByType, _ := s.Graph.Stats(ctx, wsID)
+	return &GraphData{
+		Nodes:           nodes,
+		Edges:           edges,
+		NodeCount:       nodeCount,
+		EdgeCountByType: edgeCountByType,
+	}, nil
+}
+
+func (s *ServiceDataSource) GraphStats(ctx context.Context, wsID string) (int, map[string]int, error) {
+	if s.Graph == nil {
+		return 0, nil, fmt.Errorf("graph store not configured")
+	}
+	return s.Graph.Stats(ctx, wsID)
+}
+
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
 	if s.Ledger == nil || !s.Ledger.Capabilities().SupportsQuery {
 		return nil, "", nil

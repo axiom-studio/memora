@@ -36,6 +36,88 @@ func (h *Handler) handleGraphData(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(data)
 }
 
+func (h *Handler) handleGraphNeighbors(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	memID := strings.TrimSpace(r.URL.Query().Get("memory_id"))
+	direction := r.URL.Query().Get("direction")
+	edgeTypesStr := strings.TrimSpace(r.URL.Query().Get("edge_types"))
+	kStr := r.URL.Query().Get("k")
+
+	if h.data == nil || wsID == "" || memID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":"missing workspace or memory_id"}`, http.StatusBadRequest)
+		return
+	}
+
+	k, _ := strconv.Atoi(kStr)
+	var edgeTypes []string
+	if edgeTypesStr != "" {
+		edgeTypes = strings.Split(edgeTypesStr, ",")
+	}
+
+	data, err := h.data.GraphNeighbors(r.Context(), wsID, memID, direction, edgeTypes, k)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) handleGraphTraverse(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	seedMemID := strings.TrimSpace(r.URL.Query().Get("seed"))
+	direction := r.URL.Query().Get("direction")
+	edgeTypesStr := strings.TrimSpace(r.URL.Query().Get("edge_types"))
+	depthStr := r.URL.Query().Get("depth")
+
+	if h.data == nil || wsID == "" || seedMemID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":"missing workspace or seed"}`, http.StatusBadRequest)
+		return
+	}
+
+	depth, _ := strconv.Atoi(depthStr)
+	var edgeTypes []string
+	if edgeTypesStr != "" {
+		edgeTypes = strings.Split(edgeTypesStr, ",")
+	}
+
+	data, err := h.data.GraphTraverse(r.Context(), wsID, seedMemID, direction, edgeTypes, depth)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) handleGraphStats(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	if h.data == nil || wsID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":"missing workspace"}`, http.StatusBadRequest)
+		return
+	}
+
+	nodeCount, edgeCountByType, err := h.data.GraphStats(r.Context(), wsID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"node_count":        nodeCount,
+		"edge_count_by_type": edgeCountByType,
+	})
+}
+
 func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
 	wsID := r.URL.Query().Get("ws")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -45,52 +127,144 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	edgeTypeChecks := ""
+	for _, et := range []string{"parent_of", "derived_from", "supersedes", "references", "session_of", "mentions", "vector_neighbor"} {
+		edgeTypeChecks += fmt.Sprintf(`<label style="display:inline-flex;align-items:center;gap:0.3rem"><input type="checkbox" class="edge-type-filter" value="%s" checked> %s</label> `, et, et)
+	}
+
 	fmt.Fprintf(w, `<div class="card mb-2">
 <h3 class="card-title">Context Graph</h3>
-<div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem">
-  <label>Seed Memory <span class="text-muted">(optional)</span>
-    <input type="text" id="graph-seed" placeholder="mem_... (leave empty for full graph)">
-  </label>
-  <label>Depth
-    <input type="number" id="graph-depth" value="2" min="1" max="5" style="width:70px">
-  </label>
-  <button class="btn btn-primary" onclick="loadGraph()">Load Graph</button>
+<div class="tabs" style="margin-bottom:0.75rem">
+  <a class="tab active" onclick="showGraphTab('overview',this)">Overview</a>
+  <a class="tab" onclick="showGraphTab('neighbors',this)">Neighbors</a>
+  <a class="tab" onclick="showGraphTab('traverse',this)">Traverse</a>
 </div>
+
+<div id="graph-tab-overview">
+  <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
+    <label>Seed Memory <span class="text-muted">(optional)</span>
+      <input type="text" id="graph-seed" placeholder="mem_... (leave empty for full graph)">
+    </label>
+    <label>Depth
+      <input type="number" id="graph-depth" value="2" min="1" max="5" style="width:70px">
+    </label>
+    <button class="btn btn-primary" onclick="loadGraph()">Load Graph</button>
+  </div>
+</div>
+
+<div id="graph-tab-neighbors" style="display:none">
+  <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
+    <label>Memory ID <span style="color:var(--danger)">*</span>
+      <input type="text" id="nb-memory-id" placeholder="mem_..." required>
+    </label>
+    <label>Direction
+      <select id="nb-direction"><option value="both">both</option><option value="out">out</option><option value="in">in</option></select>
+    </label>
+    <label>K
+      <input type="number" id="nb-k" value="50" min="1" max="200" style="width:70px">
+    </label>
+    <button class="btn btn-primary" onclick="loadNeighbors()">Query Neighbors</button>
+  </div>
+  <div style="margin-bottom:0.75rem"><label style="font-size:0.85rem;font-weight:600">Edge Types</label><div id="nb-edge-types" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.25rem">%s</div></div>
+</div>
+
+<div id="graph-tab-traverse" style="display:none">
+  <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
+    <label>Seed Memory <span style="color:var(--danger)">*</span>
+      <input type="text" id="tr-seed" placeholder="mem_..." required>
+    </label>
+    <label>Depth
+      <input type="number" id="tr-depth" value="2" min="1" max="5" style="width:70px">
+    </label>
+    <label>Direction
+      <select id="tr-direction"><option value="both">both</option><option value="out">out</option><option value="in">in</option></select>
+    </label>
+    <button class="btn btn-primary" onclick="loadTraverse()">Run Traverse</button>
+  </div>
+  <div style="margin-bottom:0.75rem"><label style="font-size:0.85rem;font-weight:600">Edge Types</label><div id="tr-edge-types" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.25rem">%s</div></div>
+</div>
+
 <div id="graph-stats" class="text-muted mb-1"></div>
 <div id="graph-container" style="width:100%%;height:600px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);position:relative;overflow:hidden">
   <div id="graph-empty" style="display:flex;align-items:center;justify-content:center;height:100%%">
-    <p class="text-muted">Click "Load Graph" to visualize the context graph.</p>
+    <p class="text-muted">Select a query mode and click the button to visualize the graph.</p>
   </div>
   <canvas id="graph-canvas" style="display:none;width:100%%;height:100%%"></canvas>
 </div>
 <div id="graph-tooltip" style="display:none;position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0.5rem;font-size:0.85rem;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1000;max-width:300px"></div>
-</div>
-<script>
+</div>`, edgeTypeChecks, edgeTypeChecks)
+
+	fmt.Fprintf(w, `<script>
 var wsID = %q;
+`, template.HTMLEscapeString(wsID))
+
+	fmt.Fprint(w, `
+function showGraphTab(name, el) {
+  ['overview','neighbors','traverse'].forEach(function(t) {
+    document.getElementById('graph-tab-'+t).style.display = t===name ? 'block' : 'none';
+  });
+  el.parentElement.querySelectorAll('.tab').forEach(function(a) { a.classList.remove('active'); });
+  el.classList.add('active');
+}
+
+function getCheckedEdgeTypes(containerId) {
+  var checks = document.querySelectorAll('#' + containerId + ' .edge-type-filter:checked');
+  var types = [];
+  checks.forEach(function(c) { types.push(c.value); });
+  return types;
+}
+
+function displayGraphResult(data) {
+  if (data.error) {
+    document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(data.error) + '</span>';
+    return;
+  }
+  var parts = [data.node_count + ' nodes'];
+  if (data.edge_count_by_type) {
+    var total = 0;
+    for (var t in data.edge_count_by_type) total += data.edge_count_by_type[t];
+    parts.push(total + ' edges');
+    var types = [];
+    for (var t in data.edge_count_by_type) types.push(t + ': ' + data.edge_count_by_type[t]);
+    if (types.length) parts.push('(' + types.join(', ') + ')');
+  }
+  var rendered = (data.nodes || []).length + ' nodes, ' + (data.edges || []).length + ' edges rendered';
+  document.getElementById('graph-stats').textContent = parts.join(' · ') + ' | ' + rendered;
+  renderGraph(data.nodes || [], data.edges || []);
+}
 
 function loadGraph() {
   var seed = document.getElementById('graph-seed').value.trim();
   var depth = document.getElementById('graph-depth').value;
   var url = '/ui/api/graph/data?ws=' + encodeURIComponent(wsID) + '&depth=' + depth;
   if (seed) url += '&seed=' + encodeURIComponent(seed);
+  fetch(url).then(function(r) { return r.json(); }).then(displayGraphResult).catch(function() {
+    document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Fetch failed</span>';
+  });
+}
 
-  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
-    if (data.error) {
-      document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(data.error) + '</span>';
-      return;
-    }
-    var parts = [data.node_count + ' nodes'];
-    if (data.edge_count_by_type) {
-      var total = 0;
-      for (var t in data.edge_count_by_type) total += data.edge_count_by_type[t];
-      parts.push(total + ' edges');
-      var types = [];
-      for (var t in data.edge_count_by_type) types.push(t + ': ' + data.edge_count_by_type[t]);
-      if (types.length) parts.push('(' + types.join(', ') + ')');
-    }
-    document.getElementById('graph-stats').textContent = parts.join(' · ');
-    renderGraph(data.nodes || [], data.edges || []);
-  }).catch(function(err) {
+function loadNeighbors() {
+  var memID = document.getElementById('nb-memory-id').value.trim();
+  if (!memID) { document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Memory ID is required</span>'; return; }
+  var dir = document.getElementById('nb-direction').value;
+  var k = document.getElementById('nb-k').value;
+  var types = getCheckedEdgeTypes('nb-edge-types');
+  var url = '/ui/api/graph/neighbors?ws=' + encodeURIComponent(wsID) + '&memory_id=' + encodeURIComponent(memID) + '&direction=' + dir + '&k=' + k;
+  if (types.length < 7) url += '&edge_types=' + types.join(',');
+  fetch(url).then(function(r) { return r.json(); }).then(displayGraphResult).catch(function() {
+    document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Fetch failed</span>';
+  });
+}
+
+function loadTraverse() {
+  var seed = document.getElementById('tr-seed').value.trim();
+  if (!seed) { document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Seed memory is required</span>'; return; }
+  var depth = document.getElementById('tr-depth').value;
+  var dir = document.getElementById('tr-direction').value;
+  var types = getCheckedEdgeTypes('tr-edge-types');
+  var url = '/ui/api/graph/traverse?ws=' + encodeURIComponent(wsID) + '&seed=' + encodeURIComponent(seed) + '&depth=' + depth + '&direction=' + dir;
+  if (types.length < 7) url += '&edge_types=' + types.join(',');
+  fetch(url).then(function(r) { return r.json(); }).then(displayGraphResult).catch(function() {
     document.getElementById('graph-stats').innerHTML = '<span style="color:var(--danger)">Fetch failed</span>';
   });
 }
@@ -357,5 +531,5 @@ function escapeHtml(s) {
   d.textContent = s;
   return d.innerHTML;
 }
-</script>`, template.HTMLEscapeString(wsID))
+</script>`)
 }

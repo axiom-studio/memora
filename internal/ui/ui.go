@@ -158,6 +158,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/memories/upload", h.handleMemoryUpload)
 	protected.HandleFunc("/ui/partials/graph-view", h.partialGraphView)
 	protected.HandleFunc("/ui/api/graph/data", h.handleGraphData)
+	protected.HandleFunc("/ui/api/graph/neighbors", h.handleGraphNeighbors)
+	protected.HandleFunc("/ui/api/graph/traverse", h.handleGraphTraverse)
+	protected.HandleFunc("/ui/api/graph/stats", h.handleGraphStats)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
