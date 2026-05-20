@@ -128,6 +128,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)
 	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialSettingsDetail)
+	protected.HandleFunc("/ui/partials/search", h.partialSearch)
 
 	mux.Handle("/ui/partials/", h.authMiddleware(protected))
 	mux.Handle("/ui/", h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +158,10 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 		if wsPath != "" {
 			parts := strings.SplitN(wsPath, "/", 3)
 			wsID := parts[0]
-			if len(parts) >= 2 && parts[1] == "memories" {
+			if len(parts) >= 2 && parts[1] == "graph" {
+				data = map[string]string{"wsID": wsID, "tab": "graph"}
+				title = "Context Graph"
+			} else if len(parts) >= 2 && parts[1] == "memories" {
 				name = "memories"
 				memID := ""
 				if len(parts) == 3 && parts[2] != "" {

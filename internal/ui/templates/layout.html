@@ -18,11 +18,50 @@
         <li><a href="/ui/audit" {{if eq .Nav "audit"}}class="active"{{end}}>Audit</a></li>
         <li><a href="/ui/settings" {{if eq .Nav "settings"}}class="active"{{end}}>Settings</a></li>
       </ul>
-      <div class="sidebar-footer">memora v0.3</div>
+      <div class="sidebar-footer">
+        <button class="search-trigger" onclick="document.getElementById('search-palette').showModal()" title="Search (Ctrl+K)">Search…</button>
+        <span>memora v0.3</span>
+      </div>
     </nav>
     <main class="main" role="main">
       {{template "content" .}}
     </main>
   </div>
+
+  <dialog id="search-palette" class="search-palette">
+    <form method="dialog" style="display:flex;flex-direction:column;height:100%">
+      <input type="text" id="search-input" placeholder="Search workspaces, agents, memories…"
+             hx-get="/ui/partials/search"
+             hx-trigger="keyup changed delay:200ms"
+             hx-target="#search-results"
+             hx-swap="innerHTML"
+             name="q"
+             autocomplete="off"
+             autofocus>
+      <div id="search-results" style="flex:1;overflow:auto;padding:0.5rem">
+        <p class="text-muted">Type to search workspaces, agents, and memories.</p>
+      </div>
+      <div style="text-align:right;padding:0.5rem 0 0;border-top:1px solid var(--border)">
+        <button type="submit" class="btn btn-secondary" style="font-size:0.8rem">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+  document.addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      var d = document.getElementById('search-palette');
+      if (d.open) { d.close(); } else { d.showModal(); document.getElementById('search-input').focus(); }
+    }
+    if (e.key === 'Escape') {
+      var d = document.getElementById('search-palette');
+      if (d.open) { d.close(); }
+    }
+  });
+  document.getElementById('search-palette').addEventListener('click', function(e) {
+    if (e.target === this) this.close();
+  });
+  </script>
 </body>
 </html>

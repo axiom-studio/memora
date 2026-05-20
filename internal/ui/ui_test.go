@@ -1090,3 +1090,93 @@ func TestFederationStatus_Disabled(t *testing.T) {
 		t.Error("expected disabled state when federation is nil")
 	}
 }
+
+func TestGraphStubPage(t *testing.T) {
+	h, _ := NewHandler()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws-1/graph", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "coming in v0.5") {
+		t.Error("missing graph stub message")
+	}
+}
+
+func TestSearch(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		workspaces: []WorkspaceSummary{
+			{ID: "ws-alpha", Name: "Alpha Workspace"},
+			{ID: "ws-beta", Name: "Beta Workspace"},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/search?q=alpha", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(body, "ws-alpha") {
+		t.Error("missing workspace result")
+	}
+	if strings.Contains(body, "ws-beta") {
+		t.Error("should not contain non-matching workspace")
+	}
+}
+
+func TestSearch_Empty(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/search?q=", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "Type to search") {
+		t.Error("expected placeholder text for empty query")
+	}
+}
+
+func TestSearch_NoResults(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{
+		workspaces: []WorkspaceSummary{{ID: "ws-1", Name: "Test"}},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/search?q=zzzznotfound", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "No results") {
+		t.Error("expected no results message")
+	}
+}
+
+func TestLayoutHasSearchPalette(t *testing.T) {
+	h, _ := NewHandler()
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "search-palette") {
+		t.Error("layout missing search palette dialog")
+	}
+	if !strings.Contains(body, "Ctrl+K") || !strings.Contains(body, "metaKey") {
+		t.Error("layout missing keyboard shortcut binding")
+	}
+}

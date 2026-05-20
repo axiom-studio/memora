@@ -5,6 +5,13 @@
 {{if .Data}}
   {{$wsID := index .Data "wsID"}}
   {{$tab := index .Data "tab"}}
+  {{if eq $tab "graph"}}
+  <div class="empty-state">
+    <h3>Context Graph</h3>
+    <p>Graph visualization is coming in v0.5.</p>
+    <p class="text-muted">In the meantime, use the <a href="/ui/workspaces/{{$wsID}}/memories">Memories</a> page to browse edges, or query the Traverse / Neighbors API directly.</p>
+  </div>
+  {{else}}
   <div class="tabs">
     <a class="tab {{if eq $tab "overview"}}active{{end}}"
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=overview"
@@ -25,6 +32,7 @@
        hx-swap="innerHTML">
     <div class="skeleton" style="height:10rem"></div>
   </div>
+  {{end}}
 {{else}}
   <div hx-get="/ui/partials/workspace-list"
        hx-trigger="load"
