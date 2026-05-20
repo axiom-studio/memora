@@ -363,14 +363,27 @@ func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, me
 	fmt.Fprintf(w, `<tr><td><strong>Content MD5</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(mem.ContentMD5))
 	fmt.Fprintf(w, `<tr><td><strong>Created</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(mem.CreatedAt.UTC().Format("2006-01-02 15:04:05 UTC")))
 	fmt.Fprintf(w, `<tr><td><strong>Updated</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(mem.UpdatedAt.UTC().Format("2006-01-02 15:04:05 UTC")))
-	if len(mem.Tags) > 0 {
-		var tags []string
-		for k, v := range mem.Tags {
-			tags = append(tags, k+"="+v)
-		}
-		fmt.Fprintf(w, `<tr><td><strong>Tags</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(strings.Join(tags, ", ")))
-	}
 	fmt.Fprint(w, `</table></div>`)
+
+	if wsID != "" {
+		fmt.Fprint(w, `<div class="card mt-2"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Tags</h3>`)
+		fmt.Fprintf(w, `<button class="btn btn-sm" hx-get="/ui/partials/tag-add-form?ws=%s&amp;id=%s" hx-target="#tag-modal-container" hx-swap="innerHTML">Add Tag</button></div>`,
+			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
+		fmt.Fprint(w, `<div id="tag-modal-container"></div>`)
+		if len(mem.Tags) == 0 {
+			fmt.Fprint(w, `<p class="text-muted" style="margin-top:0.5rem">No tags.</p>`)
+		} else {
+			fmt.Fprint(w, `<table style="margin-top:0.5rem"><thead><tr><th>Key</th><th>Value</th><th>Actions</th></tr></thead><tbody>`)
+			for k, v := range mem.Tags {
+				fmt.Fprintf(w, `<tr><td class="mono">%s</td><td class="mono">%s</td>`,
+					template.HTMLEscapeString(k), template.HTMLEscapeString(v))
+				fmt.Fprintf(w, `<td><button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger)" hx-get="/ui/partials/tag-delete-form?ws=%s&amp;id=%s&amp;key=%s" hx-target="#tag-modal-container" hx-swap="innerHTML">Delete</button></td></tr>`,
+					template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID), template.HTMLEscapeString(k))
+			}
+			fmt.Fprint(w, `</tbody></table>`)
+		}
+		fmt.Fprint(w, `</div>`)
+	}
 
 	fmt.Fprint(w, `<div class="card mt-2"><h3 class="card-title">Content</h3>`)
 	fmt.Fprintf(w, `<pre style="white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto">%s</pre>`, template.HTMLEscapeString(mem.Content))
@@ -468,4 +481,120 @@ func (h *Handler) renderMemoryWatermarks(w http.ResponseWriter, r *http.Request,
 		)
 	}
 	fmt.Fprint(w, `</tbody></table></div>`)
+}
+
+func (h *Handler) partialTagAddForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	if wsID == "" || memID == "" {
+		h.writeFormError(w, "Workspace and memory ID required")
+		return
+	}
+
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Add Tag</h3>
+  <div id="tag-add-result"></div>
+  <form hx-post="/ui/api/tags/upsert" hx-target="#tag-add-result" hx-swap="innerHTML">
+    <input type="hidden" name="ws" value="%s">
+    <input type="hidden" name="id" value="%s">
+    <label>Key <input type="text" name="key" required pattern="[a-zA-Z0-9_.-]+" placeholder="source_type"></label>
+    <label>Value <input type="text" name="value" required placeholder="document"></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Add Tag</button>
+    </div>
+  </form>
+</div>
+</dialog>`, template.HTMLEscapeString(wsID), template.HTMLEscapeString(memID))
+}
+
+func (h *Handler) handleTagUpsert(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("ws"))
+	memID := strings.TrimSpace(r.FormValue("id"))
+	key := strings.TrimSpace(r.FormValue("key"))
+	value := strings.TrimSpace(r.FormValue("value"))
+
+	if wsID == "" || memID == "" || key == "" {
+		h.writeFormError(w, "Workspace, memory, and key are required")
+		return
+	}
+
+	if err := h.data.UpsertTag(r.Context(), wsID, memID, key, value); err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("HX-Redirect", fmt.Sprintf("/ui/workspaces/%s/memories/%s?tab=content", wsID, memID))
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) partialTagDeleteForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	key := r.URL.Query().Get("key")
+	if wsID == "" || memID == "" || key == "" {
+		h.writeFormError(w, "Workspace, memory ID, and key required")
+		return
+	}
+
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Delete Tag</h3>
+  <div id="tag-delete-result"></div>
+  <p>Delete tag <code>%s</code> from this memory?</p>
+  <form hx-post="/ui/api/tags/delete" hx-target="#tag-delete-result" hx-swap="innerHTML">
+    <input type="hidden" name="ws" value="%s">
+    <input type="hidden" name="id" value="%s">
+    <input type="hidden" name="key" value="%s">
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Delete Tag</button>
+    </div>
+  </form>
+</div>
+</dialog>`,
+		template.HTMLEscapeString(key),
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(memID),
+		template.HTMLEscapeString(key))
+}
+
+func (h *Handler) handleTagDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("ws"))
+	memID := strings.TrimSpace(r.FormValue("id"))
+	key := strings.TrimSpace(r.FormValue("key"))
+
+	if wsID == "" || memID == "" || key == "" {
+		h.writeFormError(w, "Workspace, memory, and key are required")
+		return
+	}
+
+	if err := h.data.DeleteTag(r.Context(), wsID, memID, key); err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("HX-Redirect", fmt.Sprintf("/ui/workspaces/%s/memories/%s?tab=content", wsID, memID))
+	w.WriteHeader(http.StatusOK)
 }

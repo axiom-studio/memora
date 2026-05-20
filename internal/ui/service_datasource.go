@@ -628,6 +628,14 @@ func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID
 	return s.Metadata.GetWatermarkHistory(ctx, wsID, memID, since)
 }
 
+func (s *ServiceDataSource) UpsertTag(ctx context.Context, wsID, memID, key, value string) error {
+	return s.Metadata.UpsertTag(ctx, wsID, memID, key, value)
+}
+
+func (s *ServiceDataSource) DeleteTag(ctx context.Context, wsID, memID, key string) error {
+	return s.Metadata.DeleteTag(ctx, wsID, memID, key)
+}
+
 func (s *ServiceDataSource) AddPeer(_ context.Context, _ PeerInfo) error {
 	return fmt.Errorf("federation peer management requires config file changes")
 }

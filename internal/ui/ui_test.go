@@ -563,6 +563,8 @@ func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return m.watermarks, m.err
 }
+func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error { return m.err }
+func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error   { return m.err }
 func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error    { return m.err }
 func (m *mockDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error { return m.err }
 func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error   { return m.err }
@@ -3090,5 +3092,106 @@ func TestSettingsHasIDPSection(t *testing.T) {
 	}
 	if !strings.Contains(body, "Test") {
 		t.Error("missing Test button")
+	}
+}
+
+func TestTagAddForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/tag-add-form?ws=ws_abc&id=mem_123", nil)
+	h.partialTagAddForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Add Tag") {
+		t.Error("missing Add Tag heading")
+	}
+	if !strings.Contains(body, "ws_abc") {
+		t.Error("missing workspace ID")
+	}
+	if !strings.Contains(body, "mem_123") {
+		t.Error("missing memory ID")
+	}
+}
+
+func TestTagUpsert(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=ws_abc&id=mem_123&key=source&value=upload"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleTagUpsert(w, r)
+	redir := w.Header().Get("HX-Redirect")
+	if !strings.Contains(redir, "/ui/workspaces/ws_abc/memories/mem_123") {
+		t.Errorf("expected redirect to memory detail, got %q", redir)
+	}
+}
+
+func TestTagUpsert_MissingKey(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=ws_abc&id=mem_123&value=test"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleTagUpsert(w, r)
+	if !strings.Contains(w.Body.String(), "key are required") {
+		t.Error("expected validation error for missing key")
+	}
+}
+
+func TestTagDeleteForm(t *testing.T) {
+	h := mustHandler(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/tag-delete-form?ws=ws_abc&id=mem_123&key=source", nil)
+	h.partialTagDeleteForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Delete Tag") {
+		t.Error("missing Delete Tag heading")
+	}
+	if !strings.Contains(body, "source") {
+		t.Error("missing tag key")
+	}
+}
+
+func TestTagDelete(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/tags/delete", strings.NewReader("ws=ws_abc&id=mem_123&key=source"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleTagDelete(w, r)
+	redir := w.Header().Get("HX-Redirect")
+	if !strings.Contains(redir, "/ui/workspaces/ws_abc/memories/mem_123") {
+		t.Errorf("expected redirect to memory detail, got %q", redir)
+	}
+}
+
+func TestMemoryContentHasTagsCRUD(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{
+			ID:      "mem_123",
+			Content: "test",
+			Tags:    map[string]string{"source": "upload", "type": "doc"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_123&ws=ws_abc&tab=content", nil)
+	mux := http.NewServeMux()
+	h.Register(mux)
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Add Tag") {
+		t.Error("missing Add Tag button")
+	}
+	if !strings.Contains(body, "tag-add-form") {
+		t.Error("missing tag-add-form link")
+	}
+	if !strings.Contains(body, "Delete") {
+		t.Error("missing Delete button on tags")
+	}
+	if !strings.Contains(body, "source") {
+		t.Error("missing tag key 'source'")
+	}
+	if !strings.Contains(body, "upload") {
+		t.Error("missing tag value 'upload'")
 	}
 }
