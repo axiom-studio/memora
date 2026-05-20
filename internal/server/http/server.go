@@ -246,7 +246,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 		// Auth: API key (skipped for /ui/ paths — UI has its own session auth;
 		// skipped when no key configured — local-dev mode).
-		if s.cfg.APIKey != "" && !strings.HasPrefix(r.URL.Path, "/ui/") {
+		if s.cfg.APIKey != "" && r.URL.Path != "/ui" && !strings.HasPrefix(r.URL.Path, "/ui/") {
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") {
 				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
