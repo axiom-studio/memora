@@ -21,10 +21,13 @@ RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${BUILD_DATE}'" \
     -o /out/memora-cli ./cmd/memora-cli
 
+RUN mkdir -p /out/data
+
 FROM gcr.io/distroless/static-debian12:nonroot AS final
 
 COPY --from=builder /out/memora-core /usr/local/bin/memora-core
 COPY --from=builder /out/memora-cli /usr/local/bin/memora-cli
+COPY --from=builder --chown=nonroot:nonroot /out/data /data
 
 # Default data directory; mount /data as a volume in production.
 ENV MEMORA_DATA_DIR=/data
