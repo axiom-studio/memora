@@ -2651,3 +2651,169 @@ func TestEdgesTabHasLinkButton(t *testing.T) {
 		t.Error("edges tab missing Unlink button")
 	}
 }
+
+func TestBulkOpsForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/bulk-ops-form?ws=ws_abc", nil)
+	h.partialBulkOpsForm(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"Bulk Operations", "Seed", "Dump", "Import", "Replay", "showBulkTab", "streamBulkOp", "docs"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("bulk ops form missing %q", want)
+		}
+	}
+}
+
+func TestBulkOpsForm_MissingWS(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/bulk-ops-form", nil)
+	h.partialBulkOpsForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Missing workspace ID") {
+		t.Error("expected error for missing workspace ID")
+	}
+}
+
+func TestBulkSeed(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	records := `[{"content":"hello world","tags":{"k":"v"}}]`
+	body := fmt.Sprintf("workspace_id=ws_abc&collection_id=coll_1&chunker_id=markdown&auto_link=true&records=%s", records)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/seed", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkSeed(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"type":"complete"`) {
+		t.Errorf("expected complete event, got: %s", resp)
+	}
+	if !strings.Contains(resp, `"succeeded":1`) {
+		t.Error("expected 1 succeeded")
+	}
+}
+
+func TestBulkSeed_EmptyRecords(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	body := "workspace_id=ws_abc&records=[]"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/seed", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkSeed(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, "No records to seed") {
+		t.Error("expected empty records error")
+	}
+}
+
+func TestBulkDump(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memories: []MemorySummary{
+			{ID: "mem_1", Content: "test content", ContentMD5: "abc", AgentID: "agent_1"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/api/bulk/dump?ws=ws_abc", nil)
+	h.handleBulkDump(w, r)
+	if w.Header().Get("Content-Type") != "application/x-ndjson" {
+		t.Errorf("expected ndjson content type, got %s", w.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(w.Body.String(), "mem_1") {
+		t.Error("dump missing memory ID")
+	}
+	if !strings.Contains(w.Body.String(), "test content") {
+		t.Error("dump missing content")
+	}
+}
+
+func TestBulkImport(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	records := `[{"content":"imported text","content_md5":"new123"}]`
+	body := fmt.Sprintf("workspace_id=ws_abc&conflict=skip&records=%s", records)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/import", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkImport(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"type":"complete"`) {
+		t.Errorf("expected complete event, got: %s", resp)
+	}
+	if !strings.Contains(resp, `"succeeded":1`) {
+		t.Error("expected 1 succeeded")
+	}
+}
+
+func TestBulkImport_SkipDuplicate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memories: []MemorySummary{
+			{ID: "mem_existing", ContentMD5: "dup123"},
+		},
+	})
+	records := `[{"content":"dup content","content_md5":"dup123"}]`
+	body := fmt.Sprintf("workspace_id=ws_abc&conflict=skip&records=%s", records)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/import", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkImport(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"skipped":1`) {
+		t.Errorf("expected 1 skipped, got: %s", resp)
+	}
+}
+
+func TestBulkReplay(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	records := `[{"op":"imprint","content":"replayed content"}]`
+	body := fmt.Sprintf("workspace_id=ws_abc&records=%s", records)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/replay", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkReplay(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"type":"complete"`) {
+		t.Errorf("expected complete event, got: %s", resp)
+	}
+	if !strings.Contains(resp, `"succeeded":1`) {
+		t.Error("expected 1 succeeded")
+	}
+}
+
+func TestBulkReplay_UnsupportedOp(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	records := `[{"op":"unknown_op","content":"foo"}]`
+	body := fmt.Sprintf("workspace_id=ws_abc&records=%s", records)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/replay", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleBulkReplay(w, r)
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"failed":1`) {
+		t.Errorf("expected 1 failed, got: %s", resp)
+	}
+}
+
+func TestMemoryListHasBulkOpsButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	h.partialMemoryList(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Bulk Ops") {
+		t.Error("memory list missing Bulk Ops button")
+	}
+	if !strings.Contains(body, "bulk-ops-form") {
+		t.Error("memory list missing bulk-ops-form link")
+	}
+}

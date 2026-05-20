@@ -166,6 +166,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/graph/traverse", h.handleGraphTraverse)
 	protected.HandleFunc("/ui/api/graph/stats", h.handleGraphStats)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
+	protected.HandleFunc("/ui/partials/bulk-ops-form", h.partialBulkOpsForm)
+	protected.HandleFunc("/ui/api/bulk/seed", h.handleBulkSeed)
+	protected.HandleFunc("/ui/api/bulk/dump", h.handleBulkDump)
+	protected.HandleFunc("/ui/api/bulk/import", h.handleBulkImport)
+	protected.HandleFunc("/ui/api/bulk/replay", h.handleBulkReplay)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
 	mux.Handle("/ui/partials/", h.authMiddleware(protected))
