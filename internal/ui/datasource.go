@@ -92,9 +92,13 @@ type SettingsInfo struct {
 	ServerAddr      string
 	ServerMode      string
 	MCPEnabled      bool
-	TLSEnabled      bool
-	TLSCertFile     string
-	TLSAutoSelfSign bool
+	TLSEnabled        bool
+	TLSCertFile       string
+	TLSAutoSelfSign   bool
+	TLSCertFingerprint string
+	TLSCertNotBefore   time.Time
+	TLSCertNotAfter    time.Time
+	TLSCertIssuer      string
 	DataDir         string
 	MetadataDriver  string
 	VectorDriver    string

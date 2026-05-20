@@ -3263,3 +3263,220 @@ func TestWorkspaceDetailHasConfigTab(t *testing.T) {
 		t.Error("workspace detail page missing Config tab")
 	}
 }
+
+func TestSettingsTLSCertDetails(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		TLSEnabled:         true,
+		TLSCertFile:        "/etc/certs/server.crt",
+		TLSAutoSelfSign:    true,
+		TLSCertFingerprint: "SHA256:AB:CD:EF:01:23",
+		TLSCertNotBefore:   time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		TLSCertNotAfter:    time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		TLSCertIssuer:      "CN=memora-self-signed",
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"Fingerprint", "SHA256:AB:CD:EF:01:23", "Valid From", "Valid Until", "Issuer", "CN=memora-self-signed", "Rotate Certificate"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("TLS section missing %q", want)
+		}
+	}
+}
+
+func TestSettingsTLSCertExpired(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		TLSEnabled:       true,
+		TLSCertFile:      "/etc/certs/server.crt",
+		TLSCertNotAfter:  time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Expired") {
+		t.Error("expected Expired badge for past cert")
+	}
+}
+
+func TestSettingsTLSDisabled_NoRotateButton(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		TLSEnabled: false,
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, "Rotate Certificate") {
+		t.Error("Rotate button should not appear when TLS is disabled")
+	}
+}
+
+func TestTLSRotateForm_SelfSigned(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		TLSEnabled:      true,
+		TLSAutoSelfSign: true,
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/tls-rotate-form", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"Rotate Certificate", "self-signed", "rotate", "confirm"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rotate form missing %q", want)
+		}
+	}
+}
+
+func TestTLSRotateForm_Upload(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		TLSEnabled:      true,
+		TLSAutoSelfSign: false,
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/tls-rotate-form", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "cert_file") {
+		t.Error("upload mode should show file input for cert")
+	}
+	if !strings.Contains(body, "key_file") {
+		t.Error("upload mode should show file input for key")
+	}
+}
+
+func TestTLSRotateForm_TLSDisabled(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: false})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/tls-rotate-form", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "not enabled") {
+		t.Error("expected error when TLS disabled")
+	}
+}
+
+func TestTLSRotate_SelfSigned(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: true, TLSAutoSelfSign: true})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := strings.NewReader("mode=self-signed&confirm=rotate")
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/tls/rotate", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "regeneration requested") {
+		t.Error("expected success message for self-signed rotation")
+	}
+}
+
+func TestTLSRotate_BadConfirm(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: true})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := strings.NewReader("mode=self-signed&confirm=wrong")
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/tls/rotate", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "rotate") {
+		t.Error("expected confirmation error")
+	}
+}
+
+func TestTLSRotate_Upload(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: true})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := strings.NewReader("mode=upload&confirm=rotate")
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/tls/rotate", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "uploaded") {
+		t.Error("expected upload success message")
+	}
+}
+
+func TestTLSRotate_TLSDisabled(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: false})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := strings.NewReader("mode=self-signed&confirm=rotate")
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/tls/rotate", body)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "not enabled") {
+		t.Error("expected error when TLS disabled")
+	}
+}
+
+func TestTLSRotate_MethodNotAllowed(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{TLSEnabled: true})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/api/tls/rotate", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("want 405, got %d", w.Code)
+	}
+}

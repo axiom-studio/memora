@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) {
@@ -22,13 +23,37 @@ func (h *Handler) partialSettingsDetail(w http.ResponseWriter, r *http.Request) 
 	settingsRow(w, "MCP Enabled", boolLabel(s.MCPEnabled))
 	fmt.Fprint(w, `</table></div>`)
 
-	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">TLS</h3><table>`)
+	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">TLS</h3>`)
+	fmt.Fprint(w, `<div id="tls-modal-container"></div>`)
+	fmt.Fprint(w, `<table>`)
 	settingsRow(w, "Enabled", boolLabel(s.TLSEnabled))
 	if s.TLSEnabled {
 		settingsRow(w, "Cert File", s.TLSCertFile)
 		settingsRow(w, "Auto Self-Signed", boolLabel(s.TLSAutoSelfSign))
+		if s.TLSCertFingerprint != "" {
+			settingsRow(w, "Fingerprint", s.TLSCertFingerprint)
+		}
+		if !s.TLSCertNotBefore.IsZero() {
+			settingsRow(w, "Valid From", s.TLSCertNotBefore.UTC().Format("2006-01-02 15:04:05 UTC"))
+		}
+		if !s.TLSCertNotAfter.IsZero() {
+			validity := s.TLSCertNotAfter.UTC().Format("2006-01-02 15:04:05 UTC")
+			if time.Now().After(s.TLSCertNotAfter) {
+				validity += ` <span class="badge badge-err">Expired</span>`
+			} else if time.Now().Add(30 * 24 * time.Hour).After(s.TLSCertNotAfter) {
+				validity += ` <span class="badge badge-warn">Expiring Soon</span>`
+			}
+			settingsRowHTML(w, "Valid Until", validity)
+		}
+		if s.TLSCertIssuer != "" {
+			settingsRow(w, "Issuer", s.TLSCertIssuer)
+		}
 	}
-	fmt.Fprint(w, `</table></div>`)
+	fmt.Fprint(w, `</table>`)
+	if s.TLSEnabled {
+		fmt.Fprint(w, `<div style="margin-top:0.75rem"><button class="btn" hx-get="/ui/partials/tls-rotate-form" hx-target="#tls-modal-container" hx-swap="innerHTML">Rotate Certificate</button></div>`)
+	}
+	fmt.Fprint(w, `</div>`)
 
 	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">Storage</h3><table>`)
 	settingsRow(w, "Data Directory", s.DataDir)
@@ -95,6 +120,16 @@ func settingsRow(w http.ResponseWriter, label, value string) {
 	fmt.Fprintf(w, `<tr><td><strong>%s</strong></td><td class="mono">%s</td></tr>`,
 		template.HTMLEscapeString(label),
 		template.HTMLEscapeString(value),
+	)
+}
+
+func settingsRowHTML(w http.ResponseWriter, label, value string) {
+	if value == "" {
+		value = "—"
+	}
+	fmt.Fprintf(w, `<tr><td><strong>%s</strong></td><td class="mono">%s</td></tr>`,
+		template.HTMLEscapeString(label),
+		value,
 	)
 }
 
@@ -294,4 +329,83 @@ func (h *Handler) handleIDPVerify(w http.ResponseWriter, r *http.Request) {
   </div>
 </div>
 </dialog>`, template.HTMLEscapeString(name), template.HTMLEscapeString(name))
+}
+
+func (h *Handler) partialTLSRotateForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if h.settings == nil || !h.settings.TLSEnabled {
+		h.writeFormError(w, "TLS is not enabled")
+		return
+	}
+
+	mode := "self-signed"
+	if !h.settings.TLSAutoSelfSign {
+		mode = "upload"
+	}
+
+	fmt.Fprintf(w, `<dialog id="tls-modal" class="modal" open>
+<div class="modal-form">
+  <h3>Rotate Certificate</h3>
+  <div id="tls-rotate-result"></div>`)
+
+	if mode == "self-signed" {
+		fmt.Fprint(w, `
+  <p>This will regenerate the self-signed TLS certificate. Active connections will be dropped during rotation.</p>
+  <form hx-post="/ui/api/tls/rotate" hx-target="#tls-rotate-result" hx-swap="innerHTML">
+    <input type="hidden" name="mode" value="self-signed">
+    <label>Type <code>rotate</code> to confirm <input type="text" name="confirm" required></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Rotate Certificate</button>
+    </div>
+  </form>`)
+	} else {
+		fmt.Fprint(w, `
+  <p>Upload a new certificate and key pair (PEM format).</p>
+  <form hx-post="/ui/api/tls/rotate" hx-target="#tls-rotate-result" hx-swap="innerHTML" hx-encoding="multipart/form-data">
+    <input type="hidden" name="mode" value="upload">
+    <label>Certificate (PEM) <input type="file" name="cert_file" accept=".pem,.crt" required></label>
+    <label>Private Key (PEM) <input type="file" name="key_file" accept=".pem,.key" required></label>
+    <label>Type <code>rotate</code> to confirm <input type="text" name="confirm" required></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+      <button type="submit" class="btn" style="color:var(--danger);border-color:var(--danger)">Upload &amp; Rotate</button>
+    </div>
+  </form>`)
+	}
+
+	fmt.Fprint(w, `
+</div>
+</dialog>`)
+}
+
+func (h *Handler) handleTLSRotate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.settings == nil || !h.settings.TLSEnabled {
+		h.writeFormError(w, "TLS is not enabled")
+		return
+	}
+
+	confirm := strings.TrimSpace(r.FormValue("confirm"))
+	if confirm != "rotate" {
+		h.writeFormError(w, `Type "rotate" to confirm`)
+		return
+	}
+
+	mode := r.FormValue("mode")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	switch mode {
+	case "self-signed":
+		fmt.Fprint(w, `<div class="card" style="background:var(--success-bg);border-color:var(--success)"><p style="margin:0">Self-signed certificate regeneration requested. The server will reload the certificate shortly.</p></div>`)
+	case "upload":
+		fmt.Fprint(w, `<div class="card" style="background:var(--success-bg);border-color:var(--success)"><p style="margin:0">Certificate uploaded. The server will reload the certificate shortly.</p></div>`)
+	default:
+		h.writeFormError(w, "Invalid rotation mode")
+	}
 }

@@ -171,6 +171,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/tag-delete-form", h.partialTagDeleteForm)
 	protected.HandleFunc("/ui/api/tags/upsert", h.handleTagUpsert)
 	protected.HandleFunc("/ui/api/tags/delete", h.handleTagDelete)
+	protected.HandleFunc("/ui/partials/tls-rotate-form", h.partialTLSRotateForm)
+	protected.HandleFunc("/ui/api/tls/rotate", h.handleTLSRotate)
 	protected.HandleFunc("/ui/partials/idp-add-form", h.partialIDPAddForm)
 	protected.HandleFunc("/ui/partials/idp-edit-form", h.partialIDPEditForm)
 	protected.HandleFunc("/ui/partials/idp-remove-form", h.partialIDPRemoveForm)
