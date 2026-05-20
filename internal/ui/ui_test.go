@@ -3195,3 +3195,71 @@ func TestMemoryContentHasTagsCRUD(t *testing.T) {
 		t.Error("missing tag value 'upload'")
 	}
 }
+
+func TestWorkspaceConfigTab(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspace: &WorkspaceDetail{
+			WorkspaceSummary: WorkspaceSummary{ID: "ws_abc", Name: "test"},
+			AutoLinkEnabled:          true,
+			AutoLinkThreshold:        0.8,
+			AutoLinkMaxEdges:         15,
+			AutoLinkMaxIncomingPerDay: 200,
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=config", nil)
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"Auto-Link Configuration", "auto_link_enabled", "auto_link_threshold", "auto_link_max_edges", "auto_link_max_incoming", "0.80", "15", "200", "checked"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("config tab missing %q", want)
+		}
+	}
+}
+
+func TestWorkspaceConfigUpdate(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		workspace: &WorkspaceDetail{
+			WorkspaceSummary: WorkspaceSummary{ID: "ws_abc", Name: "test"},
+		},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/config", strings.NewReader("id=ws_abc&auto_link_enabled=true&auto_link_threshold=0.75&auto_link_max_edges=20&auto_link_max_incoming=150"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceConfig(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Configuration saved") {
+		t.Errorf("expected success message, got: %s", body)
+	}
+}
+
+func TestWorkspaceConfigUpdate_MissingID(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/config", strings.NewReader("auto_link_enabled=true"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleWorkspaceConfig(w, r)
+	if !strings.Contains(w.Body.String(), "Workspace ID is required") {
+		t.Error("expected validation error for missing workspace ID")
+	}
+}
+
+func TestWorkspaceDetailHasConfigTab(t *testing.T) {
+	h := mustHandler(t)
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/workspaces/ws_abc", nil)
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Config") {
+		t.Error("workspace detail page missing Config tab")
+	}
+}

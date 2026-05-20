@@ -28,10 +28,13 @@ type WorkspaceSummary struct {
 
 type WorkspaceDetail struct {
 	WorkspaceSummary
-	Region          string
-	ChunkerID       string
-	AutoLinkEnabled bool
-	Meta            map[string]any
+	Region                   string
+	ChunkerID                string
+	AutoLinkEnabled          bool
+	AutoLinkThreshold        float64
+	AutoLinkMaxEdges         int
+	AutoLinkMaxIncomingPerDay int
+	Meta                     map[string]any
 }
 
 type AgentSummary struct {
@@ -141,10 +144,14 @@ type CreateWorkspaceInput struct {
 }
 
 type UpdateWorkspaceInput struct {
-	Name           string
-	Region         string
-	ChunkerID      string
-	EmbeddingModel string
+	Name                      string
+	Region                    string
+	ChunkerID                 string
+	EmbeddingModel            string
+	AutoLinkEnabled           bool
+	AutoLinkThreshold         float64
+	AutoLinkMaxEdges          int
+	AutoLinkMaxIncomingPerDay int
 }
 
 type GraphNode struct {

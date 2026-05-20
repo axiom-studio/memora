@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -92,6 +93,8 @@ func (h *Handler) partialWorkspaceDetail(w http.ResponseWriter, r *http.Request)
 		h.renderWorkspaceAgents(w, r, wsID)
 	case "collections":
 		h.renderWorkspaceCollections(w, r, wsID)
+	case "config":
+		h.renderWorkspaceConfig(w, r, wsID)
 	default:
 		h.renderWorkspaceOverview(w, r, wsID)
 	}
@@ -195,6 +198,115 @@ func orDash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+func (h *Handler) renderWorkspaceConfig(w http.ResponseWriter, r *http.Request, wsID string) {
+	ws, err := h.data.GetWorkspace(r.Context(), wsID)
+	if err != nil {
+		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+
+	threshold := ws.AutoLinkThreshold
+	if threshold <= 0 {
+		threshold = 0.7
+	}
+	maxEdges := ws.AutoLinkMaxEdges
+	if maxEdges <= 0 {
+		maxEdges = 10
+	}
+	maxIncoming := ws.AutoLinkMaxIncomingPerDay
+	if maxIncoming <= 0 {
+		maxIncoming = 100
+	}
+
+	enabledChecked := ""
+	if ws.AutoLinkEnabled {
+		enabledChecked = " checked"
+	}
+
+	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Auto-Link Configuration</h3>
+<div id="config-result"></div>
+<form hx-post="/ui/api/workspaces/config" hx-target="#config-result" hx-swap="innerHTML">
+  <input type="hidden" name="id" value="%s">
+  <label style="display:flex;align-items:center;gap:0.5rem">
+    <input type="checkbox" name="auto_link_enabled" value="true"%s> Enable auto-linking
+  </label>
+  <label>Cosine Similarity Threshold
+    <div style="display:flex;align-items:center;gap:0.75rem">
+      <input type="range" name="auto_link_threshold" min="0" max="1" step="0.05" value="%.2f" oninput="document.getElementById('threshold-val').textContent=this.value" style="flex:1">
+      <span id="threshold-val" class="mono" style="min-width:3ch">%.2f</span>
+    </div>
+  </label>
+  <label>Max Edges per Imprint <input type="number" name="auto_link_max_edges" value="%d" min="1" max="50"></label>
+  <label>Incoming Throttle (per 24h) <input type="number" name="auto_link_max_incoming" value="%d" min="1" max="10000"></label>
+  <div class="modal-actions" style="margin-top:1rem">
+    <button type="submit" class="btn btn-primary">Save Configuration</button>
+  </div>
+</form>
+</div>`,
+		template.HTMLEscapeString(wsID),
+		enabledChecked,
+		threshold, threshold,
+		maxEdges,
+		maxIncoming)
+}
+
+func (h *Handler) handleWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("id"))
+	if wsID == "" {
+		h.writeFormError(w, "Workspace ID is required")
+		return
+	}
+
+	ws, err := h.data.GetWorkspace(r.Context(), wsID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	autoLinkEnabled := r.FormValue("auto_link_enabled") == "true"
+	threshold, _ := strconv.ParseFloat(r.FormValue("auto_link_threshold"), 64)
+	maxEdges, _ := strconv.Atoi(r.FormValue("auto_link_max_edges"))
+	maxIncoming, _ := strconv.Atoi(r.FormValue("auto_link_max_incoming"))
+
+	if threshold < 0 || threshold > 1 {
+		threshold = 0.7
+	}
+	if maxEdges < 1 || maxEdges > 50 {
+		maxEdges = 10
+	}
+	if maxIncoming < 1 {
+		maxIncoming = 100
+	}
+
+	input := UpdateWorkspaceInput{
+		Name:                      ws.Name,
+		Region:                    ws.Region,
+		ChunkerID:                 ws.ChunkerID,
+		EmbeddingModel:            ws.EmbeddingModel,
+		AutoLinkEnabled:           autoLinkEnabled,
+		AutoLinkThreshold:         threshold,
+		AutoLinkMaxEdges:          maxEdges,
+		AutoLinkMaxIncomingPerDay: maxIncoming,
+	}
+
+	if err := h.data.UpdateWorkspace(r.Context(), wsID, input); err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<div class="card" style="background:var(--success-bg);border-color:var(--success)"><p style="margin:0">Configuration saved.</p></div>`)
 }
 
 func boolBadge(v bool) string {

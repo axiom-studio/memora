@@ -120,10 +120,13 @@ func (s *ServiceDataSource) GetWorkspace(ctx context.Context, id string) (*Works
 			MemoryCount:    len(mems),
 			CreatedAt:      w.CreatedAt,
 		},
-		Region:          w.Region,
-		ChunkerID:       w.ChunkerID,
-		AutoLinkEnabled: w.AutoLinkEnabled,
-		Meta:            w.Meta,
+		Region:                    w.Region,
+		ChunkerID:                w.ChunkerID,
+		AutoLinkEnabled:          w.AutoLinkEnabled,
+		AutoLinkThreshold:        w.AutoLinkThreshold,
+		AutoLinkMaxEdges:         w.AutoLinkMaxEdges,
+		AutoLinkMaxIncomingPerDay: w.AutoLinkMaxIncomingPerDay,
+		Meta:                     w.Meta,
 	}, nil
 }
 
@@ -142,11 +145,15 @@ func (s *ServiceDataSource) CreateWorkspace(ctx context.Context, input CreateWor
 
 func (s *ServiceDataSource) UpdateWorkspace(ctx context.Context, id string, input UpdateWorkspaceInput) error {
 	ws := &types.Workspace{
-		ID:             id,
-		Name:           input.Name,
-		Region:         input.Region,
-		ChunkerID:      input.ChunkerID,
-		EmbeddingModel: input.EmbeddingModel,
+		ID:                        id,
+		Name:                      input.Name,
+		Region:                    input.Region,
+		ChunkerID:                 input.ChunkerID,
+		EmbeddingModel:            input.EmbeddingModel,
+		AutoLinkEnabled:           input.AutoLinkEnabled,
+		AutoLinkThreshold:         input.AutoLinkThreshold,
+		AutoLinkMaxEdges:          input.AutoLinkMaxEdges,
+		AutoLinkMaxIncomingPerDay: input.AutoLinkMaxIncomingPerDay,
 	}
 	return s.Metadata.UpdateWorkspace(ctx, ws)
 }

@@ -18,6 +18,10 @@
        hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=collections"
        hx-target="#ws-content" hx-swap="innerHTML"
        hx-push-url="/ui/workspaces/{{$wsID}}?tab=collections">Collections</a>
+    <a class="tab {{if eq $tab "config"}}active{{end}}"
+       hx-get="/ui/partials/workspace-detail?id={{$wsID}}&tab=config"
+       hx-target="#ws-content" hx-swap="innerHTML"
+       hx-push-url="/ui/workspaces/{{$wsID}}?tab=config">Config</a>
     <a class="tab {{if eq $tab "graph"}}active{{end}}"
        hx-get="/ui/partials/graph-view?ws={{$wsID}}"
        hx-target="#ws-content" hx-swap="innerHTML"

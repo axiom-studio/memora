@@ -136,6 +136,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/workspaces/create", h.handleWorkspaceCreate)
 	protected.HandleFunc("/ui/api/workspaces/update", h.handleWorkspaceUpdate)
 	protected.HandleFunc("/ui/api/workspaces/delete", h.handleWorkspaceDelete)
+	protected.HandleFunc("/ui/api/workspaces/config", h.handleWorkspaceConfig)
 	protected.HandleFunc("/ui/partials/agent-register-form", h.partialAgentRegisterForm)
 	protected.HandleFunc("/ui/partials/agent-deactivate-form", h.partialAgentDeactivateForm)
 	protected.HandleFunc("/ui/api/agents/register", h.handleAgentRegister)
