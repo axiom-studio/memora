@@ -50,6 +50,34 @@ type CollectionSummary struct {
 	CreatedAt   time.Time
 }
 
+type MemorySummary struct {
+	ID           string
+	Content      string
+	ContentMD5   string
+	Watermark    string
+	AgentID      string
+	RecallReady  bool
+	Tags         map[string]string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type EdgeSummary struct {
+	EdgeID         string
+	SourceMemoryID string
+	TargetMemoryID string
+	EdgeType       string
+	Properties     string
+	AgentID        string
+}
+
+type CellSummary struct {
+	CellID   string
+	Text     string
+	TextMD5  string
+	Sequence int
+}
+
 type DataSource interface {
 	DashboardStats(ctx context.Context) (DashboardStats, error)
 	RecentLedgerEntries(ctx context.Context, limit int) ([]api.LedgerEntry, error)
@@ -58,4 +86,9 @@ type DataSource interface {
 	GetWorkspace(ctx context.Context, id string) (*WorkspaceDetail, error)
 	ListAgents(ctx context.Context, wsID string) ([]AgentSummary, error)
 	ListCollections(ctx context.Context, wsID string) ([]CollectionSummary, error)
+	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)
+	GetMemory(ctx context.Context, memID string) (*MemorySummary, error)
+	GetCells(ctx context.Context, memID string) ([]CellSummary, error)
+	GetEdges(ctx context.Context, wsID, memID string) ([]EdgeSummary, error)
+	Recall(ctx context.Context, wsID string, query string, mode string, k int) (*api.RecallResponse, error)
 }

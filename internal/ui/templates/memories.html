@@ -1,0 +1,70 @@
+{{define "content"}}
+{{$wsID := index .Data "wsID"}}
+{{$memID := index .Data "memID"}}
+{{$tab := index .Data "tab"}}
+
+{{if $memID}}
+<div class="page-header">
+  <h1>Memory {{$memID}}</h1>
+</div>
+<div class="tabs">
+  <a class="tab {{if eq $tab "content"}}active{{end}}"
+     hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab=content"
+     hx-target="#mem-content" hx-swap="innerHTML">Content</a>
+  <a class="tab {{if eq $tab "cells"}}active{{end}}"
+     hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab=cells"
+     hx-target="#mem-content" hx-swap="innerHTML">Cells</a>
+  <a class="tab {{if eq $tab "edges"}}active{{end}}"
+     hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab=edges"
+     hx-target="#mem-content" hx-swap="innerHTML">Edges</a>
+</div>
+<div id="mem-content"
+     hx-get="/ui/partials/memory-detail?id={{$memID}}&ws={{$wsID}}&tab={{$tab}}"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+  <div class="skeleton" style="height:10rem"></div>
+</div>
+
+{{else}}
+<div class="page-header">
+  <h1>Memories</h1>
+</div>
+
+<div class="card mb-2">
+  <h3 class="card-title">Recall</h3>
+  <form hx-get="/ui/partials/recall-results"
+        hx-target="#recall-results"
+        hx-swap="innerHTML"
+        hx-include="[name]"
+        style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap">
+    <input type="hidden" name="ws" value="{{$wsID}}">
+    <div>
+      <label for="q" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Query</label>
+      <input type="text" id="q" name="q" placeholder="Search memories..." style="width:300px" required>
+    </div>
+    <div>
+      <label for="mode" style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:0.2rem">Mode</label>
+      <select id="mode" name="mode">
+        <option value="hybrid">Hybrid</option>
+        <option value="vector">Vector</option>
+        <option value="keyword">Keyword</option>
+        <option value="lookup">Lookup</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Search</button>
+  </form>
+  <div id="recall-results" class="mt-2">
+    <p class="text-muted">Enter a query to search.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3 class="card-title">All Memories</h3>
+  <div hx-get="/ui/partials/memory-list?ws={{$wsID}}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skeleton" style="height:8rem"></div>
+  </div>
+</div>
+{{end}}
+{{end}}

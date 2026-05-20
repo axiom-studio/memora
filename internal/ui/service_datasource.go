@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -11,6 +13,8 @@ import (
 type ServiceDataSource struct {
 	Metadata        adapter.MetadataStore
 	Ledger          adapter.LedgerStore
+	Graph           adapter.GraphStore
+	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
 	FederationPeers int
 	HealthyPeers    int
 	EmbedQueueDepth func() int
@@ -151,4 +155,106 @@ func (s *ServiceDataSource) ListCollections(ctx context.Context, wsID string) ([
 		}
 	}
 	return out, nil
+}
+
+func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {
+	mems, err := s.Metadata.ListMemories(ctx, wsID, "", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MemorySummary, len(mems))
+	for i, m := range mems {
+		out[i] = MemorySummary{
+			ID:          m.ID,
+			Content:     m.Content,
+			ContentMD5:  m.ContentMD5,
+			Watermark:   m.HeadWatermark,
+			AgentID:     m.WrittenByAgentID,
+			RecallReady: m.RecallReady,
+			Tags:        m.Tags,
+			CreatedAt:   m.CreatedAt,
+			UpdatedAt:   m.UpdatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (s *ServiceDataSource) GetMemory(ctx context.Context, memID string) (*MemorySummary, error) {
+	m, err := s.Metadata.GetMemory(ctx, memID)
+	if err != nil {
+		return nil, err
+	}
+	return &MemorySummary{
+		ID:          m.ID,
+		Content:     m.Content,
+		ContentMD5:  m.ContentMD5,
+		Watermark:   m.HeadWatermark,
+		AgentID:     m.WrittenByAgentID,
+		RecallReady: m.RecallReady,
+		Tags:        m.Tags,
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}, nil
+}
+
+func (s *ServiceDataSource) GetCells(ctx context.Context, memID string) ([]CellSummary, error) {
+	cells, err := s.Metadata.GetCells(ctx, memID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CellSummary, len(cells))
+	for i, c := range cells {
+		out[i] = CellSummary{
+			CellID:   c.CellID,
+			Text:     c.Text,
+			TextMD5:  c.TextMD5,
+			Sequence: c.Seq,
+		}
+	}
+	return out, nil
+}
+
+func (s *ServiceDataSource) GetEdges(ctx context.Context, wsID, memID string) ([]EdgeSummary, error) {
+	if s.Graph == nil {
+		return nil, nil
+	}
+	edges, _, err := s.Graph.Neighbors(ctx, wsID, memID, adapter.NeighborsOpts{Direction: api.GraphDirection("both")})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EdgeSummary, len(edges))
+	for i, e := range edges {
+		out[i] = EdgeSummary{
+			EdgeID:         e.EdgeID,
+			SourceMemoryID: e.SourceMemoryID,
+			TargetMemoryID: e.TargetMemoryID,
+			EdgeType:       string(e.EdgeType),
+			Properties:     marshalProps(e.PropertiesJSON),
+			AgentID:        e.CreatedByAgentID,
+		}
+	}
+	return out, nil
+}
+
+func (s *ServiceDataSource) Recall(ctx context.Context, wsID string, query string, mode string, k int) (*api.RecallResponse, error) {
+	if s.RecallFunc == nil {
+		return nil, fmt.Errorf("recall not configured")
+	}
+	if k <= 0 {
+		k = 10
+	}
+	req := api.RecallRequest{
+		Query: query,
+		Mode:  api.RecallMode(mode),
+		K:     k,
+	}
+	return s.RecallFunc(ctx, wsID, req)
+}
+
+func marshalProps(m map[string]any) string {
+	if len(m) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }

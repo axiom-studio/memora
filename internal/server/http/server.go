@@ -106,8 +106,10 @@ func New(cfg Config) *Server {
 		uiHandler.SetAuth(ui.AuthConfig{APIKey: cfg.APIKey})
 		if cfg.Service != nil {
 			ds := &ui.ServiceDataSource{
-				Metadata: cfg.Service.Metadata,
-				Ledger:   cfg.Service.Ledger,
+				Metadata:   cfg.Service.Metadata,
+				Ledger:     cfg.Service.Ledger,
+				Graph:      cfg.Service.Graph,
+				RecallFunc: cfg.Service.Recall,
 			}
 			uiHandler.SetDataSource(ds)
 		}

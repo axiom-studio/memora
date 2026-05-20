@@ -67,7 +67,7 @@ func NewHandler() (*Handler, error) {
 	}
 	layoutSrc := string(layoutBytes)
 
-	pageNames := []string{"home", "workspaces", "federation", "audit", "settings"}
+	pageNames := []string{"home", "workspaces", "memories", "federation", "audit", "settings"}
 	pages := make(map[string]*template.Template, len(pageNames))
 	for _, name := range pageNames {
 		pageSrc, err := templateFS.ReadFile(fmt.Sprintf("templates/%s.html", name))
@@ -116,6 +116,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/recent-activity", h.partialRecentActivity)
 	protected.HandleFunc("/ui/partials/workspace-list", h.partialWorkspaceList)
 	protected.HandleFunc("/ui/partials/workspace-detail", h.partialWorkspaceDetail)
+	protected.HandleFunc("/ui/partials/memory-list", h.partialMemoryList)
+	protected.HandleFunc("/ui/partials/memory-detail", h.partialMemoryDetail)
+	protected.HandleFunc("/ui/partials/recall-results", h.partialRecallResults)
 	protected.HandleFunc("/ui/partials/federation-status", h.partialPlaceholder("Federation status will load here."))
 	protected.HandleFunc("/ui/partials/audit-list", h.partialPlaceholder("Audit log will load here."))
 	protected.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
@@ -140,22 +143,38 @@ func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
 	case path == "" || path == "index":
 		// defaults
 	case strings.HasPrefix(path, "workspaces"):
-		name = "workspaces"
 		nav = "workspaces"
 		title = "Workspaces"
+		name = "workspaces"
 		wsPath := strings.TrimPrefix(path, "workspaces")
 		wsPath = strings.TrimPrefix(wsPath, "/")
 		if wsPath != "" {
-			wsID := wsPath
-			if i := strings.IndexByte(wsID, '/'); i >= 0 {
-				wsID = wsID[:i]
+			parts := strings.SplitN(wsPath, "/", 3)
+			wsID := parts[0]
+			if len(parts) >= 2 && parts[1] == "memories" {
+				name = "memories"
+				memID := ""
+				if len(parts) == 3 && parts[2] != "" {
+					memID = parts[2]
+				}
+				tab := r.URL.Query().Get("tab")
+				if tab == "" {
+					tab = "content"
+				}
+				data = map[string]string{"wsID": wsID, "memID": memID, "tab": tab}
+				if memID != "" {
+					title = "Memory " + truncateStr(memID, 12)
+				} else {
+					title = "Memories"
+				}
+			} else {
+				tab := r.URL.Query().Get("tab")
+				if tab == "" {
+					tab = "overview"
+				}
+				data = map[string]string{"wsID": wsID, "tab": tab}
+				title = "Workspace " + truncateStr(wsID, 12)
 			}
-			tab := r.URL.Query().Get("tab")
-			if tab == "" {
-				tab = "overview"
-			}
-			data = map[string]string{"wsID": wsID, "tab": tab}
-			title = "Workspace " + truncateStr(wsID, 12)
 		}
 	case strings.HasPrefix(path, "federation"):
 		name = "federation"

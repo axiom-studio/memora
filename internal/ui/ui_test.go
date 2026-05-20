@@ -17,8 +17,8 @@ func TestNewHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(h.pages) != 5 {
-		t.Errorf("expected 5 pages, got %d", len(h.pages))
+	if len(h.pages) != 6 {
+		t.Errorf("expected 6 pages, got %d", len(h.pages))
 	}
 }
 
@@ -373,6 +373,11 @@ type mockDataSource struct {
 	workspace   *WorkspaceDetail
 	agents      []AgentSummary
 	collections []CollectionSummary
+	memories    []MemorySummary
+	memory      *MemorySummary
+	cells       []CellSummary
+	edges       []EdgeSummary
+	recallResp  *api.RecallResponse
 	err         error
 }
 
@@ -402,6 +407,27 @@ func (m *mockDataSource) ListAgents(_ context.Context, _ string) ([]AgentSummary
 }
 func (m *mockDataSource) ListCollections(_ context.Context, _ string) ([]CollectionSummary, error) {
 	return m.collections, m.err
+}
+func (m *mockDataSource) ListMemories(_ context.Context, _ string, _ int) ([]MemorySummary, error) {
+	return m.memories, m.err
+}
+func (m *mockDataSource) GetMemory(_ context.Context, id string) (*MemorySummary, error) {
+	if m.memory != nil {
+		return m.memory, m.err
+	}
+	return nil, fmt.Errorf("memory %s not found", id)
+}
+func (m *mockDataSource) GetCells(_ context.Context, _ string) ([]CellSummary, error) {
+	return m.cells, m.err
+}
+func (m *mockDataSource) GetEdges(_ context.Context, _, _ string) ([]EdgeSummary, error) {
+	return m.edges, m.err
+}
+func (m *mockDataSource) Recall(_ context.Context, _ string, _ string, _ string, _ int) (*api.RecallResponse, error) {
+	if m.recallResp != nil {
+		return m.recallResp, m.err
+	}
+	return nil, fmt.Errorf("recall not configured")
 }
 
 func TestDashboardCards_WithData(t *testing.T) {
@@ -616,6 +642,174 @@ func TestWorkspaceDetail_Collections(t *testing.T) {
 
 	if !strings.Contains(body, "coll_1") || !strings.Contains(body, "Knowledge Base") {
 		t.Errorf("collections tab missing data: %s", body)
+	}
+}
+
+func TestMemoryList(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		memories: []MemorySummary{
+			{ID: "mem_abc", AgentID: "agent_1", RecallReady: true, Content: "Hello world", UpdatedAt: time.Now()},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-list?ws=ws_test", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_abc") {
+		t.Error("memory list missing mem_abc")
+	}
+	if !strings.Contains(body, "Hello world") {
+		t.Error("memory list missing content preview")
+	}
+}
+
+func TestMemoryDetail_Content(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{
+			ID: "mem_abc", Content: "Full content here", ContentMD5: "abc123",
+			Watermark: "wmk_1", AgentID: "agent_1", RecallReady: true,
+			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=content", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	for _, want := range []string{"mem_abc", "Full content here", "abc123", "wmk_1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("memory detail missing %q", want)
+		}
+	}
+}
+
+func TestMemoryDetail_Cells(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		cells: []CellSummary{
+			{CellID: "cell_1", Text: "chunk one", TextMD5: "md5_1", Sequence: 0},
+			{CellID: "cell_2", Text: "chunk two", TextMD5: "md5_2", Sequence: 1},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=cells", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "cell_1") || !strings.Contains(body, "chunk one") {
+		t.Error("cells tab missing cell data")
+	}
+}
+
+func TestMemoryDetail_Edges(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		edges: []EdgeSummary{
+			{EdgeID: "edge_1", SourceMemoryID: "mem_abc", TargetMemoryID: "mem_def", EdgeType: "related", AgentID: "agent_1"},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=edges", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "edge_1") || !strings.Contains(body, "related") {
+		t.Error("edges tab missing edge data")
+	}
+}
+
+func TestRecallResults(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		recallResp: &api.RecallResponse{
+			Results: []api.RecallHit{
+				{MemoryID: "mem_abc", Score: 0.95, Text: "match text", Via: "seed"},
+			},
+			TotalCandidatesScanned: 100,
+			LatencyMS:              15,
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/recall-results?ws=ws_test&q=test+query&mode=hybrid", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_abc") || !strings.Contains(body, "0.95") {
+		t.Errorf("recall results missing data: %s", body)
+	}
+	if !strings.Contains(body, "100 candidates") {
+		t.Error("recall results missing stats")
+	}
+}
+
+func TestMemoriesPage(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc/memories", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Recall") {
+		t.Error("memories page missing recall section")
+	}
+}
+
+func TestMemoryDetailPage(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc/memories/mem_123", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "mem_123") {
+		t.Error("memory detail page missing memory ID")
+	}
+	if !strings.Contains(body, "Content") && !strings.Contains(body, "Cells") {
+		t.Error("memory detail page missing tabs")
 	}
 }
 
