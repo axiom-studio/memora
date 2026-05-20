@@ -995,3 +995,57 @@ func TestAuditPage(t *testing.T) {
 		t.Error("missing export buttons")
 	}
 }
+
+func TestSettingsDetail(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	h.SetSettings(&SettingsInfo{
+		ServerAddr:     ":7777",
+		ServerMode:     "single-tenant",
+		MCPEnabled:     true,
+		TLSEnabled:     true,
+		TLSCertFile:    "/etc/certs/server.crt",
+		DataDir:        "/var/lib/memora",
+		MetadataDriver: "sqlite",
+		VectorDriver:   "sqlitevec",
+		LedgerDriver:   "sqlite",
+		GraphDriver:    "sqlite",
+		ContentDriver:  "file",
+		EmbeddingModel: "nomic-embed-text",
+		FederationEnabled: true,
+		FederationID:      "fed-abc",
+		PeerCount:         2,
+		TelemetryLogLevel: "info",
+		TelemetryLogFormat: "json",
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	for _, want := range []string{"Server", "TLS", "Storage", "Embedding", "Federation", "Telemetry",
+		":7777", "single-tenant", "sqlite", "nomic-embed-text", "fed-abc", "info"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in settings", want)
+		}
+	}
+}
+
+func TestSettingsDetail_Nil(t *testing.T) {
+	h, _ := NewHandler()
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/settings-detail", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "not available") {
+		t.Error("expected empty state when settings is nil")
+	}
+}

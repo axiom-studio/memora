@@ -78,6 +78,27 @@ type CellSummary struct {
 	Sequence int
 }
 
+type SettingsInfo struct {
+	ServerAddr      string
+	ServerMode      string
+	MCPEnabled      bool
+	TLSEnabled      bool
+	TLSCertFile     string
+	TLSAutoSelfSign bool
+	DataDir         string
+	MetadataDriver  string
+	VectorDriver    string
+	LedgerDriver    string
+	GraphDriver     string
+	ContentDriver   string
+	EmbeddingModel  string
+	FederationEnabled bool
+	FederationID      string
+	PeerCount         int
+	TelemetryLogLevel  string
+	TelemetryLogFormat string
+}
+
 type DataSource interface {
 	DashboardStats(ctx context.Context) (DashboardStats, error)
 	RecentLedgerEntries(ctx context.Context, limit int) ([]api.LedgerEntry, error)

@@ -27,6 +27,7 @@ import (
 	"github.com/axiom-studio/memora/internal/mcp"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/service"
+	"github.com/axiom-studio/memora/internal/ui"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -322,6 +323,26 @@ func serve() {
 			KeyFile:        cfg.Server.TLS.KeyFile,
 			AutoSelfSigned: cfg.Server.TLS.AutoSelfSigned,
 			Host:           cfg.Server.Addr,
+		},
+		UISettings: &ui.SettingsInfo{
+			ServerAddr:         cfg.Server.Addr,
+			ServerMode:         cfg.Server.Mode,
+			MCPEnabled:         cfg.Server.MCPEnable,
+			TLSEnabled:         cfg.Server.TLS.Enabled,
+			TLSCertFile:        cfg.Server.TLS.CertFile,
+			TLSAutoSelfSign:    cfg.Server.TLS.AutoSelfSigned,
+			DataDir:            cfg.Storage.DataDir,
+			MetadataDriver:     cfg.Storage.MetadataDriver,
+			VectorDriver:       cfg.Storage.VectorDriver,
+			LedgerDriver:       cfg.Storage.LedgerDriver,
+			GraphDriver:        cfg.Storage.GraphDriver,
+			ContentDriver:      cfg.Storage.ContentDriver,
+			EmbeddingModel:     cfg.Embedding.Model,
+			FederationEnabled:  cfg.Federation.Enabled,
+			FederationID:       cfg.Federation.FederationID,
+			PeerCount:          len(cfg.Federation.Peers),
+			TelemetryLogLevel:  cfg.Telemetry.LogLevel,
+			TelemetryLogFormat: cfg.Telemetry.LogFormat,
 		},
 	})
 

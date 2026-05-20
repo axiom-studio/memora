@@ -56,9 +56,11 @@ type Handler struct {
 	staticFS http.Handler
 	authCfg  AuthConfig
 	data     DataSource
+	settings *SettingsInfo
 }
 
 func (h *Handler) SetDataSource(ds DataSource) { h.data = ds }
+func (h *Handler) SetSettings(s *SettingsInfo)  { h.settings = s }
 
 func NewHandler() (*Handler, error) {
 	layoutBytes, err := templateFS.ReadFile("templates/layout.html")
@@ -123,7 +125,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/partials/audit-list", h.partialAuditList)
 	protected.HandleFunc("/ui/partials/audit-detail", h.partialAuditDetail)
 	protected.HandleFunc("/ui/audit/export", h.handleAuditExport)
-	protected.HandleFunc("/ui/partials/settings-detail", h.partialPlaceholder("Settings will load here."))
+	protected.HandleFunc("/ui/partials/settings-detail", h.partialSettingsDetail)
 
 	mux.Handle("/ui/partials/", h.authMiddleware(protected))
 	mux.Handle("/ui/", h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -47,6 +47,7 @@ type Config struct {
 	AllowNoAuth     bool   // explicit opt-in for empty MEMORA_API_KEY
 	AllowedOrigins  []string // CORS: origins that may call the API; empty = no CORS headers
 	TLS             TLSConfig
+	UISettings      *ui.SettingsInfo // optional; nil = settings page shows empty state
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -112,6 +113,9 @@ func New(cfg Config) *Server {
 				RecallFunc: cfg.Service.Recall,
 			}
 			uiHandler.SetDataSource(ds)
+		}
+		if cfg.UISettings != nil {
+			uiHandler.SetSettings(cfg.UISettings)
 		}
 		uiHandler.Register(mux)
 	}
