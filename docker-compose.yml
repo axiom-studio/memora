@@ -1,0 +1,29 @@
+services:
+  memora:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "7777:7777"
+    environment:
+      MEMORA_ADDR: ":7777"
+      MEMORA_API_KEY: "${MEMORA_API_KEY:-memora-dev-key}"
+      MEMORA_DATA_DIR: /data
+      MEMORA_METADATA_DRIVER: sqlite
+      MEMORA_VECTOR_DRIVER: sqlitevec
+      MEMORA_LEDGER_DRIVER: sqlite
+      MEMORA_GRAPH_DRIVER: sqlite
+      MEMORA_CONTENT_DRIVER: file
+      MEMORA_MCP_ENABLE: "true"
+    volumes:
+      - memora-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/memora-cli", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  memora-data:
