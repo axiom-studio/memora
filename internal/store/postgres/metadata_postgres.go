@@ -1028,3 +1028,50 @@ func nullableJSON(b []byte) any {
 	}
 	return b
 }
+
+// --- Recall Pins ---
+
+func (s *MetadataStore) CreatePin(ctx context.Context, p *types.Pin) error {
+	if p.PinID == "" {
+		p.PinID = types.NewID("pin")
+	}
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO memora_pins (pin_id, workspace_id, query, mode, k, watermark, label, created_by, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		p.PinID, p.WorkspaceID, p.Query, p.Mode, p.K, p.Watermark, p.Label, p.CreatedBy, p.CreatedAt)
+	return err
+}
+
+func (s *MetadataStore) ListPins(ctx context.Context, workspaceID string) ([]types.Pin, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT pin_id, workspace_id, query, mode, k, watermark, label, created_by, created_at
+FROM memora_pins WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.Pin
+	for rows.Next() {
+		var p types.Pin
+		if err := rows.Scan(&p.PinID, &p.WorkspaceID, &p.Query, &p.Mode, &p.K,
+			&p.Watermark, &p.Label, &p.CreatedBy, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *MetadataStore) DeletePin(ctx context.Context, pinID string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM memora_pins WHERE pin_id = $1", pinID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return types.ErrNotFound
+	}
+	return nil
+}

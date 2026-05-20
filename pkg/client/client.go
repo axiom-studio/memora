@@ -248,6 +248,28 @@ func (c *Client) Recall(ctx context.Context, ws string, req api.RecallRequest) (
 	return &out, nil
 }
 
+// ---- Recall Pins ----
+
+func (c *Client) CreatePin(ctx context.Context, ws string, req api.PinRequest) (*api.PinResponse, error) {
+	var out api.PinResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/workspaces/"+ws+"/recall/pins", req, &out, ""); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListPins(ctx context.Context, ws string) ([]api.PinEntry, error) {
+	var resp api.PinListResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/workspaces/"+ws+"/recall/pins", nil, &resp, ""); err != nil {
+		return nil, err
+	}
+	return resp.Pins, nil
+}
+
+func (c *Client) DeletePin(ctx context.Context, ws, pinID string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/workspaces/"+ws+"/recall/pins/"+pinID, nil, nil, "")
+}
+
 // ---- Context Graph ----
 
 func (c *Client) Link(ctx context.Context, ws, srcMemID string, req api.LinkRequest) (*api.LinkResponse, error) {

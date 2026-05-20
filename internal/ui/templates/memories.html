@@ -41,6 +41,15 @@
 </div>
 
 <div class="card">
+  <h3 class="card-title">Pinned Queries</h3>
+  <div hx-get="/ui/partials/pin-list?ws={{$wsID}}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="skeleton" style="height:4rem"></div>
+  </div>
+</div>
+
+<div class="card">
   <h3 class="card-title">All Memories</h3>
   <div hx-get="/ui/partials/memory-list?ws={{$wsID}}"
        hx-trigger="load"

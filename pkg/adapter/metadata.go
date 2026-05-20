@@ -97,6 +97,12 @@ type MetadataStore interface {
 	GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error)
 	ListAgents(ctx context.Context, workspaceID string, limit int) ([]types.Agent, error)
 	DeactivateAgent(ctx context.Context, workspaceID, id string) error
+
+	// --- Recall pins ---
+
+	CreatePin(ctx context.Context, p *types.Pin) error
+	ListPins(ctx context.Context, workspaceID string) ([]types.Pin, error)
+	DeletePin(ctx context.Context, pinID string) error
 }
 
 // MetadataFactory builds a MetadataStore from config.

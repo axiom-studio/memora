@@ -97,14 +97,34 @@ type RecallResponse struct {
 	PeerLatencyMS           map[string]int `json:"peer_latency_ms,omitempty"`
 }
 
-// PinRequest binds a recall query to a watermark.
+// PinRequest creates a saved recall query bound to a watermark.
 type PinRequest struct {
-	Query     RecallRequest `json:"query"`
-	Watermark string        `json:"watermark"`
+	Query     string `json:"query"`
+	Mode      string `json:"mode,omitempty"`
+	K         int    `json:"k,omitempty"`
+	Watermark string `json:"watermark"`
+	Label     string `json:"label,omitempty"`
 }
 
-// PinResponse acknowledges a pin.
+// PinResponse acknowledges a pin creation.
 type PinResponse struct {
 	PinID     string `json:"pin_id"`
 	Watermark string `json:"watermark"`
+}
+
+// PinListResponse wraps a list of pins.
+type PinListResponse struct {
+	Pins []PinEntry `json:"pins"`
+}
+
+// PinEntry is a single pin in a list response.
+type PinEntry struct {
+	PinID     string `json:"pin_id"`
+	Query     string `json:"query"`
+	Mode      string `json:"mode,omitempty"`
+	K         int    `json:"k,omitempty"`
+	Watermark string `json:"watermark"`
+	Label     string `json:"label,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
+	CreatedAt string `json:"created_at"`
 }

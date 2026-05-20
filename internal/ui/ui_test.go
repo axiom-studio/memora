@@ -392,6 +392,7 @@ type mockDataSource struct {
 	watermarks   []types.WatermarkHistoryEntry
 	auditEntries []api.LedgerEntry
 	auditCursor  string
+	pins         []PinSummary
 	err          error
 }
 
@@ -571,6 +572,13 @@ func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error   { retur
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
+func (m *mockDataSource) ListPins(_ context.Context, _ string) ([]PinSummary, error) {
+	return m.pins, m.err
+}
+func (m *mockDataSource) CreatePin(_ context.Context, _, _, _ string, _ int, _, _ string) (string, error) {
+	return "pin_test", m.err
+}
+func (m *mockDataSource) DeletePin(_ context.Context, _ string) error { return m.err }
 
 func TestDashboardCards_WithData(t *testing.T) {
 	h, err := NewHandler()
@@ -3474,6 +3482,152 @@ func TestTLSRotate_MethodNotAllowed(t *testing.T) {
 	h.Register(mux)
 
 	r := httptest.NewRequest(http.MethodGet, "/ui/api/tls/rotate", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("want 405, got %d", w.Code)
+	}
+}
+
+// ----- Pin CRUD Tests -----
+
+func TestPinList_Empty(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=ws_test", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "No Pins") {
+		t.Error("expected empty state message")
+	}
+	if !strings.Contains(body, "Create Pin") {
+		t.Error("expected Create Pin button")
+	}
+}
+
+func TestPinList_WithPins(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{
+		pins: []PinSummary{
+			{PinID: "pin_abc", Query: "test query", Mode: "hybrid", K: 10, Label: "my pin", CreatedAt: time.Now()},
+		},
+	})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=ws_test", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "pin_abc") {
+		t.Error("expected pin ID in list")
+	}
+	if !strings.Contains(body, "my pin") {
+		t.Error("expected pin label")
+	}
+	if !strings.Contains(body, "Delete") {
+		t.Error("expected Delete button")
+	}
+}
+
+func TestPinCreateForm(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-create-form?ws=ws_test&q=hello&mode=vector&k=5", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Create Recall Pin") {
+		t.Error("expected form title")
+	}
+	if !strings.Contains(body, "hello") {
+		t.Error("expected query value prefilled")
+	}
+}
+
+func TestPinCreate_Success(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=ws_test&query=hello+world&mode=hybrid&k=10"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("want 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "pin_test") {
+		t.Error("expected pin ID in response")
+	}
+}
+
+func TestPinCreate_MissingQuery(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=ws_test"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "required") {
+		t.Error("expected validation error")
+	}
+}
+
+func TestPinDelete_Success(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/delete", strings.NewReader("ws=ws_test&id=pin_abc"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Error("expected HX-Redirect header after delete")
+	}
+}
+
+func TestPinDelete_MethodNotAllowed(t *testing.T) {
+	h, err := NewHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	r := httptest.NewRequest(http.MethodGet, "/ui/api/pins/delete", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusMethodNotAllowed {

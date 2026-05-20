@@ -136,7 +136,11 @@ func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 	case "graph":
 		s.handleGraph(w, r, wsID, parts[2:])
 	case "recall":
-		s.handleRecall(w, r, wsID)
+		if len(parts) >= 3 && parts[2] == "pins" {
+			s.handlePins(w, r, wsID, parts[3:])
+		} else {
+			s.handleRecall(w, r, wsID)
+		}
 	case "ledger":
 		s.handleLedger(w, r, wsID)
 	default:
@@ -400,6 +404,65 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 		return
 	}
 	s.writeJSON(w, 200, resp)
+}
+
+// /v1/workspaces/{ws_id}/recall/pins[/{pin_id}]
+func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	switch {
+	case len(rest) == 0 && r.Method == http.MethodGet:
+		pins, err := s.cfg.Service.Metadata.ListPins(r.Context(), wsID)
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		entries := make([]api.PinEntry, len(pins))
+		for i, p := range pins {
+			entries[i] = api.PinEntry{
+				PinID: p.PinID, Query: p.Query, Mode: p.Mode, K: p.K,
+				Watermark: p.Watermark, Label: p.Label, CreatedBy: p.CreatedBy,
+				CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			}
+		}
+		s.writeJSON(w, 200, api.PinListResponse{Pins: entries})
+	case len(rest) == 0 && r.Method == http.MethodPost:
+		var req api.PinRequest
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		if req.Query == "" {
+			s.writeError(w, 400, "invalid_input", "query is required", nil)
+			return
+		}
+		if req.Mode == "" {
+			req.Mode = "hybrid"
+		}
+		if req.K <= 0 {
+			req.K = 10
+		}
+		p := &types.Pin{
+			WorkspaceID: wsID,
+			Query:       req.Query,
+			Mode:        req.Mode,
+			K:           req.K,
+			Watermark:   req.Watermark,
+			Label:       req.Label,
+			CreatedBy:   agentFrom(r.Context()),
+		}
+		if err := s.cfg.Service.Metadata.CreatePin(r.Context(), p); err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 201, api.PinResponse{PinID: p.PinID, Watermark: p.Watermark})
+	case len(rest) == 1 && r.Method == http.MethodDelete:
+		if err := s.cfg.Service.Metadata.DeletePin(r.Context(), rest[0]); err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		w.WriteHeader(204)
+	default:
+		s.writeError(w, 405, "method_not_allowed", "", nil)
+	}
 }
 
 // /v1/workspaces/{ws_id}/agents[/{agent_id}]

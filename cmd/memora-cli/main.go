@@ -107,6 +107,8 @@ func main() {
 		cmdGraph(ctx, c, g)
 	case "agents":
 		cmdAgents(ctx, c, g)
+	case "pin":
+		cmdPin(ctx, c, g)
 	case "health":
 		cmdHealth(ctx, c, g)
 	case "ready":
@@ -691,6 +693,49 @@ func cmdAgents(ctx context.Context, c *client.Client, g globalFlags) {
 		emit(g, a)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown agents subcommand %q\n", g.Args[0])
+		os.Exit(exitUsage)
+	}
+}
+
+// ----- Pins -----
+
+func cmdPin(ctx context.Context, c *client.Client, g globalFlags) {
+	requireWorkspace(g)
+	if len(g.Args) == 0 {
+		fmt.Fprintln(os.Stderr, "pin <create|list|delete>")
+		os.Exit(exitUsage)
+	}
+	switch g.Args[0] {
+	case "create":
+		fs := flag.NewFlagSet("pin create", flag.ExitOnError)
+		query := fs.String("query", "", "recall query text (required)")
+		mode := fs.String("mode", "hybrid", "recall mode")
+		k := fs.Int("k", 10, "top-k results")
+		watermark := fs.String("watermark", "", "watermark to bind")
+		label := fs.String("label", "", "optional label")
+		_ = fs.Parse(g.Args[1:])
+		if *query == "" {
+			fmt.Fprintln(os.Stderr, "pin create --query <text>")
+			os.Exit(exitUsage)
+		}
+		resp, err := c.CreatePin(ctx, g.Workspace, api.PinRequest{
+			Query: *query, Mode: *mode, K: *k, Watermark: *watermark, Label: *label,
+		})
+		die(err)
+		emit(g, resp)
+	case "list":
+		pins, err := c.ListPins(ctx, g.Workspace)
+		die(err)
+		emit(g, map[string]any{"pins": pins})
+	case "delete":
+		if len(g.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "pin delete <pin_id>")
+			os.Exit(exitUsage)
+		}
+		die(c.DeletePin(ctx, g.Workspace, g.Args[1]))
+		emit(g, map[string]string{"status": "deleted", "pin_id": g.Args[1]})
+	default:
+		fmt.Fprintf(os.Stderr, "unknown pin subcommand %q\n", g.Args[0])
 		os.Exit(exitUsage)
 	}
 }

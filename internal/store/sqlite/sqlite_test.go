@@ -271,10 +271,10 @@ func TestMigrationSplit_NewObjects(t *testing.T) {
 		versions = append(versions, v)
 	}
 	_ = rows.Close()
-	if len(versions) != 3 {
-		t.Fatalf("expected 3 migrations, got %v", versions)
+	if len(versions) != 4 {
+		t.Fatalf("expected 4 migrations, got %v", versions)
 	}
-	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" {
+	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" || versions[3] != "0004_pins.sql" {
 		t.Fatalf("unexpected migration versions: %v", versions)
 	}
 }

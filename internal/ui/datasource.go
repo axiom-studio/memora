@@ -88,6 +88,17 @@ type IdentityProviderSummary struct {
 	Configured  bool
 }
 
+type PinSummary struct {
+	PinID     string
+	Query     string
+	Mode      string
+	K         int
+	Watermark string
+	Label     string
+	CreatedBy string
+	CreatedAt time.Time
+}
+
 type SettingsInfo struct {
 	ServerAddr      string
 	ServerMode      string
@@ -217,4 +228,7 @@ type DataSource interface {
 	UpdatePeer(ctx context.Context, peerID string, peer PeerInfo) error
 	RemovePeer(ctx context.Context, peerID string) error
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
+	ListPins(ctx context.Context, wsID string) ([]PinSummary, error)
+	CreatePin(ctx context.Context, wsID string, query, mode string, k int, watermark, label string) (string, error)
+	DeletePin(ctx context.Context, pinID string) error
 }

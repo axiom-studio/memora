@@ -674,6 +674,41 @@ func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string
 	return s.Ledger.Query(ctx, q)
 }
 
+func (s *ServiceDataSource) ListPins(ctx context.Context, wsID string) ([]PinSummary, error) {
+	pins, err := s.Metadata.ListPins(ctx, wsID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PinSummary, len(pins))
+	for i, p := range pins {
+		out[i] = PinSummary{
+			PinID: p.PinID, Query: p.Query, Mode: p.Mode, K: p.K,
+			Watermark: p.Watermark, Label: p.Label, CreatedBy: p.CreatedBy,
+			CreatedAt: p.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (s *ServiceDataSource) CreatePin(ctx context.Context, wsID string, query, mode string, k int, watermark, label string) (string, error) {
+	p := &types.Pin{
+		WorkspaceID: wsID,
+		Query:       query,
+		Mode:        mode,
+		K:           k,
+		Watermark:   watermark,
+		Label:       label,
+	}
+	if err := s.Metadata.CreatePin(ctx, p); err != nil {
+		return "", err
+	}
+	return p.PinID, nil
+}
+
+func (s *ServiceDataSource) DeletePin(ctx context.Context, pinID string) error {
+	return s.Metadata.DeletePin(ctx, pinID)
+}
+
 func marshalProps(m map[string]any) string {
 	if len(m) == 0 {
 		return ""
