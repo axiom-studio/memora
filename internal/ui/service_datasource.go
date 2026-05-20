@@ -18,6 +18,7 @@ type ServiceDataSource struct {
 	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
 	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
 	UpdateFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
+	PatchFunc       func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
 	FederationPeers int
 	HealthyPeers    int
 	EmbedQueueDepth func() int
@@ -217,6 +218,13 @@ func (s *ServiceDataSource) UpdateMemory(ctx context.Context, wsID, memID string
 		return nil, fmt.Errorf("update not configured")
 	}
 	return s.UpdateFunc(ctx, wsID, memID, "ui-admin", "", req)
+}
+
+func (s *ServiceDataSource) PatchMemory(ctx context.Context, wsID, memID string, req api.PatchRequest) (*api.PatchResponse, error) {
+	if s.PatchFunc == nil {
+		return nil, fmt.Errorf("patch not configured")
+	}
+	return s.PatchFunc(ctx, wsID, memID, "ui-admin", "", req)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {

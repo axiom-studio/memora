@@ -233,6 +233,169 @@ func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) 
 	)
 }
 
+func (h *Handler) handleMemoryPatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.data == nil {
+		h.writeFormError(w, "Data source not configured")
+		return
+	}
+
+	wsID := strings.TrimSpace(r.FormValue("workspace_id"))
+	memID := strings.TrimSpace(r.FormValue("memory_id"))
+	if wsID == "" || memID == "" {
+		h.writeFormError(w, "Workspace ID and Memory ID are required")
+		return
+	}
+
+	oldStrs := r.Form["old_string"]
+	newStrs := r.Form["new_string"]
+	replaceAlls := r.Form["replace_all"]
+
+	var ops []api.PatchOp
+	for i, old := range oldStrs {
+		if old == "" {
+			continue
+		}
+		newStr := ""
+		if i < len(newStrs) {
+			newStr = newStrs[i]
+		}
+		ra := false
+		if i < len(replaceAlls) && replaceAlls[i] == "true" {
+			ra = true
+		}
+		ops = append(ops, api.PatchOp{OldString: old, NewString: newStr, ReplaceAll: ra})
+	}
+
+	if len(ops) == 0 {
+		h.writeFormError(w, "At least one patch operation is required")
+		return
+	}
+
+	req := api.PatchRequest{
+		Patch:             ops,
+		ExpectedWatermark: strings.TrimSpace(r.FormValue("expected_watermark")),
+	}
+
+	resp, err := h.data.PatchMemory(r.Context(), wsID, memID, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "cas conflict") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<div class="form-error">This memory was modified since you opened it. <a href="/ui/workspaces/%s/memories/%s">Reload</a> and reapply your changes.</div>`,
+				template.HTMLEscapeString(wsID), template.HTMLEscapeString(memID))
+			return
+		}
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Patch Applied</h3><table>`)
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	fmt.Fprintf(w, `<tr><td><strong>Patches Applied</strong></td><td>%d</td></tr>`, resp.PatchesApplied)
+	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
+	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
+	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
+	fmt.Fprintf(w, `</table></div>`)
+}
+
+func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	wsID := r.URL.Query().Get("ws")
+	memID := r.URL.Query().Get("id")
+	if wsID == "" || memID == "" || h.data == nil {
+		h.writeFormError(w, "Memory not found")
+		return
+	}
+
+	mem, err := h.data.GetMemory(r.Context(), memID)
+	if err != nil {
+		h.writeFormError(w, err.Error())
+		return
+	}
+
+	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal" open>
+<form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form" style="max-width:700px">
+  <h3>Patch Memory</h3>
+  <div id="patch-result"></div>
+  <input type="hidden" name="workspace_id" value="%s">
+  <input type="hidden" name="memory_id" value="%s">
+  <input type="hidden" name="expected_watermark" value="%s">
+  <details style="margin-bottom:0.75rem">
+    <summary style="cursor:pointer;font-weight:600;font-size:0.9rem">Current Content <span class="text-muted">(click to expand)</span></summary>
+    <pre id="patch-content-preview" style="white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;background:var(--bg-secondary);padding:0.5rem;border-radius:4px;font-size:0.85rem;margin-top:0.5rem">%s</pre>
+  </details>
+  <div id="patch-ops">
+    <div class="patch-op" style="border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem">
+      <label style="font-size:0.9rem;font-weight:600">Find (old_string)</label>
+      <textarea name="old_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>
+      <div class="anchor-status" style="font-size:0.8rem;margin:0.25rem 0"></div>
+      <label style="font-size:0.9rem;font-weight:600">Replace (new_string)</label>
+      <textarea name="new_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="replacement text..."></textarea>
+      <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem">
+        <input type="checkbox" onchange="this.previousElementSibling || null; this.nextElementSibling.value=this.checked?'true':'false'"><input type="hidden" name="replace_all" value="false"> Replace all occurrences
+      </label>
+    </div>
+  </div>
+  <button type="button" class="btn btn-secondary" style="font-size:0.85rem;margin-bottom:0.75rem" onclick="addPatchOp()">+ Add Operation</button>
+  <div class="modal-actions">
+    <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
+    <button type="submit" class="btn btn-primary" id="patch-submit-btn">Apply Patch</button>
+  </div>
+</form>
+</dialog>
+<script>
+var patchContent = %s;
+function checkAnchor(el) {
+  var status = el.parentElement.querySelector('.anchor-status');
+  var val = el.value;
+  if (!val) { status.textContent = ''; return; }
+  var count = 0, idx = -1;
+  while ((idx = patchContent.indexOf(val, idx + 1)) !== -1) count++;
+  if (count === 0) {
+    status.innerHTML = '<span style="color:var(--danger)">Not found in content</span>';
+  } else if (count === 1) {
+    status.innerHTML = '<span style="color:var(--success)">Unique match</span>';
+  } else {
+    status.innerHTML = '<span style="color:var(--warning)">' + count + ' matches (use replace_all or narrow the anchor)</span>';
+  }
+}
+function addPatchOp() {
+  var container = document.getElementById('patch-ops');
+  var div = document.createElement('div');
+  div.className = 'patch-op';
+  div.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem';
+  div.innerHTML = '<label style="font-size:0.9rem;font-weight:600">Find (old_string)</label>' +
+    '<textarea name="old_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>' +
+    '<div class="anchor-status" style="font-size:0.8rem;margin:0.25rem 0"></div>' +
+    '<label style="font-size:0.9rem;font-weight:600">Replace (new_string)</label>' +
+    '<textarea name="new_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="replacement text..."></textarea>' +
+    '<label style="font-size:0.85rem;display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem"><input type="checkbox" onchange="this.nextElementSibling.value=this.checked?\'true\':\'false\'"><input type="hidden" name="replace_all" value="false"> Replace all occurrences</label>';
+  container.appendChild(div);
+}
+</script>`,
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(mem.ID),
+		template.HTMLEscapeString(mem.Watermark),
+		template.HTMLEscapeString(mem.Content),
+		jsonEscapeString(mem.Content),
+	)
+}
+
+func jsonEscapeString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return `"` + s + `"`
+}
+
 func parseTags(r *http.Request) map[string]string {
 	keys := r.Form["tag_key"]
 	vals := r.Form["tag_value"]

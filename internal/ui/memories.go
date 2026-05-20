@@ -140,8 +140,12 @@ func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, me
 	wsID := r.URL.Query().Get("ws")
 	fmt.Fprint(w, `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Memory Details</h3>`)
 	if wsID != "" {
+		fmt.Fprintf(w, `<div style="display:flex;gap:0.5rem">`)
 		fmt.Fprintf(w, `<button class="btn" hx-get="/ui/partials/memory-edit-form?ws=%s&amp;id=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">Edit</button>`,
 			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
+		fmt.Fprintf(w, `<button class="btn" hx-get="/ui/partials/memory-patch-form?ws=%s&amp;id=%s" hx-target="#mem-modal-container" hx-swap="innerHTML">Patch</button>`,
+			template.HTMLEscapeString(wsID), template.HTMLEscapeString(mem.ID))
+		fmt.Fprintf(w, `</div>`)
 	}
 	fmt.Fprint(w, `</div><div id="mem-modal-container"></div><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(mem.ID))

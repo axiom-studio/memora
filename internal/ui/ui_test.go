@@ -468,6 +468,19 @@ func (m *mockDataSource) ImprintMemory(_ context.Context, _ string, _ api.Imprin
 		LatencyMS:    42,
 	}, nil
 }
+func (m *mockDataSource) PatchMemory(_ context.Context, _, _ string, _ api.PatchRequest) (*api.PatchResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &api.PatchResponse{
+		MemoryID:       "mem_test_123",
+		Watermark:      "wm_patched",
+		PatchesApplied: 2,
+		CellsReembed:   1,
+		CellsSkipped:   2,
+		LedgerID:       "led_patch",
+	}, nil
+}
 func (m *mockDataSource) UpdateMemory(_ context.Context, _, _ string, _ api.UpdateRequest) (*api.UpdateResponse, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -1682,5 +1695,87 @@ func TestMemoryDetailHasEditButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Edit") {
 		t.Error("memory detail missing Edit button")
+	}
+}
+
+func TestMemoryPatchForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: "hello world", Watermark: "wm_123"},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=ws_abc&id=mem_abc", nil)
+	h.partialMemoryPatchForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Patch Memory") {
+		t.Error("missing Patch Memory heading")
+	}
+	if !strings.Contains(body, "hello world") {
+		t.Error("missing content preview")
+	}
+	if !strings.Contains(body, "wm_123") {
+		t.Error("missing watermark")
+	}
+	if !strings.Contains(body, "checkAnchor") {
+		t.Error("missing live anchor checking JS")
+	}
+}
+
+func TestMemoryPatch(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=hello&new_string=goodbye&replace_all=false&expected_watermark=wm_123"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryPatch(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Patch Applied") {
+		t.Error("missing success heading")
+	}
+	if !strings.Contains(body, "wm_patched") {
+		t.Error("missing new watermark")
+	}
+	if !strings.Contains(body, "2") {
+		t.Error("missing patches applied count")
+	}
+}
+
+func TestMemoryPatch_NoOps(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=&new_string=test"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryPatch(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "At least one patch operation is required") {
+		t.Error("missing validation error")
+	}
+}
+
+func TestMemoryPatch_CASConflict(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{err: fmt.Errorf("memora: cas conflict (head watermark moved)")})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=hello&new_string=bye&replace_all=false&expected_watermark=wm_old"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryPatch(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "modified since you opened it") {
+		t.Error("missing CAS conflict message")
+	}
+}
+
+func TestMemoryDetailHasPatchButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_abc&ws=ws_abc&tab=content", nil)
+	h.partialMemoryDetail(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Patch") {
+		t.Error("memory detail missing Patch button")
 	}
 }

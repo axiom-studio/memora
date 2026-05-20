@@ -114,6 +114,7 @@ func New(cfg Config) *Server {
 				RecallFunc:  cfg.Service.Recall,
 				ImprintFunc: cfg.Service.Imprint,
 				UpdateFunc:  cfg.Service.Update,
+				PatchFunc:   cfg.Service.Patch,
 			}
 			uiHandler.SetDataSource(ds)
 		}
