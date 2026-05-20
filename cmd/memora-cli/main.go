@@ -336,10 +336,13 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 	text := fs.String("text", "", "memory content (use - for stdin)")
 	fromFile := fs.String("from-file", "", "read content from file")
 	collection := fs.String("collection", "", "collection id")
+	chunkerName := fs.String("chunker", "", "chunker name (default, markdown, csv, jsonl, no-chunk)")
 	enableAutoLink := fs.Bool("auto-link", false, "enable auto-link for this imprint")
 	disableAutoLink := fs.Bool("no-auto-link", false, "disable auto-link for this imprint")
 	tagPairs := newRepeatable()
 	fs.Var(tagPairs, "tag", "k=v tag (repeatable)")
+	chunkerOpts := newRepeatable()
+	fs.Var(chunkerOpts, "chunker-opt", "chunker config k=v (repeatable, e.g. rows_per_cell=5)")
 	_ = fs.Parse(g.Args)
 
 	content, err := loadContent(*text, *fromFile)
@@ -354,6 +357,15 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 			tags[p[:i]] = p[i+1:]
 		}
 	}
+	chunkerCfg := map[string]string{}
+	for _, p := range chunkerOpts.values {
+		i := strings.Index(p, "=")
+		if i <= 0 {
+			fmt.Fprintf(os.Stderr, "imprint: --chunker-opt must be key=value, got %q\n", p)
+			os.Exit(exitUsage)
+		}
+		chunkerCfg[p[:i]] = p[i+1:]
+	}
 	var autoLink *bool
 	if *enableAutoLink {
 		v := true
@@ -363,10 +375,12 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 		autoLink = &v
 	}
 	resp, err := c.Imprint(ctx, g.Workspace, api.ImprintRequest{
-		CollectionID: *collection,
-		Content:      content,
-		Tags:         tags,
-		AutoLink:     autoLink,
+		CollectionID:  *collection,
+		Content:       content,
+		Tags:          tags,
+		ChunkerID:     *chunkerName,
+		ChunkerConfig: chunkerCfg,
+		AutoLink:      autoLink,
 	})
 	die(err)
 	if g.Output == "text" {
@@ -905,7 +919,8 @@ Usage:
 Commands:
   workspaces list|create|show|delete
   collections list|create
-  imprint --text|--from-file [--tag k=v ...]
+  imprint --text|--from-file [--tag k=v ...] [--chunker csv|jsonl|markdown|...]
+          [--chunker-opt key=value ...]
   lookup <mem_id>
   update <mem_id> --text|--from-file --if-match <wmk>
   patch <mem_id> --patch '[{...}]'|--patch-file <path> --if-match <wmk>

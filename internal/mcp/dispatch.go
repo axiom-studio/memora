@@ -28,12 +28,14 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 	switch name {
 	case "memora_imprint":
 		var in struct {
-			WorkspaceID  string            `json:"workspace_id"`
-			AgentID      string            `json:"agent_id"`
-			CollectionID string            `json:"collection_id"`
-			Content      string            `json:"content"`
-			Tags         map[string]string `json:"tags"`
-			AutoLink     *bool             `json:"auto_link"`
+			WorkspaceID   string            `json:"workspace_id"`
+			AgentID       string            `json:"agent_id"`
+			CollectionID  string            `json:"collection_id"`
+			Content       string            `json:"content"`
+			Tags          map[string]string `json:"tags"`
+			ChunkerID     string            `json:"chunker_id"`
+			ChunkerConfig map[string]string `json:"chunker_config"`
+			AutoLink      *bool             `json:"auto_link"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
@@ -43,6 +45,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		return s.svc.Imprint(ctx, in.WorkspaceID, in.AgentID, api.ImprintRequest{
 			CollectionID: in.CollectionID, Content: in.Content, Tags: in.Tags,
+			ChunkerID: in.ChunkerID, ChunkerConfig: in.ChunkerConfig,
 			AutoLink: in.AutoLink,
 		})
 	case "memora_lookup":

@@ -13,7 +13,7 @@ func toolCatalog() []Tool {
 	return []Tool{
 		{
 			Name:        "memora_imprint",
-			Description: "Create a new Memory. Requires workspace_id, content, agent_id. Tags are key/value strings.",
+			Description: "Create a new Memory. Requires workspace_id, content, agent_id. Tags are key/value strings. Use chunker_id to select a chunker (default, markdown, csv, jsonl, no-chunk). Use chunker_config to pass chunker-specific options (csv: rows_per_cell, has_header, delimiter; jsonl: lines_per_cell, validate).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -22,6 +22,8 @@ func toolCatalog() []Tool {
 					"collection_id": stringP(),
 					"content":       stringP(),
 					"tags":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+					"chunker_id":    stringP(),
+					"chunker_config": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 				},
 				"required": []string{"workspace_id", "agent_id", "content"},
 			},
