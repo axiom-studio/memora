@@ -10,9 +10,9 @@ services:
       MEMORA_API_KEY: "${MEMORA_API_KEY:-memora-dev-key}"
       MEMORA_DATA_DIR: /data
       MEMORA_METADATA_DRIVER: sqlite
-      MEMORA_VECTOR_DRIVER: sqlitevec
+      MEMORA_VECTOR_DRIVER: sqlite-vec
       MEMORA_LEDGER_DRIVER: sqlite
-      MEMORA_GRAPH_DRIVER: sqlite
+      MEMORA_GRAPH_DRIVER: sqlite_graph
       MEMORA_CONTENT_DRIVER: file
       MEMORA_MCP_ENABLE: "true"
     volumes:
