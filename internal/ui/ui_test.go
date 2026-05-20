@@ -1915,3 +1915,67 @@ func TestMemoryDetailHasAppendAndForgetButtons(t *testing.T) {
 		t.Error("memory detail missing Forget button")
 	}
 }
+
+func TestUploadForm(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/upload-form?ws=ws_abc", nil)
+	h.partialUploadForm(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Upload Document") {
+		t.Error("missing Upload Document heading")
+	}
+	if !strings.Contains(body, "drop-zone") {
+		t.Error("missing drop zone")
+	}
+	if !strings.Contains(body, "docs") {
+		t.Error("missing collection option")
+	}
+	if !strings.Contains(body, "handleFiles") {
+		t.Error("missing file handler JS")
+	}
+}
+
+func TestMemoryUpload_ViaContent(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=ws_abc&content=uploaded+text&chunker_id=markdown"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryUpload(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Document Uploaded") {
+		t.Error("missing success heading")
+	}
+	if !strings.Contains(body, "mem_test_123") {
+		t.Error("missing memory ID")
+	}
+}
+
+func TestMemoryUpload_EmptyContent(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=ws_abc&content="))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.handleMemoryUpload(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "No file content") {
+		t.Error("missing validation error")
+	}
+}
+
+func TestMemoryListHasUploadButton(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	h.partialMemoryList(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Upload Document") {
+		t.Error("memory list missing Upload Document button")
+	}
+}
