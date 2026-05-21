@@ -374,6 +374,9 @@ input:focus, select:focus, textarea:focus {
 .modal-form label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; }
 .modal-form input[type="text"] { width: 100%; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+form[hx-post] button[type="submit"]:disabled {
+  opacity: 0.6; cursor: not-allowed;
+}
 
 /* Form errors */
 .form-error {
