@@ -195,8 +195,10 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
   <div id="graph-empty" style="display:flex;align-items:center;justify-content:center;height:100%%">
     <p class="text-muted">Select a query mode and click the button to visualize the graph.</p>
   </div>
-  <canvas id="graph-canvas" style="display:none;width:100%%;height:100%%"></canvas>
+  <canvas id="graph-canvas" role="img" aria-label="Context graph visualization showing memory nodes and their edge relationships" style="display:none;width:100%%;height:100%%"></canvas>
 </div>
+<p class="text-muted" style="font-size:0.8rem;margin-top:0.5rem">Double-click a node to view memory details. Scroll to zoom. Drag to pan.</p>
+<div id="graph-a11y-table" class="sr-only" aria-live="polite"></div>
 <div id="graph-tooltip" style="display:none;position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0.5rem;font-size:0.85rem;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1000;max-width:300px"></div>
 </div>`,
 		template.HTMLEscapeString(wsID),
@@ -317,6 +319,14 @@ function renderGraph(nodes, edges) {
 
   var pos = layoutForceDirected(nodes, edges, canvas.width, canvas.height);
   var state = { pos: pos, nodes: nodes, edges: edges, zoom: 1, panX: 0, panY: 0, drag: null, hover: null };
+
+  var a11y = document.getElementById('graph-a11y-table');
+  var html = '<table><caption>Graph nodes and edges</caption><thead><tr><th>Nodes (' + nodes.length + ')</th></tr></thead><tbody>';
+  nodes.forEach(function(n) { html += '<tr><td>' + escapeHtml(n.id) + ' (' + escapeHtml(n.type) + ')</td></tr>'; });
+  html += '</tbody></table><table><thead><tr><th>Source</th><th>Type</th><th>Target</th></tr></thead><tbody>';
+  edges.forEach(function(e) { html += '<tr><td>' + escapeHtml(e.source) + '</td><td>' + escapeHtml(e.label) + '</td><td>' + escapeHtml(e.target) + '</td></tr>'; });
+  html += '</tbody></table>';
+  a11y.innerHTML = html;
 
   var ctx = canvas.getContext('2d');
   draw(ctx, state);
