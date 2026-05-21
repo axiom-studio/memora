@@ -77,7 +77,9 @@ func (h *Handler) partialBulkOpsForm(w http.ResponseWriter, r *http.Request) {
         <option value="noop">no-chunk</option>
       </select>
     </label>
+    <p class="form-help">Controls how content is split into cells for embedding</p>
     <label style="display:flex;align-items:center;gap:0.5rem"><input type="checkbox" id="seed-autolink"> Enable auto-link</label>
+    <p class="form-help">Automatically create graph edges between related memories based on vector similarity</p>
     <div id="seed-progress" class="bulk-progress" style="display:none"></div>
     <div id="seed-result"></div>
     <div class="modal-actions">

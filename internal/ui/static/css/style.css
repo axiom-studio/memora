@@ -395,6 +395,8 @@ form[hx-post] button[type="submit"]:disabled {
   :root:not([data-theme]) .form-error { background: #842029; color: #f8d7da; border-color: #842029; }
 }
 
+.form-help { color: var(--text-muted); font-size: 0.8rem; margin: -0.25rem 0 0.5rem; }
+
 /* Nav icons */
 .nav-icon { flex-shrink: 0; vertical-align: middle; }
 .sidebar-nav a { display: flex; align-items: center; gap: 0.65rem; }

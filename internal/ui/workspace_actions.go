@@ -122,9 +122,11 @@ func (h *Handler) partialWorkspaceCreateForm(w http.ResponseWriter, r *http.Requ
   <label>Chunker
     <input type="text" name="chunker_id" placeholder="default">
   </label>
+  <p class="form-help">Controls how content is split into cells for embedding (default, markdown, no-chunk)</p>
   <label>Embedding Model
     <input type="text" name="embedding_model" placeholder="noop:default">
   </label>
+  <p class="form-help">Vector embedding model used for recall search</p>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
     <button type="submit" class="btn btn-primary">Create</button>
@@ -159,9 +161,11 @@ func (h *Handler) partialWorkspaceEditForm(w http.ResponseWriter, r *http.Reques
   <label>Chunker
     <input type="text" name="chunker_id" value="%s">
   </label>
+  <p class="form-help">Controls how content is split into cells for embedding (default, markdown, no-chunk)</p>
   <label>Embedding Model
     <input type="text" name="embedding_model" value="%s">
   </label>
+  <p class="form-help">Vector embedding model used for recall search</p>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
     <button type="submit" class="btn btn-primary">Save</button>
