@@ -41,7 +41,7 @@ func (h *Handler) partialUploadForm(w http.ResponseWriter, r *http.Request) {
   <h3 id="upload-title">Upload Documents</h3>
   <div id="upload-result"></div>
   <div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;cursor:pointer;margin-bottom:0.75rem;transition:border-color 0.2s"
-    ondragover="event.preventDefault();this.style.borderColor='var(--primary)'"
+    ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
     ondragleave="this.style.borderColor='var(--border)'"
     ondrop="event.preventDefault();this.style.borderColor='var(--border)';handleBatchFiles(event.dataTransfer.files)"
     onclick="document.getElementById('file-input').click()">
@@ -52,7 +52,7 @@ func (h *Handler) partialUploadForm(w http.ResponseWriter, r *http.Request) {
   <div id="file-queue" style="display:none;margin-bottom:0.75rem;max-height:300px;overflow:auto"></div>
   <div id="batch-progress" style="display:none;margin-bottom:0.75rem">
     <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem"><span id="batch-status">Uploading...</span><span id="batch-count">0/0</span></div>
-    <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div id="batch-bar" style="height:100%%;background:var(--primary);width:0%%;transition:width 0.3s"></div></div>
+    <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div id="batch-bar" style="height:100%%;background:var(--accent);width:0%%;transition:width 0.3s"></div></div>
   </div>
   <label>Collection
     <select id="batch-collection">

@@ -89,7 +89,7 @@ func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Reques
   <div id="imprint-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <label>Content <span class="text-muted">(required)</span>
-    <textarea name="content" required rows="8" style="width:100%%;font-family:var(--font-mono);font-size:0.9rem" placeholder="Enter memory content..."></textarea>
+    <textarea name="content" required rows="8" style="width:100%%;font-family:var(--mono);font-size:0.9rem" placeholder="Enter memory content..."></textarea>
   </label>
   <label>Collection
     <select name="collection_id">
@@ -212,7 +212,7 @@ func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) 
   <input type="hidden" name="expected_watermark" value="%s">
   <p class="text-muted" style="font-size:0.85rem">Watermark: <code>%s</code></p>
   <label>Content <span class="text-muted">(required)</span>
-    <textarea name="content" required rows="10" style="width:100%%;font-family:var(--font-mono);font-size:0.9rem">%s</textarea>
+    <textarea name="content" required rows="10" style="width:100%%;font-family:var(--mono);font-size:0.9rem">%s</textarea>
   </label>
   <fieldset style="border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-top:0.5rem">
     <legend style="font-size:0.9rem;font-weight:600;padding:0 0.25rem">Tags</legend>
@@ -334,10 +334,10 @@ func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request)
   <div id="patch-ops">
     <div class="patch-op" style="border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem">
       <label style="font-size:0.9rem;font-weight:600">Find (old_string)</label>
-      <textarea name="old_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>
+      <textarea name="old_string" rows="2" style="width:100%%;font-family:var(--mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>
       <div class="anchor-status" style="font-size:0.8rem;margin:0.25rem 0"></div>
       <label style="font-size:0.9rem;font-weight:600">Replace (new_string)</label>
-      <textarea name="new_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="replacement text..."></textarea>
+      <textarea name="new_string" rows="2" style="width:100%%;font-family:var(--mono);font-size:0.85rem" placeholder="replacement text..."></textarea>
       <label style="font-size:0.85rem;display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem">
         <input type="checkbox" onchange="this.previousElementSibling || null; this.nextElementSibling.value=this.checked?'true':'false'"><input type="hidden" name="replace_all" value="false"> Replace all occurrences
       </label>
@@ -372,10 +372,10 @@ function addPatchOp() {
   div.className = 'patch-op';
   div.style.cssText = 'border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem';
   div.innerHTML = '<label style="font-size:0.9rem;font-weight:600">Find (old_string)</label>' +
-    '<textarea name="old_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>' +
+    '<textarea name="old_string" rows="2" style="width:100%%;font-family:var(--mono);font-size:0.85rem" placeholder="text to find..." oninput="checkAnchor(this)"></textarea>' +
     '<div class="anchor-status" style="font-size:0.8rem;margin:0.25rem 0"></div>' +
     '<label style="font-size:0.9rem;font-weight:600">Replace (new_string)</label>' +
-    '<textarea name="new_string" rows="2" style="width:100%%;font-family:var(--font-mono);font-size:0.85rem" placeholder="replacement text..."></textarea>' +
+    '<textarea name="new_string" rows="2" style="width:100%%;font-family:var(--mono);font-size:0.85rem" placeholder="replacement text..."></textarea>' +
     '<label style="font-size:0.85rem;display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem"><input type="checkbox" onchange="this.nextElementSibling.value=this.checked?\'true\':\'false\'"><input type="hidden" name="replace_all" value="false"> Replace all occurrences</label>';
   container.appendChild(div);
 }
@@ -462,7 +462,7 @@ func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request
   <input type="hidden" name="expected_watermark" value="%s">
   <p class="text-muted" style="font-size:0.85rem">Current length: %d chars · Watermark: <code>%s</code></p>
   <label>Content to append <span class="text-muted">(required)</span>
-    <textarea name="content" required rows="6" style="width:100%%;font-family:var(--font-mono);font-size:0.9rem" placeholder="Content will be appended to the end..."></textarea>
+    <textarea name="content" required rows="6" style="width:100%%;font-family:var(--mono);font-size:0.9rem" placeholder="Content will be appended to the end..."></textarea>
   </label>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>

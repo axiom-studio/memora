@@ -147,7 +147,7 @@ function renderBulkProgress(id, done, total, failed) {
   el.style.display = 'block';
   var pct = total > 0 ? Math.round((done / total) * 100) : 0;
   el.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.25rem"><span>' + done + '/' + total + (failed > 0 ? ' (' + failed + ' failed)' : '') + '</span><span>' + pct + '%%</span></div>'
-    + '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%%;background:var(--primary);width:' + pct + '%%;transition:width 0.3s"></div></div>';
+    + '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%%;background:var(--accent);width:' + pct + '%%;transition:width 0.3s"></div></div>';
 }
 
 function readNDJSON(file, callback) {
