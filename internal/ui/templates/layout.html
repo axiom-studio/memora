@@ -171,6 +171,17 @@
       while (tbody.children.length > 50) tbody.removeChild(tbody.lastChild);
     });
   })();
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[onclick*="close()"]');
+    if (!btn) return;
+    var dialog = btn.closest('dialog');
+    if (!dialog) return;
+    var ta = dialog.querySelector('textarea');
+    if (ta && ta.value.trim() && ta.value !== ta.defaultValue) {
+      if (!confirm('You have unsaved changes. Discard?')) e.preventDefault();
+    }
+  }, true);
   </script>
 </body>
 </html>

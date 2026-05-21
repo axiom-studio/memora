@@ -23,7 +23,7 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 	fmt.Fprint(w, `</table></div>`)
 
 	if len(f.Peers) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Peers</h3><p>No federation peers are configured.</p></div>`)
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Peers</h3><p>No federation peers are configured.</p><button class="btn btn-primary" hx-get="/ui/partials/peer-add-form" hx-target="#modal-host" hx-swap="innerHTML" onclick="setTimeout(function(){var d=document.querySelector('#modal-host dialog');if(d)d.showModal()},100)">Add Peer</button></div>`)
 		return
 	}
 

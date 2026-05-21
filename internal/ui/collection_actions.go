@@ -92,7 +92,7 @@ func (h *Handler) partialCollectionCreateForm(w http.ResponseWriter, r *http.Req
   <div id="coll-form-errors"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <label>Name <span class="text-muted">(required)</span>
-    <input type="text" name="name" required autofocus placeholder="my-collection">
+    <input type="text" name="name" required autofocus placeholder="my-collection" maxlength="128">
   </label>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>

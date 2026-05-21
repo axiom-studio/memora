@@ -114,7 +114,7 @@ func (h *Handler) partialWorkspaceCreateForm(w http.ResponseWriter, r *http.Requ
   <h3 id="ws-create-title">Create Workspace</h3>
   <div id="form-errors"></div>
   <label>Name <span class="text-muted">(required)</span>
-    <input type="text" name="name" required autofocus placeholder="my-workspace">
+    <input type="text" name="name" required autofocus placeholder="my-workspace" maxlength="128">
   </label>
   <label>Region
     <input type="text" name="region" placeholder="us-east-1">
@@ -153,7 +153,7 @@ func (h *Handler) partialWorkspaceEditForm(w http.ResponseWriter, r *http.Reques
   <div id="edit-form-errors"></div>
   <input type="hidden" name="id" value="%s">
   <label>Name <span class="text-muted">(required)</span>
-    <input type="text" name="name" required value="%s">
+    <input type="text" name="name" required value="%s" maxlength="128">
   </label>
   <label>Region
     <input type="text" name="region" value="%s">
@@ -219,5 +219,23 @@ func (h *Handler) partialWorkspaceDeleteForm(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) writeFormError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<div class="form-error">%s</div>`, template.HTMLEscapeString(msg))
+	fmt.Fprintf(w, `<div class="form-error">%s</div>`, template.HTMLEscapeString(sanitizeError(msg)))
+}
+
+func sanitizeError(msg string) string {
+	if i := strings.Index(msg, "rpc error:"); i >= 0 {
+		if j := strings.Index(msg[i:], "desc = "); j >= 0 {
+			msg = msg[i+j+7:]
+		}
+	}
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return "Service is temporarily unavailable. Please try again."
+	case strings.Contains(msg, "deadline exceeded"):
+		return "Request timed out. Please try again."
+	case strings.Contains(msg, "not found"):
+		return msg
+	default:
+		return msg
+	}
 }

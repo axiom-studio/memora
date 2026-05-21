@@ -318,6 +318,11 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-muted);
 }
 .empty-state h3 { margin: 0 0 0.5rem; color: var(--text); }
+.empty-state .btn { margin-top: 0.75rem; }
+
+/* Audit layout */
+.audit-layout { display: flex; gap: 1rem; align-items: start; }
+@media (max-width: 768px) { .audit-layout { flex-direction: column; } }
 
 /* Search palette */
 .search-trigger {
