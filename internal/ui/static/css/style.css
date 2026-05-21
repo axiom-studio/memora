@@ -378,6 +378,8 @@ input:focus, select:focus, textarea:focus {
 .modal {
   border: 1px solid var(--border); border-radius: 8px;
   padding: 1.5rem; width: min(500px, 90vw);
+  max-height: 85vh; overflow-y: auto;
+  margin: auto;
   background: var(--bg-card); color: var(--text);
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
 }
