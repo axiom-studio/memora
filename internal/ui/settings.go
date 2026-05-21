@@ -186,9 +186,9 @@ func (h *Handler) partialIDPAddForm(w http.ResponseWriter, r *http.Request) {
 			template.HTMLEscapeString(p.Desc))
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
 <div class="modal-form">
-  <h3>Add Identity Provider</h3>
+  <h3 id="idp-title">Add Identity Provider</h3>
   <div id="idp-add-result"></div>
   <form hx-post="/ui/api/idp/add" hx-target="#idp-add-result" hx-swap="innerHTML">
     <label>Provider Type
@@ -238,9 +238,9 @@ func (h *Handler) partialIDPEditForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
 <div class="modal-form">
-  <h3>Edit Provider: %s</h3>
+  <h3 id="idp-title">Edit Provider: %s</h3>
   <p class="text-muted" style="font-size:0.85rem">%s</p>
   <div id="idp-edit-result"></div>
   <form hx-post="/ui/api/idp/update" hx-target="#idp-edit-result" hx-swap="innerHTML">
@@ -284,9 +284,9 @@ func (h *Handler) partialIDPRemoveForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
 <div class="modal-form">
-  <h3>Remove Provider</h3>
+  <h3 id="idp-title">Remove Provider</h3>
   <div id="idp-remove-result"></div>
   <p>Are you sure you want to remove the <strong>%s</strong> identity provider?</p>
   <p class="text-muted" style="font-size:0.85rem">Agents using this provider will no longer be able to authenticate. Existing agent registrations are preserved.</p>
@@ -339,9 +339,9 @@ func (h *Handler) handleIDPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
 <div class="modal-form">
-  <h3>Verify: %s</h3>
+  <h3 id="idp-title">Verify: %s</h3>
   <div class="card"><table>
     <tr><td><strong>Provider</strong></td><td class="mono">%s</td></tr>
     <tr><td><strong>Status</strong></td><td><span class="badge badge-ok">Reachable</span></td></tr>
@@ -367,9 +367,9 @@ func (h *Handler) partialTLSRotateForm(w http.ResponseWriter, r *http.Request) {
 		mode = "upload"
 	}
 
-	fmt.Fprintf(w, `<dialog id="tls-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="tls-modal" class="modal" open aria-labelledby="tls-title">
 <div class="modal-form">
-  <h3>Rotate Certificate</h3>
+  <h3 id="tls-title">Rotate Certificate</h3>
   <div id="tls-rotate-result"></div>`)
 
 	if mode == "self-signed" {

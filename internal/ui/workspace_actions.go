@@ -109,9 +109,9 @@ func (h *Handler) handleWorkspaceDelete(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) partialWorkspaceCreateForm(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, `<dialog id="ws-create-modal" class="modal" open>
+	fmt.Fprint(w, `<dialog id="ws-create-modal" class="modal" open aria-labelledby="ws-create-title">
 <form hx-post="/ui/api/workspaces/create" hx-target="#form-errors" hx-swap="innerHTML" class="modal-form">
-  <h3>Create Workspace</h3>
+  <h3 id="ws-create-title">Create Workspace</h3>
   <div id="form-errors"></div>
   <label>Name <span class="text-muted">(required)</span>
     <input type="text" name="name" required autofocus placeholder="my-workspace">
@@ -145,9 +145,9 @@ func (h *Handler) partialWorkspaceEditForm(w http.ResponseWriter, r *http.Reques
 		h.writeFormError(w, err.Error())
 		return
 	}
-	fmt.Fprintf(w, `<dialog id="ws-edit-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="ws-edit-modal" class="modal" open aria-labelledby="ws-edit-title">
 <form hx-post="/ui/api/workspaces/update" hx-target="#edit-form-errors" hx-swap="innerHTML" class="modal-form">
-  <h3>Edit Workspace</h3>
+  <h3 id="ws-edit-title">Edit Workspace</h3>
   <div id="edit-form-errors"></div>
   <input type="hidden" name="id" value="%s">
   <label>Name <span class="text-muted">(required)</span>
@@ -188,9 +188,9 @@ func (h *Handler) partialWorkspaceDeleteForm(w http.ResponseWriter, r *http.Requ
 		h.writeFormError(w, err.Error())
 		return
 	}
-	fmt.Fprintf(w, `<dialog id="ws-delete-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="ws-delete-modal" class="modal" open aria-labelledby="ws-delete-title">
 <form hx-post="/ui/api/workspaces/delete" hx-target="#delete-form-errors" hx-swap="innerHTML" class="modal-form">
-  <h3>Delete Workspace</h3>
+  <h3 id="ws-delete-title">Delete Workspace</h3>
   <div id="delete-form-errors"></div>
   <input type="hidden" name="id" value="%s">
   <p>This will permanently delete workspace <strong>%s</strong> and all its memories, agents, and collections.</p>

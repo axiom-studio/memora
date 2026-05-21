@@ -30,9 +30,9 @@ func (h *Handler) partialEdgeLinkForm(w http.ResponseWriter, r *http.Request) {
 		edgeTypeOpts += fmt.Sprintf(`<option value="%s"%s>%s</option>`, et, sel, et)
 	}
 
-	fmt.Fprintf(w, `<dialog id="edge-link-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="edge-link-modal" class="modal" open aria-labelledby="edge-link-title">
 <form hx-post="/ui/api/edges/link" hx-target="#edge-result" hx-swap="innerHTML" class="modal-form">
-  <h3>Link Edge</h3>
+  <h3 id="edge-link-title">Link Edge</h3>
   <div id="edge-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <label>Source Memory ID
@@ -107,9 +107,9 @@ func (h *Handler) partialEdgeUnlinkForm(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="edge-unlink-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="edge-unlink-modal" class="modal" open aria-labelledby="edge-unlink-title">
 <form hx-post="/ui/api/edges/unlink" hx-target="#edge-unlink-result" hx-swap="innerHTML" class="modal-form">
-  <h3>Unlink Edge</h3>
+  <h3 id="edge-unlink-title">Unlink Edge</h3>
   <div id="edge-unlink-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <input type="hidden" name="edge_id" value="%s">

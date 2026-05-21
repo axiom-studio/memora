@@ -492,9 +492,9 @@ func (h *Handler) partialTagAddForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open aria-labelledby="tag-add-title">
 <div class="modal-form">
-  <h3>Add Tag</h3>
+  <h3 id="tag-add-title">Add Tag</h3>
   <div id="tag-add-result"></div>
   <form hx-post="/ui/api/tags/upsert" hx-target="#tag-add-result" hx-swap="innerHTML">
     <input type="hidden" name="ws" value="%s">
@@ -549,9 +549,9 @@ func (h *Handler) partialTagDeleteForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open aria-labelledby="tag-delete-title">
 <div class="modal-form">
-  <h3>Delete Tag</h3>
+  <h3 id="tag-delete-title">Delete Tag</h3>
   <div id="tag-delete-result"></div>
   <p>Delete tag <code>%s</code> from this memory?</p>
   <form hx-post="/ui/api/tags/delete" hx-target="#tag-delete-result" hx-swap="innerHTML">

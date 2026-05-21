@@ -50,9 +50,9 @@ func (h *Handler) partialBulkOpsForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="bulk-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="bulk-modal" class="modal" open aria-labelledby="bulk-title">
 <div class="modal-form" style="max-width:800px">
-  <h3>Bulk Operations</h3>
+  <h3 id="bulk-title">Bulk Operations</h3>
   <div class="tabs" style="margin-bottom:1rem">
     <a class="tab active" onclick="showBulkTab('seed',this)">Seed</a>
     <a class="tab" onclick="showBulkTab('dump',this)">Dump</a>

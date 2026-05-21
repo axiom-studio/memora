@@ -83,9 +83,9 @@ func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
 <div class="modal-form">
-  <h3>Add Federation Peer</h3>
+  <h3 id="peer-title">Add Federation Peer</h3>
   <div id="peer-add-result"></div>
   <form hx-post="/ui/api/peers/add" hx-target="#peer-add-result" hx-swap="innerHTML">
     <label>Name <input type="text" name="name" required placeholder="production-west"></label>
@@ -195,9 +195,9 @@ func (h *Handler) partialPeerEditForm(w http.ResponseWriter, r *http.Request) {
 		mtlsSel = " selected"
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
 <div class="modal-form">
-  <h3>Edit Peer: %s</h3>
+  <h3 id="peer-title">Edit Peer: %s</h3>
   <div id="peer-edit-result"></div>
   <form hx-post="/ui/api/peers/update" hx-target="#peer-edit-result" hx-swap="innerHTML">
     <input type="hidden" name="id" value="%s">
@@ -286,9 +286,9 @@ func (h *Handler) partialPeerRemoveForm(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
 <div class="modal-form">
-  <h3>Remove Peer</h3>
+  <h3 id="peer-title">Remove Peer</h3>
   <div id="peer-remove-result"></div>
   <p>Are you sure you want to remove peer <strong>%s</strong> (%s)?</p>
   <p class="text-muted" style="font-size:0.85rem">This will stop all federation traffic with this peer. Memories already received will not be deleted.</p>

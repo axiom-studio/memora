@@ -14,13 +14,14 @@
   <script src="/ui/static/js/htmx.min.js" defer></script>
 </head>
 <body>
+  <a href="#main-content" class="sr-only">Skip to content</a>
   <div class="app">
     <nav class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
       <div class="sidebar-brand">
         <img src="/ui/static/images/memora-logo.svg" alt="Memora" class="sidebar-logo">
         <span class="sidebar-brand-text">memora</span>
-        <button class="sidebar-collapse-btn" onclick="window.__toggleSidebar()" title="Collapse sidebar">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11.354 4.354a.5.5 0 0 0-.708-.708L6 8.293l4.646 4.647a.5.5 0 0 0 .708-.708L7.414 8.293l3.94-3.939z"/></svg>
+        <button class="sidebar-collapse-btn" onclick="window.__toggleSidebar()" title="Collapse sidebar" aria-label="Collapse sidebar">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.354 4.354a.5.5 0 0 0-.708-.708L6 8.293l4.646 4.647a.5.5 0 0 0 .708-.708L7.414 8.293l3.94-3.939z"/></svg>
         </button>
       </div>
       <ul class="sidebar-nav">
@@ -46,14 +47,14 @@
           <span class="nav-label">Search…</span>
         </button>
         <div class="theme-toggle">
-          <button id="theme-btn" onclick="window.__toggleTheme()" title="Toggle light/dark mode">
+          <button id="theme-btn" onclick="window.__toggleTheme()" title="Toggle light/dark mode" aria-label="Toggle dark mode">
             <span id="theme-icon"></span> <span id="theme-label" class="nav-label"></span>
           </button>
         </div>
         <span class="sidebar-version nav-label">memora v0.3</span>
       </div>
     </nav>
-    <main class="main" role="main">
+    <main class="main" role="main" id="main-content">
       {{template "content" .}}
     </main>
     <aside id="activity-rail" class="activity-rail collapsed">
@@ -68,7 +69,7 @@
     </aside>
   </div>
 
-  <dialog id="search-palette" class="search-palette">
+  <dialog id="search-palette" class="search-palette" aria-label="Search">
     <form method="dialog" style="display:flex;flex-direction:column;height:100%">
       <input type="text" id="search-input" placeholder="Search workspaces, agents, memories…"
              hx-get="/ui/partials/search"

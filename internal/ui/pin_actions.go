@@ -80,9 +80,9 @@ func (h *Handler) partialPinCreateForm(w http.ResponseWriter, r *http.Request) {
 		modeOptions += fmt.Sprintf(`<option value="%s"%s>%s</option>`, m, sel, m)
 	}
 
-	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open aria-labelledby="pin-create-title">
 <div class="modal-form">
-  <h3>Create Recall Pin</h3>
+  <h3 id="pin-create-title">Create Recall Pin</h3>
   <div id="pin-create-result"></div>
   <form hx-post="/ui/api/pins/create" hx-target="#pin-create-result" hx-swap="innerHTML">
     <input type="hidden" name="ws" value="%s">
@@ -153,9 +153,9 @@ func (h *Handler) partialPinDeleteForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open>
+	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open aria-labelledby="pin-delete-title">
 <div class="modal-form">
-  <h3>Delete Pin</h3>
+  <h3 id="pin-delete-title">Delete Pin</h3>
   <div id="pin-delete-result"></div>
   <p>Delete pin <code>%s</code>?</p>
   <form hx-post="/ui/api/pins/delete" hx-target="#pin-delete-result" hx-swap="innerHTML">
