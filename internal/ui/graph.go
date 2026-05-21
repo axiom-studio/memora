@@ -143,7 +143,9 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
 <div id="graph-tab-overview">
   <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
     <label>Seed Memory <span class="text-muted">(optional)</span>
-      <input type="text" id="graph-seed" placeholder="mem_... (leave empty for full graph)">
+      <input type="text" id="graph-seed" placeholder="mem_... (leave empty for full graph)" list="graph-seed-suggest"
+        hx-get="/ui/partials/memory-suggest?ws=%s" hx-trigger="keyup changed delay:250ms" hx-target="#graph-seed-suggest" hx-swap="innerHTML" name="q">
+      <datalist id="graph-seed-suggest"></datalist>
     </label>
     <label>Depth
       <input type="number" id="graph-depth" value="2" min="1" max="5" style="width:70px">
@@ -155,7 +157,9 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
 <div id="graph-tab-neighbors" style="display:none">
   <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
     <label>Memory ID <span style="color:var(--danger)">*</span>
-      <input type="text" id="nb-memory-id" placeholder="mem_..." required>
+      <input type="text" id="nb-memory-id" placeholder="mem_..." required list="nb-mem-suggest"
+        hx-get="/ui/partials/memory-suggest?ws=%s" hx-trigger="keyup changed delay:250ms" hx-target="#nb-mem-suggest" hx-swap="innerHTML" name="q">
+      <datalist id="nb-mem-suggest"></datalist>
     </label>
     <label>Direction
       <select id="nb-direction"><option value="both">both</option><option value="out">out</option><option value="in">in</option></select>
@@ -171,7 +175,9 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
 <div id="graph-tab-traverse" style="display:none">
   <div style="display:flex;gap:0.75rem;align-items:end;margin-bottom:0.75rem;flex-wrap:wrap">
     <label>Seed Memory <span style="color:var(--danger)">*</span>
-      <input type="text" id="tr-seed" placeholder="mem_..." required>
+      <input type="text" id="tr-seed" placeholder="mem_..." required list="tr-seed-suggest"
+        hx-get="/ui/partials/memory-suggest?ws=%s" hx-trigger="keyup changed delay:250ms" hx-target="#tr-seed-suggest" hx-swap="innerHTML" name="q">
+      <datalist id="tr-seed-suggest"></datalist>
     </label>
     <label>Depth
       <input type="number" id="tr-depth" value="2" min="1" max="5" style="width:70px">
@@ -192,7 +198,10 @@ func (h *Handler) partialGraphView(w http.ResponseWriter, r *http.Request) {
   <canvas id="graph-canvas" style="display:none;width:100%%;height:100%%"></canvas>
 </div>
 <div id="graph-tooltip" style="display:none;position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0.5rem;font-size:0.85rem;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1000;max-width:300px"></div>
-</div>`, edgeTypeChecks, edgeTypeChecks)
+</div>`,
+		template.HTMLEscapeString(wsID),
+		template.HTMLEscapeString(wsID), edgeTypeChecks,
+		template.HTMLEscapeString(wsID), edgeTypeChecks)
 
 	fmt.Fprintf(w, `<script>
 var wsID = %q;

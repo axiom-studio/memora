@@ -167,6 +167,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/graph/traverse", h.handleGraphTraverse)
 	protected.HandleFunc("/ui/api/graph/stats", h.handleGraphStats)
 	protected.HandleFunc("/ui/partials/search", h.partialSearch)
+	protected.HandleFunc("/ui/partials/memory-suggest", h.partialMemorySuggest)
 	protected.HandleFunc("/ui/partials/tag-add-form", h.partialTagAddForm)
 	protected.HandleFunc("/ui/partials/tag-delete-form", h.partialTagDeleteForm)
 	protected.HandleFunc("/ui/api/tags/upsert", h.handleTagUpsert)

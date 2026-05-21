@@ -92,6 +92,31 @@ type searchResult struct {
 	URL   string
 }
 
+func (h *Handler) partialMemorySuggest(w http.ResponseWriter, r *http.Request) {
+	wsID := r.URL.Query().Get("ws")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if h.data == nil || wsID == "" || len(q) < 2 {
+		return
+	}
+
+	mems, _ := h.data.ListMemories(r.Context(), wsID, 200)
+	n := 0
+	for _, m := range mems {
+		if n >= 10 {
+			break
+		}
+		if containsFold(m.ID, q) || containsFold(m.Content, q) {
+			label := m.ID + " — " + truncateStr(m.Content, 40)
+			fmt.Fprintf(w, `<option value="%s">%s</option>`,
+				template.HTMLEscapeString(m.ID),
+				template.HTMLEscapeString(label))
+			n++
+		}
+	}
+}
+
 func containsFold(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
