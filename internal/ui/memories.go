@@ -492,7 +492,7 @@ func (h *Handler) partialTagAddForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open aria-labelledby="tag-add-title">
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" aria-labelledby="tag-add-title">
 <div class="modal-form">
   <h3 id="tag-add-title">Add Tag</h3>
   <div id="tag-add-result"></div>
@@ -549,7 +549,7 @@ func (h *Handler) partialTagDeleteForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" open aria-labelledby="tag-delete-title">
+	fmt.Fprintf(w, `<dialog id="tag-modal" class="modal" aria-labelledby="tag-delete-title">
 <div class="modal-form">
   <h3 id="tag-delete-title">Delete Tag</h3>
   <div id="tag-delete-result"></div>

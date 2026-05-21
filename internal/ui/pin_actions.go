@@ -80,7 +80,7 @@ func (h *Handler) partialPinCreateForm(w http.ResponseWriter, r *http.Request) {
 		modeOptions += fmt.Sprintf(`<option value="%s"%s>%s</option>`, m, sel, m)
 	}
 
-	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open aria-labelledby="pin-create-title">
+	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" aria-labelledby="pin-create-title">
 <div class="modal-form">
   <h3 id="pin-create-title">Create Recall Pin</h3>
   <div id="pin-create-result"></div>
@@ -153,7 +153,7 @@ func (h *Handler) partialPinDeleteForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" open aria-labelledby="pin-delete-title">
+	fmt.Fprintf(w, `<dialog id="pin-modal" class="modal" aria-labelledby="pin-delete-title">
 <div class="modal-form">
   <h3 id="pin-delete-title">Delete Pin</h3>
   <div id="pin-delete-result"></div>

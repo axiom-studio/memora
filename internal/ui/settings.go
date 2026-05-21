@@ -186,7 +186,7 @@ func (h *Handler) partialIDPAddForm(w http.ResponseWriter, r *http.Request) {
 			template.HTMLEscapeString(p.Desc))
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" aria-labelledby="idp-title">
 <div class="modal-form">
   <h3 id="idp-title">Add Identity Provider</h3>
   <div id="idp-add-result"></div>
@@ -238,7 +238,7 @@ func (h *Handler) partialIDPEditForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" aria-labelledby="idp-title">
 <div class="modal-form">
   <h3 id="idp-title">Edit Provider: %s</h3>
   <p class="text-muted" style="font-size:0.85rem">%s</p>
@@ -284,7 +284,7 @@ func (h *Handler) partialIDPRemoveForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" aria-labelledby="idp-title">
 <div class="modal-form">
   <h3 id="idp-title">Remove Provider</h3>
   <div id="idp-remove-result"></div>
@@ -339,7 +339,7 @@ func (h *Handler) handleIDPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" open aria-labelledby="idp-title">
+	fmt.Fprintf(w, `<dialog id="idp-modal" class="modal" aria-labelledby="idp-title">
 <div class="modal-form">
   <h3 id="idp-title">Verify: %s</h3>
   <div class="card"><table>
@@ -367,7 +367,7 @@ func (h *Handler) partialTLSRotateForm(w http.ResponseWriter, r *http.Request) {
 		mode = "upload"
 	}
 
-	fmt.Fprintf(w, `<dialog id="tls-modal" class="modal" open aria-labelledby="tls-title">
+	fmt.Fprintf(w, `<dialog id="tls-modal" class="modal" aria-labelledby="tls-title">
 <div class="modal-form">
   <h3 id="tls-title">Rotate Certificate</h3>
   <div id="tls-rotate-result"></div>`)

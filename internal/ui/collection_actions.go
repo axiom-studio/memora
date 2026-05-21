@@ -86,7 +86,7 @@ func (h *Handler) partialCollectionCreateForm(w http.ResponseWriter, r *http.Req
 		h.writeFormError(w, "Missing workspace ID")
 		return
 	}
-	fmt.Fprintf(w, `<dialog id="coll-create-modal" class="modal" open aria-labelledby="coll-create-title">
+	fmt.Fprintf(w, `<dialog id="coll-create-modal" class="modal" aria-labelledby="coll-create-title">
 <form hx-post="/ui/api/collections/create" hx-target="#coll-form-errors" hx-swap="innerHTML" class="modal-form">
   <h3 id="coll-create-title">Create Collection</h3>
   <div id="coll-form-errors"></div>
@@ -128,7 +128,7 @@ func (h *Handler) partialCollectionDeleteForm(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="coll-delete-modal" class="modal" open aria-labelledby="coll-delete-title">
+	fmt.Fprintf(w, `<dialog id="coll-delete-modal" class="modal" aria-labelledby="coll-delete-title">
 <form hx-post="/ui/api/collections/delete" hx-target="#coll-delete-form-errors" hx-swap="innerHTML" class="modal-form">
   <h3 id="coll-delete-title">Delete Collection</h3>
   <div id="coll-delete-form-errors"></div>

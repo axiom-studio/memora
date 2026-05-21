@@ -33,7 +33,7 @@ func (h *Handler) partialAgentRegisterForm(w http.ResponseWriter, r *http.Reques
 		providerOpts += fmt.Sprintf(`<option value="%s"%s>%s</option>`, p.Value, sel, p.Label)
 	}
 
-	fmt.Fprintf(w, `<dialog id="agent-register-modal" class="modal" open aria-labelledby="agent-register-title">
+	fmt.Fprintf(w, `<dialog id="agent-register-modal" class="modal" aria-labelledby="agent-register-title">
 <form hx-post="/ui/api/agents/register" hx-target="#agent-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="agent-register-title">Register Agent</h3>
   <div id="agent-result"></div>
@@ -115,7 +115,7 @@ func (h *Handler) partialAgentDeactivateForm(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="agent-deactivate-modal" class="modal" open aria-labelledby="agent-deactivate-title">
+	fmt.Fprintf(w, `<dialog id="agent-deactivate-modal" class="modal" aria-labelledby="agent-deactivate-title">
 <form hx-post="/ui/api/agents/deactivate" hx-target="#agent-deact-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="agent-deactivate-title">Deactivate Agent</h3>
   <div id="agent-deact-result"></div>

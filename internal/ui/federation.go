@@ -83,7 +83,7 @@ func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
 <div class="modal-form">
   <h3 id="peer-title">Add Federation Peer</h3>
   <div id="peer-add-result"></div>
@@ -195,7 +195,7 @@ func (h *Handler) partialPeerEditForm(w http.ResponseWriter, r *http.Request) {
 		mtlsSel = " selected"
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
 <div class="modal-form">
   <h3 id="peer-title">Edit Peer: %s</h3>
   <div id="peer-edit-result"></div>
@@ -286,7 +286,7 @@ func (h *Handler) partialPeerRemoveForm(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" open aria-labelledby="peer-title">
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
 <div class="modal-form">
   <h3 id="peer-title">Remove Peer</h3>
   <div id="peer-remove-result"></div>

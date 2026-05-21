@@ -89,6 +89,11 @@
   </dialog>
 
   <script>
+  document.body.addEventListener('htmx:afterSwap', function(e) {
+    var dialogs = e.detail.target.querySelectorAll('dialog.modal:not([open])');
+    dialogs.forEach(function(d) { d.showModal(); });
+  });
+
   (function(){
     function getEffective() {
       var s = localStorage.getItem('memora-theme');
