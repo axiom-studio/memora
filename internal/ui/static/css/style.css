@@ -151,6 +151,8 @@ a:hover { text-decoration: underline; }
   padding: 1.25rem;
   margin-bottom: 1rem;
 }
+a.card, .card[onclick] { cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+a.card:hover, .card[onclick]:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
 .card-title {
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -232,6 +234,8 @@ tr:hover td { background: var(--bg); }
   background: var(--bg-card);
 }
 .btn-danger:hover { background: #f8d7da; }
+.btn-danger-fill { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn-danger-fill:hover { background: #bb2d3b; border-color: #bb2d3b; }
 [data-theme="dark"] .btn-danger:hover { background: #842029; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) .btn-danger:hover { background: #842029; }

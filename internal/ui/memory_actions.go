@@ -553,7 +553,7 @@ func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request
   </label>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-    <button type="submit" class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)">Forget</button>
+    <button type="submit" class="btn btn-danger-fill">Forget</button>
   </div>
 </form>
 </dialog>`,

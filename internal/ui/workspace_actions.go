@@ -200,7 +200,7 @@ func (h *Handler) partialWorkspaceDeleteForm(w http.ResponseWriter, r *http.Requ
   </label>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-    <button type="submit" class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)">Delete</button>
+    <button type="submit" class="btn btn-danger-fill">Delete</button>
   </div>
 </form>
 </dialog>`,
