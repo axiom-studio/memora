@@ -140,7 +140,10 @@ function startBatchUpload() {
       document.getElementById('batch-status').textContent = 'Complete: ' + succeeded + ' succeeded, ' + failed + ' failed';
       btn.textContent = 'Done';
       btn.disabled = false;
-      btn.onclick = function() { btn.closest('dialog').close(); };
+      btn.onclick = function() {
+        btn.closest('dialog').close();
+        if (succeeded > 0) { htmx.trigger(document.body, 'memoryListChanged'); }
+      };
     }
   }
 

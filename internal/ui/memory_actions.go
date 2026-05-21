@@ -49,6 +49,7 @@ func (h *Handler) handleMemoryImprint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("HX-Trigger", "memoryListChanged")
 	recallBadge := `<span class="badge badge-ok">Yes</span>`
 	if !resp.RecallReady {
 		recallBadge = `<span class="badge badge-warn">Pending</span>`

@@ -63,7 +63,7 @@
 <div class="card">
   <h3 class="card-title">All Memories</h3>
   <div hx-get="/ui/partials/memory-list?ws={{$wsID}}"
-       hx-trigger="load"
+       hx-trigger="load, memoryListChanged from:body"
        hx-swap="innerHTML">
     <div class="skeleton" style="height:8rem"></div>
   </div>
