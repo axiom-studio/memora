@@ -67,6 +67,52 @@ Attach via MCP (Claude Code, etc.):
 # JSON-RPC 2.0 over stdio; 25 OSS tools.
 ```
 
+## Docker Compose Setups
+
+Three docker-compose configurations are available for development and testing:
+
+| Setup | Location | Backends | Ports |
+|---|---|---|---|
+| **Dev** (single node) | `docker-compose.yml` | SQLite + sqlite-vec | 7777 |
+| **Federation** (3-node) | `deploy/federation/` | SQLite + sqlite-vec | 7771-7773 |
+| **Federation Prod** (3-node) | `deploy/federation-prod/` | Postgres + pgvector | 7771-7773 |
+
+```bash
+# Start dev:
+docker compose up -d
+
+# Start federation (SQLite):
+docker compose -f deploy/federation/docker-compose.yml up -d
+
+# Start federation-prod (Postgres):
+docker compose -f deploy/federation-prod/docker-compose.yml up -d
+```
+
+### CLI Integration Tests
+
+Pre-built env files and test fixtures live in `test/fixtures/`. To run
+CLI-based integration tests against a running docker-compose setup:
+
+```bash
+# Build the CLI first:
+CGO_ENABLED=0 go build -o memora-cli ./cmd/memora-cli/
+
+# Source the env file for your target setup:
+source test/fixtures/env.dev              # single dev node
+source test/fixtures/env.federation       # 3-node SQLite federation
+source test/fixtures/env.federation-prod  # 3-node Postgres federation
+
+# Run the test suite:
+./test/fixtures/run-cli-tests.sh dev
+./test/fixtures/run-cli-tests.sh federation
+./test/fixtures/run-cli-tests.sh federation-prod
+```
+
+The test script exercises health checks, workspace CRUD, imprint (plain text,
+markdown, CSV, JSONL with chunker configs), list, recall, and federation
+cross-node fanout (for federation targets). Test data fixtures are in
+`test/fixtures/` (`sample.txt`, `sample.md`, `sample.csv`, `sample.jsonl`).
+
 ## Architecture
 
 ```

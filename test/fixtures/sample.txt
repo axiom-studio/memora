@@ -1,0 +1,7 @@
+This is a plain text test fixture for memora-cli integration tests.
+
+It contains multiple paragraphs to test the default chunker behavior
+when imprinting content via the CLI.
+
+The third paragraph ensures we have enough content to verify that
+chunking produces predictable results across different backends.
