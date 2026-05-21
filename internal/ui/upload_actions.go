@@ -36,8 +36,8 @@ func (h *Handler) partialUploadForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="upload-modal" class="modal" aria-labelledby="upload-title">
-<div class="modal-form" style="max-width:700px">
+	fmt.Fprintf(w, `<dialog id="upload-modal" class="modal modal-wide" aria-labelledby="upload-title">
+<div class="modal-form">
   <h3 id="upload-title">Upload Documents</h3>
   <div id="upload-result"></div>
   <div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:2rem;text-align:center;cursor:pointer;margin-bottom:0.75rem;transition:border-color 0.2s"

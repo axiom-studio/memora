@@ -383,6 +383,8 @@ input:focus, select:focus, textarea:focus {
   background: var(--bg-card); color: var(--text);
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
 }
+.modal.modal-wide { width: min(700px, 90vw); }
+.modal.modal-xl { width: min(850px, 90vw); }
 .modal::backdrop { background: rgba(0,0,0,0.4); }
 .modal-form { display: flex; flex-direction: column; gap: 1rem; }
 .modal-form label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; }

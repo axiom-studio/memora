@@ -84,8 +84,8 @@ func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-imprint-modal" class="modal" aria-labelledby="mem-imprint-title">
-<form hx-post="/ui/api/memories/imprint" hx-target="#imprint-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
+	fmt.Fprintf(w, `<dialog id="mem-imprint-modal" class="modal modal-wide" aria-labelledby="mem-imprint-title">
+<form hx-post="/ui/api/memories/imprint" hx-target="#imprint-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="mem-imprint-title">Imprint Memory</h3>
   <p class="form-help" style="margin-top:0">Create a new memory from content</p>
   <div id="imprint-result"></div>
@@ -207,8 +207,8 @@ func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) 
 		tagRows = `<div style="display:flex;gap:0.5rem;margin-bottom:0.25rem"><input type="text" name="tag_key" placeholder="key" style="flex:1"><input type="text" name="tag_value" placeholder="value" style="flex:1"></div>`
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-edit-modal" class="modal" aria-labelledby="mem-edit-title">
-<form hx-post="/ui/api/memories/update" hx-target="#update-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
+	fmt.Fprintf(w, `<dialog id="mem-edit-modal" class="modal modal-wide" aria-labelledby="mem-edit-title">
+<form hx-post="/ui/api/memories/update" hx-target="#update-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="mem-edit-title">Edit Memory</h3>
   <div id="update-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
@@ -325,8 +325,8 @@ func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal" aria-labelledby="mem-patch-title">
-<form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form" style="max-width:700px">
+	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal modal-wide" aria-labelledby="mem-patch-title">
+<form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="mem-patch-title">Patch Memory</h3>
   <div id="patch-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
@@ -459,8 +459,8 @@ func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal" aria-labelledby="mem-append-title">
-<form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
+	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal modal-wide" aria-labelledby="mem-append-title">
+<form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="mem-append-title">Append to Memory</h3>
   <div id="append-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
