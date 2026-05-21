@@ -93,6 +93,23 @@
     var dialogs = e.detail.target.querySelectorAll('dialog.modal:not([open])');
     dialogs.forEach(function(d) { d.showModal(); });
   });
+  document.body.addEventListener('htmx:beforeRequest', function(e) {
+    var form = e.detail.elt.closest('form[hx-post]');
+    if (!form) return;
+    form.querySelectorAll('button[type="submit"]').forEach(function(b) {
+      b.dataset.originalText = b.textContent;
+      b.disabled = true;
+      b.textContent = b.textContent.replace(/\S.*/, 'Submitting…');
+    });
+  });
+  document.body.addEventListener('htmx:afterRequest', function(e) {
+    var form = e.detail.elt.closest('form[hx-post]');
+    if (!form) return;
+    form.querySelectorAll('button[type="submit"]').forEach(function(b) {
+      b.disabled = false;
+      if (b.dataset.originalText) b.textContent = b.dataset.originalText;
+    });
+  });
 
   (function(){
     function getEffective() {
