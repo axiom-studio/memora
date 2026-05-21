@@ -199,7 +199,7 @@ tr:hover td { background: var(--bg); }
   text-decoration: none;
 }
 .tab:hover { color: var(--text); text-decoration: none; }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
 /* Buttons */
 .btn {
@@ -250,8 +250,11 @@ tr:hover td { background: var(--bg); }
   font-weight: 600;
 }
 .badge-ok { background: #d1e7dd; color: #0f5132; }
+.badge-ok::before { content: "\2713\00a0"; }
 .badge-warn { background: #fff3cd; color: #664d03; }
+.badge-warn::before { content: "\26A0\00a0"; }
 .badge-err { background: #f8d7da; color: #842029; }
+.badge-err::before { content: "\2715\00a0"; }
 
 [data-theme="dark"] .badge-ok { background: #0f5132; color: #d1e7dd; }
 [data-theme="dark"] .badge-warn { background: #664d03; color: #fff3cd; }
