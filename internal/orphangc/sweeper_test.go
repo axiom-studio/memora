@@ -77,11 +77,11 @@ func (m *mockMetadata) GetCells(_ context.Context, memoryID string) ([]types.Cel
 
 type mockContent struct {
 	adapter.ContentStore
-	keys        map[string][]string    // workspace → memory IDs
-	createdAt   map[string]time.Time   // "ws:mem" → created_at
-	deleted     map[string]bool        // "ws:mem" → deleted
-	cellKeys    map[string][]string    // "ws:mem" → cell IDs
-	cellDeleted map[string]bool        // "ws:mem:cell" → deleted
+	keys        map[string][]string  // workspace → memory IDs
+	createdAt   map[string]time.Time // "ws:mem" → created_at
+	deleted     map[string]bool      // "ws:mem" → deleted
+	cellKeys    map[string][]string  // "ws:mem" → cell IDs
+	cellDeleted map[string]bool      // "ws:mem:cell" → deleted
 }
 
 func (m *mockContent) ListMemoryIDs(_ context.Context, workspaceID string) ([]string, error) {

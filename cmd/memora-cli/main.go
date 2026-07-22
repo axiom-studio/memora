@@ -511,14 +511,14 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	}
 	query := strings.Join(fs.Args(), " ")
 	req := api.RecallRequest{
-		Query: query,
-		Mode:  api.RecallMode(*mode),
-		K:     *k,
+		Query:   query,
+		Mode:    api.RecallMode(*mode),
+		K:       *k,
 		Filters: api.RecallFilters{CollectionID: *collection},
 	}
 	if *depth > 0 {
 		req.GraphExpansion = &api.GraphExpansion{
-			Depth: *depth,
+			Depth:     *depth,
 			Direction: api.GraphDirOut,
 		}
 		if *edgeTypes != "" {

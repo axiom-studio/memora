@@ -53,10 +53,10 @@ func New(metadata adapter.MetadataStore, content adapter.ContentStore, ledger Le
 	return &Sweeper{
 		metadata: metadata,
 		content:  content,
-		ledger:  ledger,
-		logger:  logger,
-		cfg:     cfg,
-		now:     time.Now,
+		ledger:   ledger,
+		logger:   logger,
+		cfg:      cfg,
+		now:      time.Now,
 	}
 }
 

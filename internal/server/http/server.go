@@ -37,18 +37,18 @@ type TLSConfig struct {
 
 // Config is the boot-time configuration for the HTTP server.
 type Config struct {
-	Addr            string
-	APIKey          string // single-tenant default key; "" disables auth (local dev)
-	Service         *service.Service
-	Logger          *slog.Logger
-	Timeout         time.Duration
-	Mode            string // single-tenant | multi-tenant
-	MaxBodyBytes    int64  // request body size limit (0 = 8 MiB default)
-	AllowNoAuth     bool   // explicit opt-in for empty MEMORA_API_KEY
-	AllowedOrigins  []string // CORS: origins that may call the API; empty = no CORS headers
-	TLS             TLSConfig
-	UISettings      *ui.SettingsInfo   // optional; nil = settings page shows empty state
-	UIFederation    *ui.FederationInfo // optional; nil = federation page shows disabled
+	Addr           string
+	APIKey         string // single-tenant default key; "" disables auth (local dev)
+	Service        *service.Service
+	Logger         *slog.Logger
+	Timeout        time.Duration
+	Mode           string   // single-tenant | multi-tenant
+	MaxBodyBytes   int64    // request body size limit (0 = 8 MiB default)
+	AllowNoAuth    bool     // explicit opt-in for empty MEMORA_API_KEY
+	AllowedOrigins []string // CORS: origins that may call the API; empty = no CORS headers
+	TLS            TLSConfig
+	UISettings     *ui.SettingsInfo   // optional; nil = settings page shows empty state
+	UIFederation   *ui.FederationInfo // optional; nil = federation page shows disabled
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }

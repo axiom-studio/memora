@@ -16,12 +16,12 @@ type LedgerConfig struct {
 
 // LedgerCapabilities advertises what a LedgerStore supports.
 type LedgerCapabilities struct {
-	SupportsAppend       bool `json:"supports_append"`
-	SupportsBatchAppend  bool `json:"supports_batch_append"`
-	SupportsQuery        bool `json:"supports_query"`
-	SupportsRedaction    bool `json:"supports_redaction"`
-	DurableOnAppend      bool `json:"durable_on_append"`
-	EstimatedAppendQPS   int  `json:"estimated_append_qps"`
+	SupportsAppend      bool `json:"supports_append"`
+	SupportsBatchAppend bool `json:"supports_batch_append"`
+	SupportsQuery       bool `json:"supports_query"`
+	SupportsRedaction   bool `json:"supports_redaction"`
+	DurableOnAppend     bool `json:"durable_on_append"`
+	EstimatedAppendQPS  int  `json:"estimated_append_qps"`
 }
 
 // LedgerQuery is the filter set for LedgerStore.Query.

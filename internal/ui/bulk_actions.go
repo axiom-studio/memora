@@ -371,12 +371,12 @@ func (h *Handler) handleBulkDump(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	for _, m := range mems {
 		_ = enc.Encode(dumpRecord{
-			MemoryID:     m.ID,
-			Content:      m.Content,
-			ContentMD5:   m.ContentMD5,
-			AgentID:      m.AgentID,
-			Tags:         m.Tags,
-			CreatedAt:    m.CreatedAt,
+			MemoryID:   m.ID,
+			Content:    m.Content,
+			ContentMD5: m.ContentMD5,
+			AgentID:    m.AgentID,
+			Tags:       m.Tags,
+			CreatedAt:  m.CreatedAt,
 		})
 	}
 }
@@ -443,8 +443,8 @@ func (h *Handler) handleBulkImport(w http.ResponseWriter, r *http.Request) {
 }
 
 type replayRecord struct {
-	Op      string `json:"op"`
-	Content string `json:"content,omitempty"`
+	Op      string            `json:"op"`
+	Content string            `json:"content,omitempty"`
 	Tags    map[string]string `json:"tags,omitempty"`
 }
 

@@ -22,8 +22,10 @@ import (
 
 type Opaque struct{}
 
-func (Opaque) Name() string                                       { return string(types.IdentityProviderOpaque) }
-func (Opaque) Capabilities() adapter.IdentityCapabilities         { return adapter.IdentityCapabilities{RequiresProof: false, SupportsRotation: false} }
+func (Opaque) Name() string { return string(types.IdentityProviderOpaque) }
+func (Opaque) Capabilities() adapter.IdentityCapabilities {
+	return adapter.IdentityCapabilities{RequiresProof: false, SupportsRotation: false}
+}
 func (Opaque) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error {
 	return nil
 }
@@ -33,13 +35,15 @@ func (Opaque) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error {
 // AnthropicSession derives agent_id from session metadata. The recipe
 // (per #297 §17.4):
 //
-//   agent_id = "agent_anthropic_session_" + base32(
-//       sha256(session_id + ":" + model + ":" + sha256(system_prompt))[:16]
-//   )
+//	agent_id = "agent_anthropic_session_" + base32(
+//	    sha256(session_id + ":" + model + ":" + sha256(system_prompt))[:16]
+//	)
 type AnthropicSession struct{}
 
-func (AnthropicSession) Name() string                               { return string(types.IdentityProviderAnthropicSession) }
-func (AnthropicSession) Capabilities() adapter.IdentityCapabilities { return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: false} }
+func (AnthropicSession) Name() string { return string(types.IdentityProviderAnthropicSession) }
+func (AnthropicSession) Capabilities() adapter.IdentityCapabilities {
+	return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: false}
+}
 
 // Verify checks the supplied identity_proof reproduces the agent_id.
 func (a AnthropicSession) Verify(_ context.Context, in adapter.IdentityVerifyInput) error {

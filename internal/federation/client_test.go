@@ -42,11 +42,11 @@ func TestPeerClient_Recall(t *testing.T) {
 
 	pc := &PeerClient{
 		peer: Peer{
-			ID:       "peer1",
-			Name:     "test-peer",
-			Endpoint: srv.URL,
+			ID:        "peer1",
+			Name:      "test-peer",
+			Endpoint:  srv.URL,
 			TrustMode: TrustAPIKey,
-			APIKey:   "test-key",
+			APIKey:    "test-key",
 		},
 		httpClient:   srv.Client(),
 		federationID: "fed_a",

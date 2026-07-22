@@ -377,16 +377,16 @@ func mustHandler(t *testing.T) *Handler {
 }
 
 type mockDataSource struct {
-	stats       DashboardStats
-	entries     []api.LedgerEntry
-	workspaces  []WorkspaceSummary
-	workspace   *WorkspaceDetail
-	agents      []AgentSummary
-	collections []CollectionSummary
-	memories    []MemorySummary
-	memory      *MemorySummary
-	cells       []CellSummary
-	edges       []EdgeSummary
+	stats        DashboardStats
+	entries      []api.LedgerEntry
+	workspaces   []WorkspaceSummary
+	workspace    *WorkspaceDetail
+	agents       []AgentSummary
+	collections  []CollectionSummary
+	memories     []MemorySummary
+	memory       *MemorySummary
+	cells        []CellSummary
+	edges        []EdgeSummary
 	recallResp   *api.RecallResponse
 	graphData    *GraphData
 	watermarks   []types.WatermarkHistoryEntry
@@ -564,11 +564,11 @@ func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return m.watermarks, m.err
 }
-func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error { return m.err }
-func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error   { return m.err }
-func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error    { return m.err }
+func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error     { return m.err }
+func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error        { return m.err }
+func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error              { return m.err }
 func (m *mockDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error { return m.err }
-func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error   { return m.err }
+func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error             { return m.err }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -1234,22 +1234,22 @@ func TestSettingsDetail(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{})
 	h.SetSettings(&SettingsInfo{
-		ServerAddr:     ":7777",
-		ServerMode:     "single-tenant",
-		MCPEnabled:     true,
-		TLSEnabled:     true,
-		TLSCertFile:    "/etc/certs/server.crt",
-		DataDir:        "/var/lib/memora",
-		MetadataDriver: "sqlite",
-		VectorDriver:   "sqlitevec",
-		LedgerDriver:   "sqlite",
-		GraphDriver:    "sqlite",
-		ContentDriver:  "file",
-		EmbeddingModel: "nomic-embed-text",
-		FederationEnabled: true,
-		FederationID:      "fed-abc",
-		PeerCount:         2,
-		TelemetryLogLevel: "info",
+		ServerAddr:         ":7777",
+		ServerMode:         "single-tenant",
+		MCPEnabled:         true,
+		TLSEnabled:         true,
+		TLSCertFile:        "/etc/certs/server.crt",
+		DataDir:            "/var/lib/memora",
+		MetadataDriver:     "sqlite",
+		VectorDriver:       "sqlitevec",
+		LedgerDriver:       "sqlite",
+		GraphDriver:        "sqlite",
+		ContentDriver:      "file",
+		EmbeddingModel:     "nomic-embed-text",
+		FederationEnabled:  true,
+		FederationID:       "fed-abc",
+		PeerCount:          2,
+		TelemetryLogLevel:  "info",
 		TelemetryLogFormat: "json",
 	})
 	mux := http.NewServeMux()
@@ -3223,10 +3223,10 @@ func TestWorkspaceConfigTab(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary: WorkspaceSummary{ID: "ws_abc", Name: "test"},
-			AutoLinkEnabled:          true,
-			AutoLinkThreshold:        0.8,
-			AutoLinkMaxEdges:         15,
+			WorkspaceSummary:          WorkspaceSummary{ID: "ws_abc", Name: "test"},
+			AutoLinkEnabled:           true,
+			AutoLinkThreshold:         0.8,
+			AutoLinkMaxEdges:          15,
 			AutoLinkMaxIncomingPerDay: 200,
 		},
 	})
@@ -3320,9 +3320,9 @@ func TestSettingsTLSCertExpired(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{})
 	h.SetSettings(&SettingsInfo{
-		TLSEnabled:       true,
-		TLSCertFile:      "/etc/certs/server.crt",
-		TLSCertNotAfter:  time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		TLSEnabled:      true,
+		TLSCertFile:     "/etc/certs/server.crt",
+		TLSCertNotAfter: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)

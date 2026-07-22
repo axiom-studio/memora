@@ -49,12 +49,12 @@ func (g *GraphStore) Ping(ctx context.Context) error {
 
 func (g *GraphStore) Capabilities() adapter.GraphCapabilities {
 	return adapter.GraphCapabilities{
-		MaxDepth:              3,
-		MaxNeighborsK:         200,
-		MaxLinkBatchSize:      1000,
+		MaxDepth:                  3,
+		MaxNeighborsK:             200,
+		MaxLinkBatchSize:          1000,
 		SupportsBudgetedTraversal: true,
-		SupportsCypher:        false,
-		NativeBFS:             false,
+		SupportsCypher:            false,
+		NativeBFS:                 false,
 	}
 }
 

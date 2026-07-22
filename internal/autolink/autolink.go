@@ -15,9 +15,9 @@ import (
 type Deps struct {
 	Metadata adapter.MetadataStore
 	Vector   adapter.VectorStore
-	Graph   adapter.GraphStore
-	Ledger  adapter.LedgerStore
-	Logger  *slog.Logger
+	Graph    adapter.GraphStore
+	Ledger   adapter.LedgerStore
+	Logger   *slog.Logger
 }
 
 // candidate is one deduplicated memory-level hit with provenance.
@@ -186,14 +186,14 @@ func AutoLink(
 			AgentID:     types.AgentSystemAutoLinkID,
 			Timestamp:   time.Now().UTC(),
 			Metadata: map[string]any{
-				"trigger":           "auto_link",
-				"edge_id":           r.EdgeID,
-				"edge_type":         string(types.EdgeTypeVectorNeighbor),
-				"source_memory_id":  e.SourceMemoryID,
-				"target_memory_id":  e.TargetMemoryID,
-				"cosine_score":      e.PropertiesJSON["cosine_score"],
-				"via_cell_pair":     e.PropertiesJSON["via_cell_pair"],
-				"embedding_model":   embeddingModel,
+				"trigger":          "auto_link",
+				"edge_id":          r.EdgeID,
+				"edge_type":        string(types.EdgeTypeVectorNeighbor),
+				"source_memory_id": e.SourceMemoryID,
+				"target_memory_id": e.TargetMemoryID,
+				"cosine_score":     e.PropertiesJSON["cosine_score"],
+				"via_cell_pair":    e.PropertiesJSON["via_cell_pair"],
+				"embedding_model":  embeddingModel,
 			},
 		})
 	}

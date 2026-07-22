@@ -10,7 +10,7 @@ import (
 
 // AggregateOpts controls how federated recall results are merged.
 type AggregateOpts struct {
-	K              int
+	K               int
 	LocalInstanceID string
 }
 

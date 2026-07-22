@@ -26,13 +26,13 @@ type WorkspaceSummary struct {
 
 type WorkspaceDetail struct {
 	WorkspaceSummary
-	Region                   string
-	ChunkerID                string
-	AutoLinkEnabled          bool
-	AutoLinkThreshold        float64
-	AutoLinkMaxEdges         int
+	Region                    string
+	ChunkerID                 string
+	AutoLinkEnabled           bool
+	AutoLinkThreshold         float64
+	AutoLinkMaxEdges          int
 	AutoLinkMaxIncomingPerDay int
-	Meta                     map[string]any
+	Meta                      map[string]any
 }
 
 type AgentSummary struct {
@@ -53,15 +53,15 @@ type CollectionSummary struct {
 }
 
 type MemorySummary struct {
-	ID           string
-	Content      string
-	ContentMD5   string
-	Watermark    string
-	AgentID      string
-	RecallReady  bool
-	Tags         map[string]string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID          string
+	Content     string
+	ContentMD5  string
+	Watermark   string
+	AgentID     string
+	RecallReady bool
+	Tags        map[string]string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type EdgeSummary struct {
@@ -111,26 +111,26 @@ type HealthInfo struct {
 }
 
 type SettingsInfo struct {
-	ServerAddr      string
-	ServerMode      string
-	MCPEnabled      bool
-	TLSEnabled        bool
-	TLSCertFile       string
-	TLSAutoSelfSign   bool
+	ServerAddr         string
+	ServerMode         string
+	MCPEnabled         bool
+	TLSEnabled         bool
+	TLSCertFile        string
+	TLSAutoSelfSign    bool
 	TLSCertFingerprint string
 	TLSCertNotBefore   time.Time
 	TLSCertNotAfter    time.Time
 	TLSCertIssuer      string
-	DataDir         string
-	MetadataDriver  string
-	VectorDriver    string
-	LedgerDriver    string
-	GraphDriver     string
-	ContentDriver   string
-	EmbeddingModel  string
-	FederationEnabled bool
-	FederationID      string
-	PeerCount         int
+	DataDir            string
+	MetadataDriver     string
+	VectorDriver       string
+	LedgerDriver       string
+	GraphDriver        string
+	ContentDriver      string
+	EmbeddingModel     string
+	FederationEnabled  bool
+	FederationID       string
+	PeerCount          int
 	TelemetryLogLevel  string
 	TelemetryLogFormat string
 	IdentityProviders  []IdentityProviderSummary
@@ -142,10 +142,10 @@ type FederationInfo struct {
 }
 
 type PeerInfo struct {
-	ID        string
-	Name      string
-	Endpoint  string
-	TrustMode string
+	ID         string
+	Name       string
+	Endpoint   string
+	TrustMode  string
 	Workspaces []string
 }
 

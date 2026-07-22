@@ -39,14 +39,14 @@ type UpdateRequest struct {
 
 // UpdateResponse mirrors ImprintResponse plus delta info.
 type UpdateResponse struct {
-	MemoryID         string `json:"memory_id"`
-	Watermark        string `json:"watermark"`
-	ContentMD5       string `json:"content_md5"`
-	CellsReembed     int    `json:"cells_re_embedded"`
-	CellsSkipped     int    `json:"cells_skipped"`
+	MemoryID              string `json:"memory_id"`
+	Watermark             string `json:"watermark"`
+	ContentMD5            string `json:"content_md5"`
+	CellsReembed          int    `json:"cells_re_embedded"`
+	CellsSkipped          int    `json:"cells_skipped"`
 	LastModifiedByAgentID string `json:"last_modified_by_agent_id"`
-	LedgerID         string `json:"ledger_id"`
-	LatencyMS        int    `json:"latency_ms"`
+	LedgerID              string `json:"ledger_id"`
+	LatencyMS             int    `json:"latency_ms"`
 }
 
 // PatchOp is one find-and-replace operation. Identical contract to
@@ -98,10 +98,10 @@ type AppendResponse struct {
 
 // ForgetResponse is returned by DELETE /memories/{id}.
 type ForgetResponse struct {
-	MemoryID       string `json:"memory_id"`
-	Watermark      string `json:"watermark"`
-	CascadedEdges  int    `json:"cascaded_edges"`
-	LedgerID       string `json:"ledger_id"`
+	MemoryID      string `json:"memory_id"`
+	Watermark     string `json:"watermark"`
+	CascadedEdges int    `json:"cascaded_edges"`
+	LedgerID      string `json:"ledger_id"`
 }
 
 // MemoryEnvelope is the response shape for GET /memories/{id} — the

@@ -113,7 +113,7 @@ func (h *Handler) handleGraphStats(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"node_count":        nodeCount,
+		"node_count":         nodeCount,
 		"edge_count_by_type": edgeCountByType,
 	})
 }

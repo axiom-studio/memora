@@ -23,13 +23,13 @@ const (
 
 // RecallFilters is the WHERE-style filter pushed down to the adapters.
 type RecallFilters struct {
-	CollectionID  string              `json:"collection_id,omitempty"`
-	Tags          map[string][]string `json:"tags,omitempty"`
-	TsAfter       *time.Time          `json:"ts_after,omitempty"`
-	TsBefore      *time.Time          `json:"ts_before,omitempty"`
-	AgentID       string              `json:"agent_id,omitempty"`
-	AgentIDIn     []string            `json:"agent_id_in,omitempty"`
-	AgentIDNotIn  []string            `json:"agent_id_not_in,omitempty"`
+	CollectionID string              `json:"collection_id,omitempty"`
+	Tags         map[string][]string `json:"tags,omitempty"`
+	TsAfter      *time.Time          `json:"ts_after,omitempty"`
+	TsBefore     *time.Time          `json:"ts_before,omitempty"`
+	AgentID      string              `json:"agent_id,omitempty"`
+	AgentIDIn    []string            `json:"agent_id_in,omitempty"`
+	AgentIDNotIn []string            `json:"agent_id_not_in,omitempty"`
 }
 
 // GraphExpansion extends Recall with a BFS walk over the Context Graph.
@@ -50,14 +50,14 @@ type RecallWeights struct {
 
 // RecallRequest is the search query body.
 type RecallRequest struct {
-	Query          string         `json:"query"`
-	Mode           RecallMode     `json:"mode,omitempty"`
-	K              int            `json:"k,omitempty"`
-	Filters        RecallFilters  `json:"filters,omitempty"`
-	Weights        RecallWeights  `json:"weights,omitempty"`
-	IncludeCells   bool           `json:"include_cells,omitempty"`
+	Query          string          `json:"query"`
+	Mode           RecallMode      `json:"mode,omitempty"`
+	K              int             `json:"k,omitempty"`
+	Filters        RecallFilters   `json:"filters,omitempty"`
+	Weights        RecallWeights   `json:"weights,omitempty"`
+	IncludeCells   bool            `json:"include_cells,omitempty"`
 	GraphExpansion *GraphExpansion `json:"graph_expansion,omitempty"`
-	MemoryIDs      []string       `json:"memory_ids,omitempty"` // for lookup mode
+	MemoryIDs      []string        `json:"memory_ids,omitempty"` // for lookup mode
 }
 
 // GraphProvenance carries the edge a graph result came in through.
@@ -86,15 +86,15 @@ type RecallHit struct {
 
 // RecallResponse is the full search result envelope.
 type RecallResponse struct {
-	Results                 []RecallHit    `json:"results"`
-	TotalCandidatesScanned  int            `json:"total_candidates_scanned"`
-	GraphNodesExpanded      int            `json:"graph_nodes_expanded,omitempty"`
-	LatencyMS               int            `json:"latency_ms"`
-	EmbeddingPending        bool           `json:"embedding_pending,omitempty"`
-	FederationID            string         `json:"federation_id,omitempty"`
-	PartialSuccess          bool           `json:"partial_success,omitempty"`
-	FailedPeers             []string       `json:"failed_peers,omitempty"`
-	PeerLatencyMS           map[string]int `json:"peer_latency_ms,omitempty"`
+	Results                []RecallHit    `json:"results"`
+	TotalCandidatesScanned int            `json:"total_candidates_scanned"`
+	GraphNodesExpanded     int            `json:"graph_nodes_expanded,omitempty"`
+	LatencyMS              int            `json:"latency_ms"`
+	EmbeddingPending       bool           `json:"embedding_pending,omitempty"`
+	FederationID           string         `json:"federation_id,omitempty"`
+	PartialSuccess         bool           `json:"partial_success,omitempty"`
+	FailedPeers            []string       `json:"failed_peers,omitempty"`
+	PeerLatencyMS          map[string]int `json:"peer_latency_ms,omitempty"`
 }
 
 // PinRequest creates a saved recall query bound to a watermark.

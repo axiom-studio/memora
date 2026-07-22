@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	HeaderFederationAuth   = "X-Memora-Federation-Auth"
-	HeaderFederationPath   = "X-Memora-Federation-Path"
-	HeaderFederationID     = "X-Memora-Federation-ID"
-	HeaderLocalInstanceID  = "X-Memora-Local-Instance-ID"
+	HeaderFederationAuth  = "X-Memora-Federation-Auth"
+	HeaderFederationPath  = "X-Memora-Federation-Path"
+	HeaderFederationID    = "X-Memora-Federation-ID"
+	HeaderLocalInstanceID = "X-Memora-Local-Instance-ID"
 )
 
 // PeerClient handles outbound HTTP requests to a single federation peer.

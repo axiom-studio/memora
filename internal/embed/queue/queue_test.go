@@ -92,9 +92,9 @@ type recordingProvider struct {
 	failErr  error
 }
 
-func (p *recordingProvider) Name() string                            { return "recording" }
-func (p *recordingProvider) ModelID() string                         { return p.inner.ModelID() }
-func (p *recordingProvider) Dim() int                                { return p.inner.Dim() }
+func (p *recordingProvider) Name() string    { return "recording" }
+func (p *recordingProvider) ModelID() string { return p.inner.ModelID() }
+func (p *recordingProvider) Dim() int        { return p.inner.Dim() }
 func (p *recordingProvider) Capabilities() embedding.EmbeddingCapabilities {
 	return p.inner.Capabilities()
 }
@@ -126,9 +126,9 @@ type alwaysFailProvider struct {
 	calls atomic.Int32
 }
 
-func (p *alwaysFailProvider) Name() string                            { return "always-fail" }
-func (p *alwaysFailProvider) ModelID() string                         { return p.inner.ModelID() }
-func (p *alwaysFailProvider) Dim() int                                { return p.inner.Dim() }
+func (p *alwaysFailProvider) Name() string    { return "always-fail" }
+func (p *alwaysFailProvider) ModelID() string { return p.inner.ModelID() }
+func (p *alwaysFailProvider) Dim() int        { return p.inner.Dim() }
 func (p *alwaysFailProvider) Capabilities() embedding.EmbeddingCapabilities {
 	return p.inner.Capabilities()
 }
@@ -196,9 +196,9 @@ type blockingProvider struct {
 	seen    [][]string
 }
 
-func (p *blockingProvider) Name() string                            { return "blocking" }
-func (p *blockingProvider) ModelID() string                         { return p.inner.ModelID() }
-func (p *blockingProvider) Dim() int                                { return p.inner.Dim() }
+func (p *blockingProvider) Name() string    { return "blocking" }
+func (p *blockingProvider) ModelID() string { return p.inner.ModelID() }
+func (p *blockingProvider) Dim() int        { return p.inner.Dim() }
 func (p *blockingProvider) Capabilities() embedding.EmbeddingCapabilities {
 	return p.inner.Capabilities()
 }

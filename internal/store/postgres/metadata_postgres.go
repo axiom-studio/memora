@@ -59,11 +59,11 @@ func (s *MetadataStore) Ping(ctx context.Context) error {
 
 func (s *MetadataStore) Capabilities() adapter.MetadataCapabilities {
 	return adapter.MetadataCapabilities{
-		SupportsCAS:               true,
-		SupportsTransactions:      true,
-		SupportsBatchUpsert:       true,
+		SupportsCAS:                true,
+		SupportsTransactions:       true,
+		SupportsBatchUpsert:        true,
 		SupportsLogicalReplication: true,
-		RecommendedMaxSizeGB:      10000,
+		RecommendedMaxSizeGB:       10000,
 	}
 }
 

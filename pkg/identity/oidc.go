@@ -31,8 +31,8 @@ type OIDCAgent struct {
 	ExpectedAudience string // OIDC client_id; if set, aud claim must contain this value
 	Client           *http.Client
 
-	mu       sync.RWMutex
-	jwksKeys []jwkKey
+	mu          sync.RWMutex
+	jwksKeys    []jwkKey
 	jwksFetched time.Time
 }
 

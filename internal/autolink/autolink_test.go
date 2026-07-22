@@ -95,10 +95,10 @@ func testDeps(ws *types.Workspace, vec adapter.VectorStore, graph adapter.GraphS
 
 func enabledWorkspace() *types.Workspace {
 	return &types.Workspace{
-		ID:                      "ws_test",
-		AutoLinkEnabled:         true,
-		AutoLinkThreshold:       0.7,
-		AutoLinkMaxEdges:        10,
+		ID:                        "ws_test",
+		AutoLinkEnabled:           true,
+		AutoLinkThreshold:         0.7,
+		AutoLinkMaxEdges:          10,
 		AutoLinkMaxIncomingPerDay: 100,
 	}
 }

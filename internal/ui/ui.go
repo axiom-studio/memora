@@ -51,16 +51,16 @@ type pageData struct {
 }
 
 type Handler struct {
-	pages    map[string]*template.Template
-	loginTmpl *template.Template
-	staticFS http.Handler
-	authCfg  AuthConfig
+	pages      map[string]*template.Template
+	loginTmpl  *template.Template
+	staticFS   http.Handler
+	authCfg    AuthConfig
 	data       DataSource
 	settings   *SettingsInfo
 	federation *FederationInfo
 }
 
-func (h *Handler) SetDataSource(ds DataSource)    { h.data = ds }
+func (h *Handler) SetDataSource(ds DataSource)     { h.data = ds }
 func (h *Handler) SetSettings(s *SettingsInfo)     { h.settings = s }
 func (h *Handler) SetFederation(f *FederationInfo) { h.federation = f }
 
@@ -103,9 +103,9 @@ func NewHandler() (*Handler, error) {
 	}
 
 	return &Handler{
-		pages:    pages,
+		pages:     pages,
 		loginTmpl: loginTmpl,
-		staticFS: http.StripPrefix("/ui/static/", http.FileServer(http.FS(sub))),
+		staticFS:  http.StripPrefix("/ui/static/", http.FileServer(http.FS(sub))),
 	}, nil
 }
 

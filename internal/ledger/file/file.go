@@ -31,12 +31,12 @@ func init() {
 // is by size (default 100 MiB) — rotated files are gzipped in the
 // background and renamed with an ISO timestamp suffix.
 type Store struct {
-	path       string
-	maxBytes   int64
-	f          *os.File
-	bw         *bufio.Writer
-	written    int64
-	mu         sync.Mutex
+	path     string
+	maxBytes int64
+	f        *os.File
+	bw       *bufio.Writer
+	written  int64
+	mu       sync.Mutex
 }
 
 const defaultMaxBytes = 100 * 1024 * 1024

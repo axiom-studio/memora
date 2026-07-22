@@ -4,13 +4,13 @@
 //
 // Usage from a third-party adapter package:
 //
-//   import "github.com/axiom-studio/memora/pkg/adapter/compliance"
+//	import "github.com/axiom-studio/memora/pkg/adapter/compliance"
 //
-//   func TestMyAdapter(t *testing.T) {
-//       compliance.MetadataStoreSuite(t, func(t *testing.T) adapter.MetadataStore {
-//           return openMyStore(t)
-//       })
-//   }
+//	func TestMyAdapter(t *testing.T) {
+//	    compliance.MetadataStoreSuite(t, func(t *testing.T) adapter.MetadataStore {
+//	        return openMyStore(t)
+//	    })
+//	}
 //
 // v0.1 ships the minimum-viable suite: MetadataStore CRUD + CAS +
 // flip_recall_ready. The full LedgerStore / VectorStore / GraphStore

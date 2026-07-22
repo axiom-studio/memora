@@ -22,7 +22,7 @@ func (h *Handler) partialSearch(w http.ResponseWriter, r *http.Request) {
 	for _, ws := range workspaces {
 		if containsFold(ws.ID, q) || containsFold(ws.Name, q) {
 			results = append(results, searchResult{
-				Type: "Workspace",
+				Type:  "Workspace",
 				Label: ws.Name,
 				ID:    ws.ID,
 				URL:   "/ui/workspaces/" + ws.ID,
@@ -35,7 +35,7 @@ func (h *Handler) partialSearch(w http.ResponseWriter, r *http.Request) {
 		for _, a := range agents {
 			if containsFold(a.AgentID, q) || containsFold(a.DisplayName, q) {
 				results = append(results, searchResult{
-					Type: "Agent",
+					Type:  "Agent",
 					Label: a.DisplayName,
 					ID:    a.AgentID,
 					URL:   "/ui/workspaces/" + ws.ID + "?tab=agents",
@@ -47,7 +47,7 @@ func (h *Handler) partialSearch(w http.ResponseWriter, r *http.Request) {
 		for _, m := range mems {
 			if containsFold(m.ID, q) || containsFold(m.Content, q) {
 				results = append(results, searchResult{
-					Type: "Memory",
+					Type:  "Memory",
 					Label: truncateStr(m.Content, 60),
 					ID:    m.ID,
 					URL:   "/ui/workspaces/" + ws.ID + "/memories/" + m.ID,

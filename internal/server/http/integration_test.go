@@ -53,8 +53,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	svc := newTestService(t)
 	srv := httpserver.New(httpserver.Config{
-		Service:     svc,
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Service:      svc,
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		MaxBodyBytes: httpserver.DefaultMaxBodyBytes,
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -112,7 +112,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 
 	// Imprint memory.
 	status, imp := doJSON(t, c, jsonReq(t, "POST", memBase, map[string]any{
-		"content": "hello world", 	}, agentH))
+		"content": "hello world"}, agentH))
 	if status != 201 {
 		t.Fatalf("imprint: status=%d body=%v", status, imp)
 	}
@@ -134,7 +134,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	// Update with correct If-Match.
 	updateH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
 	status, upd := doJSON(t, c, jsonReq(t, "PUT", memBase+"/"+memID, map[string]any{
-		"content": "hello world v2", 	}, updateH))
+		"content": "hello world v2"}, updateH))
 	if status != 200 {
 		t.Fatalf("update: status=%d body=%v", status, upd)
 	}
@@ -146,7 +146,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	// Update with stale watermark — expect 412.
 	staleH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
 	status, _ = doJSON(t, c, jsonReq(t, "PUT", memBase+"/"+memID, map[string]any{
-		"content": "hello world v3", 	}, staleH))
+		"content": "hello world v3"}, staleH))
 	if status != 412 {
 		t.Fatalf("stale update: want 412, got %d", status)
 	}

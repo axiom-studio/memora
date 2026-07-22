@@ -27,13 +27,13 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Addr       string    `toml:"addr"`
-	Mode       string    `toml:"mode"`
-	APIKey     string    `toml:"api_key"`
-	APIKeyFile string    `toml:"api_key_file"`
-	AllowNoAuth bool    `toml:"allow_no_auth"`
-	MCPEnable  bool      `toml:"mcp_enable"`
-	TLS        TLSConfig `toml:"tls"`
+	Addr        string    `toml:"addr"`
+	Mode        string    `toml:"mode"`
+	APIKey      string    `toml:"api_key"`
+	APIKeyFile  string    `toml:"api_key_file"`
+	AllowNoAuth bool      `toml:"allow_no_auth"`
+	MCPEnable   bool      `toml:"mcp_enable"`
+	TLS         TLSConfig `toml:"tls"`
 }
 
 type TLSConfig struct {

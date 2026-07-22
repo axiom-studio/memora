@@ -13,10 +13,10 @@ import (
 type Format string
 
 const (
-	FormatText Format = "text"
-	FormatJSON Format = "json"
+	FormatText  Format = "text"
+	FormatJSON  Format = "json"
 	FormatJSONL Format = "jsonl"
-	FormatYAML Format = "yaml"
+	FormatYAML  Format = "yaml"
 )
 
 func ParseFormat(s string) Format {

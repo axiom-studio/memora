@@ -9,11 +9,11 @@ import (
 
 func TestNewOutboundRecallEntry(t *testing.T) {
 	fr := &FanoutResult{
-		Results:       []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}},
-		TotalScanned:  50,
+		Results:        []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}},
+		TotalScanned:   50,
 		PartialSuccess: true,
-		FailedPeers:   []string{"dead-peer"},
-		PeerLatencyMS: map[string]int{"peer1": 10},
+		FailedPeers:    []string{"dead-peer"},
+		PeerLatencyMS:  map[string]int{"peer1": 10},
 	}
 	e := NewOutboundRecallEntry("ws_test", "fed_abc", fr)
 	if e.Op != "federation_recall" {
