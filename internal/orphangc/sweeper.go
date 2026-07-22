@@ -9,6 +9,7 @@ package orphangc
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -40,6 +41,7 @@ type Sweeper struct {
 	totalDeleted atomic.Int64
 	lastDeleted  atomic.Int64
 	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 // New creates a Sweeper but does not start it. Call Start to begin.
@@ -63,14 +65,17 @@ func New(metadata adapter.MetadataStore, content adapter.ContentStore, ledger Le
 // Start begins the background sweep loop. Safe to call once.
 func (s *Sweeper) Start(ctx context.Context) {
 	ctx, s.cancel = context.WithCancel(ctx)
+	s.wg.Add(1)
 	go s.loop(ctx)
 }
 
-// Stop signals the sweep loop to exit.
+// Stop signals the sweep loop to exit and blocks until it has,
+// so no sweep is still in flight once Stop returns.
 func (s *Sweeper) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.wg.Wait()
 }
 
 // TotalDeleted returns the cumulative count of orphans deleted.
@@ -80,6 +85,7 @@ func (s *Sweeper) TotalDeleted() int64 { return s.totalDeleted.Load() }
 func (s *Sweeper) LastDeleted() int64 { return s.lastDeleted.Load() }
 
 func (s *Sweeper) loop(ctx context.Context) {
+	defer s.wg.Done()
 	ticker := time.NewTicker(s.cfg.Interval)
 	defer ticker.Stop()
 	for {
