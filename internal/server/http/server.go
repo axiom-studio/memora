@@ -4,6 +4,7 @@
 package http
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -13,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -348,6 +350,19 @@ func (r *recorder) WriteHeader(status int) {
 	r.status = status
 	r.wroteHeader = true
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, errors.New("response writer does not support hijacking")
+}
+
+func (r *recorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // Determine whether a request is a memory/edge write that must carry
