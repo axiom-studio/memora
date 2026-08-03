@@ -460,6 +460,11 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 	if s.Content != nil {
 		_ = s.Content.DeleteAllForMemory(ctx, workspaceID, memoryID)
 	}
+	if s.Vector != nil {
+		_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{
+			{WorkspaceID: workspaceID, MemoryID: memoryID},
+		})
+	}
 	n, _ := s.GraphCascadeForget(ctx, memoryID, agentID)
 	wmk := types.NewWatermark()
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{

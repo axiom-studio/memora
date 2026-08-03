@@ -414,7 +414,7 @@ func (s *MetadataStore) GetMemory(ctx context.Context, id string) (*types.Memory
 	err := s.pool.QueryRow(ctx, `
 SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
        written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
-FROM memora_memories WHERE id = $1`, id).Scan(
+FROM memora_memories WHERE id = $1 AND deleted_at IS NULL`, id).Scan(
 		&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5, &m.HeadWatermark, &m.CreatedWatermark,
 		&m.WrittenByAgentID, &m.LastModifiedByAgentID, &tagsJSON, &m.RecallReady,
 		&m.CreatedAt, &m.UpdatedAt, &deletedAt)

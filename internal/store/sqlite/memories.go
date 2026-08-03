@@ -79,7 +79,7 @@ func (s *Store) GetMemory(ctx context.Context, id string) (*types.Memory, error)
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
        written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
-FROM memora_memories WHERE id = ?`, id)
+FROM memora_memories WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanMemory(row)
 }
 
