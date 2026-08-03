@@ -232,7 +232,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 		Metadata:       ledgerMeta,
 	})
 	return &api.ImprintResponse{
-		MemoryID:         mem.ID,
+		ID:               mem.ID,
 		Watermark:        wmk,
 		ContentMD5:       mem.ContentMD5,
 		CellsCreated:     len(cells),
@@ -308,7 +308,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		},
 	})
 	return &api.UpdateResponse{
-		MemoryID:              memoryID,
+		ID:                    memoryID,
 		Watermark:             newWmk,
 		ContentMD5:            types.MD5Hex(req.Content),
 		CellsReembed:          len(embedRes.Reembed),
@@ -378,7 +378,7 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		},
 	})
 	return &api.PatchResponse{
-		MemoryID:              memoryID,
+		ID:                    memoryID,
 		Watermark:             newWmk,
 		ContentMD5:            types.MD5Hex(newContent),
 		PatchesApplied:        len(req.Patch),
@@ -437,7 +437,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		Metadata:       map[string]any{"cells_added": len(embedRes.Reembed), "cells_skipped": len(embedRes.Skipped)},
 	})
 	return &api.AppendResponse{
-		MemoryID:              memoryID,
+		ID:                    memoryID,
 		Watermark:             newWmk,
 		ContentMD5:            md5,
 		CellsAdded:            len(embedRes.Reembed),
@@ -472,7 +472,7 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 		WatermarkAfter: wmk, Metadata: map[string]any{"cascaded_edges": n},
 	})
 	return &api.ForgetResponse{
-		MemoryID:      memoryID,
+		ID:            memoryID,
 		Watermark:     wmk,
 		CascadedEdges: n,
 		LedgerID:      ledgerID,

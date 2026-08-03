@@ -18,7 +18,7 @@ type ImprintRequest struct {
 
 // ImprintResponse is returned synchronously after Imprint commits.
 type ImprintResponse struct {
-	MemoryID         string `json:"memory_id"`
+	ID               string `json:"id"`
 	Watermark        string `json:"watermark"`
 	ContentMD5       string `json:"content_md5"`
 	CellsCreated     int    `json:"cells_created"`
@@ -39,7 +39,7 @@ type UpdateRequest struct {
 
 // UpdateResponse mirrors ImprintResponse plus delta info.
 type UpdateResponse struct {
-	MemoryID         string `json:"memory_id"`
+	ID               string `json:"id"`
 	Watermark        string `json:"watermark"`
 	ContentMD5       string `json:"content_md5"`
 	CellsReembed     int    `json:"cells_re_embedded"`
@@ -66,7 +66,7 @@ type PatchRequest struct {
 // PatchResponse documents what the patch did and — crucially — how
 // many cells got re-embedded vs skipped (the moat metric).
 type PatchResponse struct {
-	MemoryID              string `json:"memory_id"`
+	ID                    string `json:"id"`
 	Watermark             string `json:"watermark"`
 	ContentMD5            string `json:"content_md5"`
 	PatchesApplied        int    `json:"patches_applied"`
@@ -87,7 +87,7 @@ type AppendRequest struct {
 
 // AppendResponse mirrors PatchResponse but only cells_added is set.
 type AppendResponse struct {
-	MemoryID              string `json:"memory_id"`
+	ID                    string `json:"id"`
 	Watermark             string `json:"watermark"`
 	ContentMD5            string `json:"content_md5"`
 	CellsAdded            int    `json:"cells_added"`
@@ -98,7 +98,7 @@ type AppendResponse struct {
 
 // ForgetResponse is returned by DELETE /memories/{id}.
 type ForgetResponse struct {
-	MemoryID       string `json:"memory_id"`
+	ID             string `json:"id"`
 	Watermark      string `json:"watermark"`
 	CascadedEdges  int    `json:"cascaded_edges"`
 	LedgerID       string `json:"ledger_id"`

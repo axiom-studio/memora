@@ -56,7 +56,7 @@ func (h *Handler) handleMemoryImprint(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Created</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Cells Created</strong></td><td>%d</td></tr>`, resp.CellsCreated)
 	fmt.Fprintf(w, `<tr><td><strong>Recall Ready</strong></td><td>%s</td></tr>`, recallBadge)
@@ -170,7 +170,7 @@ func (h *Handler) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Updated</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
 	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
@@ -296,7 +296,7 @@ func (h *Handler) handleMemoryPatch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Patch Applied</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Patches Applied</strong></td><td>%d</td></tr>`, resp.PatchesApplied)
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
@@ -431,7 +431,7 @@ func (h *Handler) handleMemoryAppend(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Content Appended</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Cells Added</strong></td><td>%d</td></tr>`, resp.CellsAdded)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
@@ -509,7 +509,7 @@ func (h *Handler) handleMemoryForget(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Forgotten</h3><table>`)
-	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>Cascaded Edges</strong></td><td>%d</td></tr>`, resp.CascadedEdges)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `</table><p style="margin-top:0.75rem"><a href="/ui/workspaces/%s?tab=overview">Back to workspace</a></p></div>`,

@@ -116,10 +116,10 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("imprint: status=%d body=%v", status, imp)
 	}
-	memID, _ := imp["memory_id"].(string)
+	memID, _ := imp["id"].(string)
 	wmk, _ := imp["watermark"].(string)
 	if memID == "" || wmk == "" {
-		t.Fatalf("missing memory_id or watermark: %v", imp)
+		t.Fatalf("missing id or watermark: %v", imp)
 	}
 
 	// Lookup.
@@ -288,7 +288,7 @@ func TestCrossTenantReadPrevention(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("imprint in workspace A: %d, response: %v", status, imprintResp)
 	}
-	memID, _ := imprintResp["memory_id"].(string)
+	memID, _ := imprintResp["id"].(string)
 
 	// Attempt to read memory from workspace B endpoint — should get 404
 	status, resp := doJSON(t, c, jsonReq(t, "GET", base+"/"+wsBID+"/memories/"+memID, nil, agentH))
@@ -329,7 +329,7 @@ func TestCrossTenantDestructiveForget(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("imprint in workspace A: %d, response: %v", status, imprintResp)
 	}
-	memID, _ := imprintResp["memory_id"].(string)
+	memID, _ := imprintResp["id"].(string)
 
 	// Verify memory exists in A
 	status, _ = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
