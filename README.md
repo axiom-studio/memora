@@ -31,10 +31,10 @@ git clone https://github.com/axiom-studio/memora && cd memora
 make build
 
 # 1) Start the server
-./bin/memora-core serve --addr=:7777 --data-dir=./data &
+./bin/memora-core serve --addr=127.0.0.1:7777 --data-dir=./data &
 
 # 2) Create a workspace + remember it
-export MEMORA_ENDPOINT=http://localhost:7777
+export MEMORA_ENDPOINT=http://127.0.0.1:7777
 WS=$(./bin/memora-cli workspaces create --name demo -o json | jq -r .id)
 export MEMORA_WORKSPACE=$WS
 
