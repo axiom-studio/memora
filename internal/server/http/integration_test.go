@@ -302,3 +302,58 @@ func TestCrossTenantReadPrevention(t *testing.T) {
 		t.Fatalf("same-workspace lookup: expected 200, got %d", status)
 	}
 }
+
+func TestCrossTenantDestructiveForget(t *testing.T) {
+	ts := newTestServer(t)
+	c := ts.Client()
+	base := ts.URL + "/v1/workspaces"
+	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+
+	// Create workspace A and B
+	status, respA := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_a"}, nil))
+	if status != 201 {
+		t.Fatalf("create workspace A: %d", status)
+	}
+	wsAID, _ := respA["id"].(string)
+
+	status, respB := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_b"}, nil))
+	if status != 201 {
+		t.Fatalf("create workspace B: %d", status)
+	}
+	wsBID, _ := respB["id"].(string)
+
+	// Imprint memory in workspace A
+	status, imprintResp := doJSON(t, c, jsonReq(t, "POST", base+"/"+wsAID+"/memories", map[string]any{
+		"content": "critical data in workspace a",
+	}, agentH))
+	if status != 201 {
+		t.Fatalf("imprint in workspace A: %d, response: %v", status, imprintResp)
+	}
+	memID, _ := imprintResp["memory_id"].(string)
+
+	// Verify memory exists in A
+	status, _ = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
+	if status != 200 {
+		t.Fatalf("verify initial memory in A: expected 200, got %d", status)
+	}
+
+	// Attempt to forget memory from workspace B endpoint — should get 404, NOT delete
+	status, resp := doJSON(t, c, jsonReq(t, "DELETE", base+"/"+wsBID+"/memories/"+memID, nil, agentH))
+	if status != 404 {
+		t.Fatalf("cross-tenant forget: expected 404, got %d. Response: %v", status, resp)
+	}
+
+	// Verify memory STILL exists in workspace A (not deleted by cross-tenant forget attempt)
+	status, resp = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
+	if status != 200 {
+		t.Fatalf("memory should still exist in A: expected 200, got %d. Response: %v", status, resp)
+	}
+
+	// Forget from correct workspace should work
+	status, _ = doJSON(t, c, jsonReq(t, "DELETE", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
+	if status != 200 {
+		t.Fatalf("same-workspace forget: expected 200, got %d", status)
+	}
+	// Note: memory may still be readable (issue #4231) — we only test that cross-tenant
+	// forget is blocked. Same-workspace forget returning 200 proves authorization check works.
+}

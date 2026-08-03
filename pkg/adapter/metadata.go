@@ -69,7 +69,7 @@ type MetadataStore interface {
 	UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
 	AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)
 	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (newWatermark string, deltas []types.CellDelta, newContent string, err error)
-	ForgetMemory(ctx context.Context, id string) error
+	ForgetMemory(ctx context.Context, workspaceID, id string) error
 
 	// --- Cell CRUD ---
 	// The MetadataStore legacy column (memora_cells.text) remains

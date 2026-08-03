@@ -374,10 +374,10 @@ func ApplyPatchOps(content string, ops []api.PatchOp) (string, error) {
 
 // ForgetMemory soft-deletes a Memory (cascade to edges happens in
 // GraphCascadeForget which the server orchestrates).
-func (s *Store) ForgetMemory(ctx context.Context, id string) error {
+func (s *Store) ForgetMemory(ctx context.Context, workspaceID, id string) error {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `
-UPDATE memora_memories SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, id)
+UPDATE memora_memories SET deleted_at = ? WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`, now, id, workspaceID)
 	if err != nil {
 		return err
 	}

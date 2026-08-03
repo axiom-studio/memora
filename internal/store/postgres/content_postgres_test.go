@@ -182,7 +182,7 @@ func TestMetadataStore_MemoryCRUD(t *testing.T) {
 		t.Fatalf("append content mismatch: %q", got.Content)
 	}
 
-	if err := ms.ForgetMemory(ctx, m.ID); err != nil {
+	if err := ms.ForgetMemory(ctx, w.ID, m.ID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -209,7 +209,7 @@ func TestMetadataStore_CASConflict(t *testing.T) {
 	}
 	wmk, _ := ms.ImprintMemory(ctx, m)
 	defer func() {
-		ms.ForgetMemory(ctx, m.ID)
+		ms.ForgetMemory(ctx, w.ID, m.ID)
 		ms.DeleteWorkspace(ctx, w.ID)
 	}()
 
@@ -308,7 +308,7 @@ func TestMetadataStore_CellsAndRecallReady(t *testing.T) {
 	}
 	ms.ImprintMemory(ctx, m)
 	defer func() {
-		ms.ForgetMemory(ctx, m.ID)
+		ms.ForgetMemory(ctx, w.ID, m.ID)
 		ms.DeleteWorkspace(ctx, w.ID)
 	}()
 

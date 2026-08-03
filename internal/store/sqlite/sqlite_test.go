@@ -391,7 +391,7 @@ func TestDeleteWorkspace_NonEmpty(t *testing.T) {
 		t.Fatalf("expected ErrNotEmpty, got %v", err)
 	}
 
-	_ = s.ForgetMemory(ctx, m.ID)
+	_ = s.ForgetMemory(ctx, ws.ID, m.ID)
 	if err := s.DeleteWorkspace(ctx, ws.ID); err != nil {
 		t.Fatalf("delete after forget: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestDeleteCollection_NonEmpty(t *testing.T) {
 		t.Fatalf("expected ErrNotEmpty, got %v", err)
 	}
 
-	_ = s.ForgetMemory(ctx, m.ID)
+	_ = s.ForgetMemory(ctx, ws.ID, m.ID)
 	if err := s.DeleteCollection(ctx, c.ID); err != nil {
 		t.Fatalf("delete after forget: %v", err)
 	}

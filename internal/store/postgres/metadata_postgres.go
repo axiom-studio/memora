@@ -724,10 +724,10 @@ func applyPatchOps(content string, ops []api.PatchOp) (string, error) {
 	return out, nil
 }
 
-func (s *MetadataStore) ForgetMemory(ctx context.Context, id string) error {
+func (s *MetadataStore) ForgetMemory(ctx context.Context, workspaceID, id string) error {
 	now := time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
-UPDATE memora_memories SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`, now, id)
+UPDATE memora_memories SET deleted_at = $1 WHERE id = $2 AND workspace_id = $3 AND deleted_at IS NULL`, now, id, workspaceID)
 	if err != nil {
 		return err
 	}

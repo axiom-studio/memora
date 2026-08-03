@@ -454,7 +454,7 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 	// If content delete fails, the blob is orphaned but unreachable —
 	// the GC sweeper will reclaim it. Never delete content first, or a
 	// concurrent reader could see a memory with no body.
-	if err := s.Metadata.ForgetMemory(ctx, memoryID); err != nil {
+	if err := s.Metadata.ForgetMemory(ctx, workspaceID, memoryID); err != nil {
 		return nil, err
 	}
 	if s.Content != nil {
