@@ -261,3 +261,44 @@ func TestListWorkspacesPagination_E2E(t *testing.T) {
 		t.Error("expected next_cursor in paginated response")
 	}
 }
+
+func TestCrossTenantReadPrevention(t *testing.T) {
+	ts := newTestServer(t)
+	c := ts.Client()
+	base := ts.URL + "/v1/workspaces"
+	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+
+	// Create workspace A and B
+	status, respA := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_a"}, nil))
+	if status != 201 {
+		t.Fatalf("create workspace A: %d", status)
+	}
+	wsAID, _ := respA["id"].(string)
+
+	status, respB := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_b"}, nil))
+	if status != 201 {
+		t.Fatalf("create workspace B: %d", status)
+	}
+	wsBID, _ := respB["id"].(string)
+
+	// Imprint memory in workspace A
+	status, imprintResp := doJSON(t, c, jsonReq(t, "POST", base+"/"+wsAID+"/memories", map[string]any{
+		"content": "secret data in workspace a",
+	}, agentH))
+	if status != 201 {
+		t.Fatalf("imprint in workspace A: %d, response: %v", status, imprintResp)
+	}
+	memID, _ := imprintResp["memory_id"].(string)
+
+	// Attempt to read memory from workspace B endpoint — should get 404
+	status, resp := doJSON(t, c, jsonReq(t, "GET", base+"/"+wsBID+"/memories/"+memID, nil, agentH))
+	if status != 404 {
+		t.Fatalf("cross-tenant lookup: expected 404, got %d. Response: %v", status, resp)
+	}
+
+	// Verify we CAN read from the correct workspace
+	status, resp = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
+	if status != 200 {
+		t.Fatalf("same-workspace lookup: expected 200, got %d", status)
+	}
+}

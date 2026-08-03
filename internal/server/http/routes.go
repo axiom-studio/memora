@@ -313,6 +313,10 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request, wsID, id s
 		s.writeErrorFromService(w, err)
 		return
 	}
+	if m.WorkspaceID != wsID {
+		s.writeError(w, 404, "not_found", "memory not found", nil)
+		return
+	}
 	cells, _ := s.cfg.Service.Metadata.GetCells(r.Context(), id)
 	s.writeJSON(w, 200, api.MemoryEnvelope{Memory: m, Cells: cells})
 }
@@ -383,6 +387,10 @@ func (s *Server) handleGetAtWatermark(w http.ResponseWriter, r *http.Request, ws
 	m, err := s.cfg.Service.Metadata.GetMemoryAtWatermark(r.Context(), memID, wmk)
 	if err != nil {
 		s.writeErrorFromService(w, err)
+		return
+	}
+	if m.WorkspaceID != wsID {
+		s.writeError(w, 404, "not_found", "memory not found", nil)
 		return
 	}
 	s.writeJSON(w, 200, m)
