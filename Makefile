@@ -45,7 +45,7 @@ $(BIN_DIR)/memora-cli: $(shell find cmd/memora-cli internal pkg -type f -name '*
 
 .PHONY: test
 test:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) test ./... -race -cover -coverprofile=$(COVER_PROFILE)
+	CGO_ENABLED=1 $(GO) test ./... -race -cover -coverprofile=$(COVER_PROFILE)
 
 .PHONY: cover
 cover: test
