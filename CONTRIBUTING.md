@@ -105,13 +105,13 @@ To add an adapter:
    relies on capability flags to fail fast when a request asks for
    something the adapter can't do.
 
-See [docs/adapter-authoring.md](docs/adapter-authoring.md) (forthcoming
+See [docs/dev-docs/adapter-authoring.md](docs/dev-docs/adapter-authoring.md) (forthcoming
 with F12) for a complete walkthrough.
 
 ## RFC process
 
 Larger changes — new public verbs, schema additions, new adapter contracts,
-breaking changes — should land as an RFC under `docs/rfcs/` before
+breaking changes — should land as an RFC under `docs/dev-docs/rfcs/` before
 implementation. An RFC is a short Markdown doc covering: motivation,
 detailed design, alternatives considered, drawbacks, migration path.
 

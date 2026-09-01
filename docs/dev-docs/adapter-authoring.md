@@ -1,7 +1,7 @@
 # Authoring a Memora adapter
 
 Memora has five pluggable persistence contracts plus an identity
-contract — each defined in [`pkg/adapter`](../pkg/adapter):
+contract — each defined in [`pkg/adapter`](../../pkg/adapter):
 
 - `MetadataStore` — tabular data (workspaces, collections, memories, cells, agents, watermarks).
 - `ContentStore` — content bytes (memory and cell bodies).

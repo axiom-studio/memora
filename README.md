@@ -8,7 +8,7 @@ Memora is the **Memory-as-a-Service API for AI apps** — durable, multi-tenant,
 versioned memory with vector + graph recall, callable from any MCP-aware agent.
 
 > **Status:** pre-alpha. The OSS module layout and adapter contracts are being
-> bootstrapped in public. See the [PRDs](docs/) for the full design.
+> bootstrapped in public. See the [PRDs](docs/dev-docs/) for the full design.
 
 ## What's inside
 
@@ -128,7 +128,7 @@ cross-node fanout (for federation targets). Test data fixtures are in
                                             / Postgres)
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the full architecture
+See [docs/dev-docs/architecture.md](docs/dev-docs/architecture.md) for the full architecture
 walkthrough (forthcoming with the F12 docs milestone).
 
 ## Editions

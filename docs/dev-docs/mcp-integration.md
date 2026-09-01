@@ -80,5 +80,5 @@ link / unlink) requires an `agent_id` argument. The default
 the deployer's `MEMORA_IDENTITY_PROVIDER=anthropic_session` and have
 the client supply `identity_proof = {session_id, model, system_prompt}`.
 
-See [`pkg/identity`](../pkg/identity) for the derivation recipe used
+See [`pkg/identity`](../../pkg/identity) for the derivation recipe used
 by `anthropic_session`.
