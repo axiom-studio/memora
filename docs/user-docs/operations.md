@@ -21,16 +21,16 @@ Both binaries are built with `CGO_ENABLED=0`, so they are static and carry no sh
 The published image is built on a distroless base carrying only the two binaries. It exposes port 7777, runs as a non-root user, and defaults to the `serve` subcommand with `MEMORA_DATA_DIR` set to `/data`.
 
 ```bash
-docker run -p 7777:7777 -v memora-data:/data ghcr.io/axiom-studio/memora-core:latest
+docker run -p 7777:7777 -v memora-data:/data \
+    -e MEMORA_API_KEY=dev-key-change-me \
+    ghcr.io/axiom-studio/memora-core:latest
 ```
+
+The API key is required, not optional. The image binds `:7777`, which is reachable beyond loopback, and the server refuses to start unauthenticated on such an address — so a `docker run` without `MEMORA_API_KEY` exits immediately.
 
 Mount a volume at `/data`, as above. Without one, the SQLite database holding every Memory, vector, edge, and ledger entry lives in the container's writable layer and is discarded when the container is removed.
 
 A single-node development configuration ships as `docker-compose.yml` in the repository: one node on SQLite and sqlite-vec, listening on port 7777.
-
-For Kubernetes, a Helm chart lives at `charts/memora-core`.
-
-> **Set the chart's image repository explicitly.** The chart's default `image.repository` value does not match the repository the release pipeline publishes to, so a default `helm install` leaves the pod unable to pull. Pass `--set image.repository=ghcr.io/axiom-studio/memora-core` until the chart default is corrected.
 
 ## Authentication
 
@@ -81,8 +81,6 @@ Every write to a memory, edge, or graph endpoint names an agent in the `Memora-A
 
 The `Memora-Identity-Provider` header selects the check and defaults to `opaque`.
 
-> **An unrecognised provider name falls back to `opaque` rather than failing.** Naming a provider the server has not registered does not return an error; the request is verified by `opaque`, which accepts any well-formed ID. A deployment that depends on a specific identity check should confirm it is actually in effect rather than assuming the header took hold.
-
 What `opaque` provides is attribution, not authentication: it records who a write claims to be from, inside the trust boundary the API key already established. That is sufficient when every caller shares one key and the deployment trusts them equally. It is not sufficient when two mutually distrusting agents share one Memora instance.
 
 One reserved identity is used internally. Edges created by auto-linking are attributed to `agent_system_auto_link`, which keeps system-generated edges distinguishable from anything a real agent asserted.
@@ -102,15 +100,14 @@ Requests are capped at 8 MiB and each runs under the configured timeout, 30 seco
 |---|---|
 | `GET /healthz` | Liveness. Returns `200` whenever the process is up. |
 | `GET /readyz` | Readiness. Pings the metadata, vector, and ledger adapters. Returns `503` with `status: degraded` and a per-adapter breakdown if any is down. |
-| `GET /metrics` | Prometheus exposition. |
 | `telemetry.log_level` | `debug`, `info`, `warn`, or `error`. Default `info`. |
 | `telemetry.log_format` | `json` or `text`. Default `json`. |
+
+Both endpoints require the bearer token when an API key is configured — they are ordinary non-`/ui` paths, not auth exemptions. A health probe that does not send the key receives `401`, so configure probes with the `Authorization` header rather than as anonymous requests.
 
 `/readyz` reports the metadata adapter under the key `primary` rather than `metadata` — worth knowing when parsing the breakdown. The graph and content stores are not probed, so a readiness check passes even when a graph operation would return `501`.
 
 Every request is logged with its method, path, status, duration in milliseconds, and request ID. A panic in a handler is recovered, logged, and returned as `500 internal_error` rather than dropping the connection.
-
-> **`/metrics` is a placeholder.** It exposes a single `memora_up` gauge and nothing else — no request counts, no latency histograms, no per-adapter timings. Do not build alerting on it as it stands.
 
 ### The Ledger as Telemetry
 

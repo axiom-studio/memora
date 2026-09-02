@@ -16,10 +16,14 @@ That writes `bin/memora-core` and `bin/memora-cli`. Both are static, `CGO_ENABLE
 To run the server from a container instead of building it:
 
 ```bash
-docker run -p 7777:7777 -v memora-data:/data ghcr.io/axiom-studio/memora-core:latest
+docker run -p 7777:7777 -v memora-data:/data \
+    -e MEMORA_API_KEY=dev-key-change-me \
+    ghcr.io/axiom-studio/memora-core:latest
 ```
 
 The image is distroless, runs as a non-root user, exposes port 7777, and defaults to the `serve` subcommand with its data directory at `/data`. Mount a volume there, as above, or the stored data disappears with the container.
+
+The API key is required, not optional. The image binds `:7777`, which is reachable beyond loopback, and the server refuses to start unauthenticated on such an address — so a `docker run` without `MEMORA_API_KEY` exits immediately.
 
 ## Starting the Server
 
@@ -116,9 +120,9 @@ To expose Memora to an MCP-aware agent, run the binary in stdio mode and point t
 ./bin/memora-core mcp --data-dir=./data
 ```
 
-This speaks JSON-RPC 2.0 over stdio and advertises 25 tools covering workspaces, collections, memories, recall, the graph, and agents. It reads the same data directory as `serve`, so a stdio MCP session and an HTTP client can share one instance.
+This speaks JSON-RPC 2.0 over stdio and exposes tools covering workspaces, collections, memories, recall, and agents. It reads the same data directory as `serve`, so a stdio MCP session and an HTTP client can share one instance.
 
-> **The stdio transport does not check a bearer token.** It only talks to the process that started it, so it trusts its caller completely. Use the REST API for anything reachable over a network.
+> **The stdio transport is unauthenticated unless you give it a key.** With no key configured it trusts its caller completely — it only talks to the process that started it — and logs a warning saying so. Passing `--api-key`, or setting `MEMORA_API_KEY`, makes the `initialize` handshake require that key and gates every other method behind it.
 
 ## Where to Go Next
 

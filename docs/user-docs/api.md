@@ -77,7 +77,7 @@ All paths are relative to `/v1`.
 | `POST /workspaces/{ws}/graph/traverse` | Breadth-first traversal returning layers. |
 | `GET /workspaces/{ws}/graph/stats` | Node count and edge count by type. |
 
-> **Note the slash in `/edges/:batch`.** Append is addressed inline as `{id}:append`, but batch edge creation is a path segment of its own — `/edges/:batch`, not `/edges:batch`. The two colon-prefixed forms are not symmetrical, and the second form returns `404 not_found` if written without the slash.
+> **Note the slash in `/edges/:batch`.** Batch edge creation is addressed as its own path segment — `/edges/:batch`. Written without the slash, as `/edges:batch`, the request returns `404 not_found`.
 
 ### Recall, Agents, and Audit
 
@@ -103,7 +103,8 @@ These sit outside `/v1`.
 |---|---|
 | `GET /healthz` | Liveness. Returns `200` whenever the process is up. |
 | `GET /readyz` | Readiness. Pings the metadata, vector, and ledger adapters. |
-| `GET /metrics` | Prometheus exposition. |
+
+These are ordinary non-`/ui` paths, so they require the bearer token when an API key is configured. A probe that omits it receives `401`.
 
 ## The MCP Server
 
@@ -118,7 +119,7 @@ These sit outside `/v1`.
 | Graph | `memora_link`, `memora_unlink`, `memora_neighbors`, `memora_traverse` |
 | Agents | `memora_register_agent`, `memora_list_agents` |
 
-> **The stdio transport does not check a bearer token.** It only talks to the process that started it, so it treats its caller as trusted. Use the REST API or the WebSocket endpoint for anything reachable over a network.
+> **The stdio transport is unauthenticated unless you give it a key.** With no key configured it treats its caller as trusted — it only talks to the process that started it — and logs a warning saying so. Passing `--api-key`, or setting `MEMORA_API_KEY`, makes the `initialize` handshake require that key and rejects every other method until the handshake succeeds.
 
 There is no MCP tool for graph statistics or for querying the ledger; both are REST-only. Everything else in the tool list maps onto the REST verb of the same name.
 
