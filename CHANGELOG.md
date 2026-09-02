@@ -9,7 +9,7 @@ tags. This file captures larger themes per release plus any details
 that the auto-generated notes would lose.
 
 The project follows [Semantic Versioning](https://semver.org/) — see
-[`docs/releasing.md`](./docs/releasing.md) for the versioning policy.
+[`docs/dev-docs/releasing.md`](./docs/dev-docs/releasing.md) for the versioning policy.
 
 ## [Unreleased]
 
@@ -21,7 +21,7 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `MEMORA_METADATA_DRIVER`. Third-party adapters that implemented
   `PrimaryStore` must migrate to `MetadataStore` (tabular CRUD) and
   optionally `GraphStore` (edges / traversal). See updated
-  [`docs/adapter-authoring.md`](./docs/adapter-authoring.md).
+  [`docs/dev-docs/adapter-authoring.md`](./docs/dev-docs/adapter-authoring.md).
   **Note**: This is an interface refactor only — the storage layout is
   unchanged. The MetadataStore legacy columns (`memora_memories.content`,
   `memora_cells.text`) remain authoritative. ContentStore is a dual-write
@@ -38,7 +38,7 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   SPDX SBOMs via syft, signs every checksum and Docker manifest via
   cosign keyless (Sigstore), pushes multi-arch images to GHCR, and
   auto-publishes to the Homebrew tap and Scoop bucket when their
-  tokens are configured. See [`docs/releasing.md`](./docs/releasing.md).
+  tokens are configured. See [`docs/dev-docs/releasing.md`](./docs/dev-docs/releasing.md).
 - F4 async embed pool: batching, retry-with-backoff, ledger
   `embed_failed` on permanent failure, recall_ready flip when all
   cells embed, in-flight cell dedup, plus the canonical 25-cell moat
@@ -62,7 +62,7 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `CGO_ENABLED=1` which conflicts with the zero-CGO cross-platform
   build. Performance is equivalent for v0.1 corpus sizes (<100K
   vectors). vec0 integration deferred to v0.5. See
-  [`docs/architecture.md`](./docs/architecture.md#vectorstore-performance-trade-off).
+  [`docs/dev-docs/architecture.md`](./docs/dev-docs/architecture.md#vectorstore-performance-trade-off).
 
 ### Known issues (tracked)
 - macOS darwin binaries are unsigned; first run triggers a Gatekeeper
