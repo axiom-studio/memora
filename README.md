@@ -7,8 +7,8 @@
 Memora is the **Memory-as-a-Service API for AI apps** — durable, multi-tenant,
 versioned memory with vector + graph recall, callable from any MCP-aware agent.
 
-> **Status:** pre-alpha. The OSS module layout and adapter contracts are being
-> bootstrapped in public. See the [PRDs](docs/dev-docs/) for the full design.
+![Memora Logo](public/images/memora-2.png)
+![Memora Description](public/images/memora-1.png)
 
 ## What's inside
 
