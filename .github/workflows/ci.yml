@@ -22,7 +22,7 @@ permissions:
 jobs:
   build:
     name: Build & Test
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     strategy:
@@ -68,7 +68,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
