@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -412,4 +413,53 @@ func TestSweeper_CellLevelOrphanReclaimed(t *testing.T) {
 	if sw.LastDeleted() != 1 {
 		t.Fatalf("LastDeleted = %d, want 1 (one orphan cell)", sw.LastDeleted())
 	}
+}
+
+// blockingLedger parks AppendLedger until release is closed, holding a
+// sweep pass in flight.
+type blockingLedger struct {
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingLedger) AppendLedger(_ context.Context, _ api.LedgerEntry) string {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+	return "led_test"
+}
+
+func TestSweeper_StopWaitsForInFlightPass(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	led := &blockingLedger{entered: make(chan struct{}), release: make(chan struct{})}
+	meta := &mockMetadata{workspaces: []types.Workspace{{ID: "ws1"}}, memories: map[string]*types.Memory{}}
+	content := &mockContent{keys: map[string][]string{"ws1": {}}}
+
+	sw := New(meta, content, led, logger, Config{Interval: 10 * time.Millisecond, MinAge: 0})
+	sw.Start(context.Background())
+	<-led.entered
+
+	stopped := make(chan struct{})
+	go func() {
+		sw.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned while a sweep pass was still in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(led.release)
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return after the in-flight pass finished")
+	}
+}
+
+func TestSweeper_StopWithoutStartIsNoop(t *testing.T) {
+	sw := New(nil, nil, nil, slog.Default(), Config{})
+	sw.Stop()
 }

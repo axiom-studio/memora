@@ -40,6 +40,7 @@ type Sweeper struct {
 	totalDeleted atomic.Int64
 	lastDeleted  atomic.Int64
 	cancel       context.CancelFunc
+	done         chan struct{} // closed when loop exits
 }
 
 // New creates a Sweeper but does not start it. Call Start to begin.
@@ -63,13 +64,16 @@ func New(metadata adapter.MetadataStore, content adapter.ContentStore, ledger Le
 // Start begins the background sweep loop. Safe to call once.
 func (s *Sweeper) Start(ctx context.Context) {
 	ctx, s.cancel = context.WithCancel(ctx)
+	s.done = make(chan struct{})
 	go s.loop(ctx)
 }
 
-// Stop signals the sweep loop to exit.
+// Stop signals the sweep loop to exit and waits for any in-flight pass
+// to finish, so callers may safely close the stores afterwards.
 func (s *Sweeper) Stop() {
 	if s.cancel != nil {
 		s.cancel()
+		<-s.done
 	}
 }
 
@@ -80,6 +84,7 @@ func (s *Sweeper) TotalDeleted() int64 { return s.totalDeleted.Load() }
 func (s *Sweeper) LastDeleted() int64 { return s.lastDeleted.Load() }
 
 func (s *Sweeper) loop(ctx context.Context) {
+	defer close(s.done)
 	ticker := time.NewTicker(s.cfg.Interval)
 	defer ticker.Stop()
 	for {
