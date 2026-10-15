@@ -44,8 +44,10 @@ $(BIN_DIR)/memora-cli: $(shell find cmd/memora-cli internal pkg -type f -name '*
 		-o $@ ./cmd/memora-cli
 
 .PHONY: test
+# The race detector requires cgo, so tests always build with CGO_ENABLED=1.
+# The test binary is never distributed; shipped artifacts stay CGo-free.
 test:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) test ./... -race -cover -coverprofile=$(COVER_PROFILE)
+	CGO_ENABLED=1 $(GO) test ./... -race -cover -coverprofile=$(COVER_PROFILE)
 
 .PHONY: cover
 cover: test

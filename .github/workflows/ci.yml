@@ -55,8 +55,6 @@ jobs:
 
       - name: Test (race + cover)
         run: make test
-        env:
-          CGO_ENABLED: '0'
 
       - name: Upload coverage profile
         if: always()
