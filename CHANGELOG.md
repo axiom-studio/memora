@@ -14,6 +14,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Changed
+- **BREAKING (wire API)**: Imprint, Update, Patch, Append and Forget
+  responses return the Memory's identifier as `id` instead of
+  `memory_id` (REST and MCP), matching the `id` field on Memory and
+  Workspace objects. Request bodies, query parameters and Recall hits
+  (`memory_id`) are unchanged.
 - **BREAKING (Helm chart)**: values key `primary.driver` is now
   `metadata.driver`, matching the `--metadata-driver` flag. The chart now
   refuses to render unless `apiKey` is set or `allowNoAuth: true` is set

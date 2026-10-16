@@ -54,7 +54,7 @@ The response reports the new Memory's ID, its opening watermark, an MD5 of the c
 
 ```json
 {
-  "memory_id": "mem_01HXYZ...",
+  "id": "mem_01HXYZ...",
   "watermark": "wmk_01HXYZ...",
   "content_md5": "…",
   "cells_created": 1,
@@ -97,7 +97,7 @@ The response reports how much embedding work the edit avoided:
 
 ```json
 {
-  "memory_id": "mem_01HXYZ...",
+  "id": "mem_01HXYZ...",
   "watermark": "wmk_01HXYZ...",
   "patches_applied": 1,
   "cells_re_embedded": 1,

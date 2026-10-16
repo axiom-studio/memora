@@ -82,7 +82,7 @@ func TestImprint_PersistsRecallReady(t *testing.T) {
 	if !resp.RecallReady {
 		t.Fatal("ImprintResponse.RecallReady = false, want true after a successful inline embed")
 	}
-	if !storedRecallReady(t, s, resp.MemoryID) {
+	if !storedRecallReady(t, s, resp.ID) {
 		t.Fatal("stored recall_ready = false after imprint; want true (response and row disagree)")
 	}
 }
@@ -96,10 +96,10 @@ func TestUpdate_LeavesRecallReadyTrue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Imprint: %v", err)
 	}
-	if _, err := s.Update(ctx, ws, imp.MemoryID, testAgent, imp.Watermark, api.UpdateRequest{Content: "rewritten\n\nwith a second cell", ExpectedWatermark: imp.Watermark}); err != nil {
+	if _, err := s.Update(ctx, ws, imp.ID, testAgent, imp.Watermark, api.UpdateRequest{Content: "rewritten\n\nwith a second cell", ExpectedWatermark: imp.Watermark}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if !storedRecallReady(t, s, imp.MemoryID) {
+	if !storedRecallReady(t, s, imp.ID) {
 		t.Fatal("stored recall_ready = false after update re-embedded every cell")
 	}
 }
@@ -246,7 +246,7 @@ func imprint(t *testing.T, s *Service, ws, content string) string {
 	if err != nil {
 		t.Fatalf("Imprint(%q): %v", content, err)
 	}
-	return resp.MemoryID
+	return resp.ID
 }
 
 func recallIDs(r *api.RecallResponse) map[string]api.RecallHit {

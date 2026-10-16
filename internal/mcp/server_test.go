@@ -323,9 +323,9 @@ func extractToolWorkspaceID(t *testing.T, r response) string {
 func extractToolMemoryID(t *testing.T, r response) string {
 	t.Helper()
 	payload := unwrapToolContent(t, r)
-	id, _ := payload["memory_id"].(string)
+	id, _ := payload["id"].(string)
 	if id == "" {
-		t.Fatalf("imprint response missing memory_id: %+v", payload)
+		t.Fatalf("imprint response missing id: %+v", payload)
 	}
 	return id
 }
