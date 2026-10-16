@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -26,10 +25,7 @@ import (
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/mcp"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
-	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/internal/ui"
-	"github.com/axiom-studio/memora/pkg/adapter"
-	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
 
 	// Register adapters in init().
@@ -230,92 +226,14 @@ func serve() {
 	if err := os.MkdirAll(cfg.Storage.DataDir, 0o755); err != nil {
 		bootLog.Fatalf("mkdir data-dir: %v", err)
 	}
-	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
-
-	dsnOr := func(explicit, fallback string) string {
-		if explicit != "" {
-			return explicit
-		}
-		return fallback
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dsnOr(cfg.Storage.MetadataDSN, dbPath)})
+	svc, closeAdapters, err := openCoreAdapters(ctx, cfg, logger)
 	if err != nil {
-		bootLog.Fatalf("open metadata: %v", err)
+		bootLog.Fatalf("%v", err)
 	}
-	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN, dbPath), Dim: 384})
-	if err != nil {
-		bootLog.Fatalf("open vector: %v", err)
-	}
-	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN, dbPath)})
-	if err != nil {
-		bootLog.Fatalf("open ledger: %v", err)
-	}
-	defer led.Close()
-
-	embedProvider, err := embedding.Open(cfg.Embedding.Model)
-	if err != nil {
-		bootLog.Fatalf("open embedding: %v", err)
-	}
-	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
-
-	identityMap := map[string]adapter.IdentityProvider{}
-	for _, name := range []string{
-		string(types.IdentityProviderOpaque),
-		string(types.IdentityProviderAnthropicSession),
-	} {
-		p, err := adapter.OpenIdentity(name)
-		if err == nil {
-			identityMap[name] = p
-		}
-	}
-
-	svc := &service.Service{
-		Metadata: meta,
-		Vector:   vec,
-		Ledger:   led,
-		Embedder: embedProvider,
-		Identity: identityMap,
-	}
-	if cfg.Storage.ContentDriver != "" {
-		cdsn := cfg.Storage.ContentDSN
-		if cdsn == "" {
-			if cfg.Storage.ContentDriver == "sqlite" {
-				cdsn = dbPath
-			} else {
-				cdsn = filepath.Join(cfg.Storage.DataDir, "content")
-			}
-		}
-		cs, err := adapter.OpenContent(ctx, adapter.ContentConfig{Driver: cfg.Storage.ContentDriver, DSN: cdsn})
-		if err != nil {
-			bootLog.Fatalf("open content: %v", err)
-		}
-		defer cs.Close()
-		svc.Content = cs
-		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", cdsn)
-	}
-	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: dsnOr(cfg.Storage.GraphDSN, dbPath)})
-	if err != nil {
-		bootLog.Fatalf("open graph: %v", err)
-	}
-	defer gs.Close()
-	svc.Graph = gs
-	logger.Info("graph store enabled", "driver", cfg.Storage.GraphDriver)
-
-	var ccaps *adapter.ContentCapabilities
-	if svc.Content != nil {
-		c := svc.Content.Capabilities()
-		ccaps = &c
-	}
-	gcaps := gs.Capabilities()
-	if err := adapter.ValidateCompatibility(logger, meta.Capabilities(), ccaps, &gcaps); err != nil {
-		bootLog.Fatalf("compatibility check failed: %v", err)
-	}
+	defer closeAdapters()
 
 	var uiFederation *ui.FederationInfo
 	if cfg.Federation.Enabled {
@@ -525,52 +443,19 @@ func runMCP() {
 	if err := os.MkdirAll(cfg.Storage.DataDir, 0o755); err != nil {
 		bootLog.Fatalf("mkdir data-dir: %v", err)
 	}
-	dbPath := filepath.Join(cfg.Storage.DataDir, "memora.db")
-
-	dsnOr := func(explicit, fallback string) string {
-		if explicit != "" {
-			return explicit
-		}
-		return fallback
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	meta, err := adapter.OpenMetadata(ctx, adapter.MetadataConfig{Driver: cfg.Storage.MetadataDriver, DSN: dsnOr(cfg.Storage.MetadataDSN, dbPath)})
+	// stdout carries the JSON-RPC stream, so adapter logs go to stderr.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	svc, closeAdapters, err := openCoreAdapters(ctx, cfg, logger)
 	if err != nil {
-		bootLog.Fatalf("open metadata: %v", err)
+		bootLog.Fatalf("%v", err)
 	}
-	defer meta.Close()
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN, dbPath), Dim: 384})
-	if err != nil {
-		bootLog.Fatalf("open vector: %v", err)
-	}
-	defer vec.Close()
-	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN, dbPath)})
-	if err != nil {
-		bootLog.Fatalf("open ledger: %v", err)
-	}
-	defer led.Close()
+	defer closeAdapters()
 
-	embedProvider, err := embedding.Open(cfg.Embedding.Model)
-	if err != nil {
-		bootLog.Fatalf("open embedding: %v", err)
-	}
-	identityMap := map[string]adapter.IdentityProvider{}
-	for _, name := range []string{string(types.IdentityProviderOpaque), string(types.IdentityProviderAnthropicSession)} {
-		p, _ := adapter.OpenIdentity(name)
-		identityMap[name] = p
-	}
-	svc := &service.Service{
-		Metadata: meta,
-		Vector:   vec,
-		Ledger:   led,
-		Embedder: embedProvider,
-		Identity: identityMap,
-	}
 	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey})
-	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, embedProvider.ModelID())
+	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, svc.Embedder.ModelID())
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
 		bootLog.Fatalf("mcp serve: %v", err)
 	}
