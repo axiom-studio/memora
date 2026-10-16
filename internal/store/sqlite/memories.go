@@ -79,7 +79,7 @@ func (s *Store) GetMemory(ctx context.Context, id string) (*types.Memory, error)
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
        written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
-FROM memora_memories WHERE id = ?`, id)
+FROM memora_memories WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanMemory(row)
 }
 
@@ -374,10 +374,10 @@ func ApplyPatchOps(content string, ops []api.PatchOp) (string, error) {
 
 // ForgetMemory soft-deletes a Memory (cascade to edges happens in
 // GraphCascadeForget which the server orchestrates).
-func (s *Store) ForgetMemory(ctx context.Context, id string) error {
+func (s *Store) ForgetMemory(ctx context.Context, workspaceID, id string) error {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `
-UPDATE memora_memories SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, id)
+UPDATE memora_memories SET deleted_at = ? WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`, now, id, workspaceID)
 	if err != nil {
 		return err
 	}

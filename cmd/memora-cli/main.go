@@ -384,7 +384,7 @@ func cmdImprint(ctx context.Context, c *client.Client, g globalFlags) {
 	})
 	die(err)
 	if g.Output == "text" {
-		fmt.Printf("✓ Imprinted %s in workspace %s\n", resp.MemoryID, g.Workspace)
+		fmt.Printf("✓ Imprinted %s in workspace %s\n", resp.ID, g.Workspace)
 		fmt.Printf("  Watermark:    %s\n", resp.Watermark)
 		fmt.Printf("  Cells:        %d\n", resp.CellsCreated)
 		fmt.Printf("  Recall ready: %v\n", resp.RecallReady)
@@ -447,7 +447,7 @@ func cmdPatch(ctx context.Context, c *client.Client, g globalFlags) {
 	resp, err := c.Patch(ctx, g.Workspace, memID, *ifMatch, api.PatchRequest{Patch: ops, ExpectedWatermark: *ifMatch})
 	die(err)
 	if g.Output == "text" {
-		fmt.Printf("✓ Patched %s\n", resp.MemoryID)
+		fmt.Printf("✓ Patched %s\n", resp.ID)
 		fmt.Printf("  Watermark:        %s\n", resp.Watermark)
 		fmt.Printf("  Patches applied:  %d\n", resp.PatchesApplied)
 		fmt.Printf("  Cells re-embed:   %d\n", resp.CellsReembed)
@@ -490,7 +490,7 @@ func cmdForget(ctx context.Context, c *client.Client, g globalFlags) {
 	resp, err := c.Forget(ctx, g.Workspace, g.Args[0])
 	die(err)
 	if g.Output == "text" {
-		fmt.Printf("✓ Forgot %s (cascaded %d edges)\n", resp.MemoryID, resp.CascadedEdges)
+		fmt.Printf("✓ Forgot %s (cascaded %d edges)\n", resp.ID, resp.CascadedEdges)
 	} else {
 		emit(g, resp)
 	}
@@ -504,7 +504,24 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	collection := fs.String("collection", "", "collection filter")
 	depth := fs.Int("neighbor-depth", 0, "graph_expansion.depth (0 = no expansion)")
 	edgeTypes := fs.String("edge-types", "", "comma-separated edge_types for expansion")
-	_ = fs.Parse(g.Args)
+
+	// Extract flags before and after positional argument (allow interspersed flags)
+	var flagsBefore []string
+	var queryAndFlags []string
+	foundQuery := false
+	for i := 0; i < len(g.Args); i++ {
+		arg := g.Args[i]
+		if !foundQuery && strings.HasPrefix(arg, "-") {
+			flagsBefore = append(flagsBefore, arg)
+		} else if !foundQuery {
+			foundQuery = true
+			queryAndFlags = append(queryAndFlags, arg)
+		} else {
+			queryAndFlags = append(queryAndFlags, arg)
+		}
+	}
+
+	_ = fs.Parse(append(flagsBefore, queryAndFlags...))
 	if len(fs.Args()) == 0 {
 		fmt.Fprintln(os.Stderr, "recall <query>")
 		os.Exit(exitUsage)

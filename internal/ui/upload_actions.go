@@ -267,7 +267,7 @@ func (h *Handler) handleMemoryUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Document Uploaded</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	if filename != "" {
 		fmt.Fprintf(w, `<tr><td><strong>Source File</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(filename))
 	}

@@ -476,7 +476,7 @@ func (m *mockDataSource) ImprintMemory(_ context.Context, _ string, _ api.Imprin
 		return nil, m.err
 	}
 	return &api.ImprintResponse{
-		MemoryID:     "mem_test_123",
+		ID:           "mem_test_123",
 		Watermark:    "wm_abc",
 		CellsCreated: 3,
 		RecallReady:  true,
@@ -489,7 +489,7 @@ func (m *mockDataSource) AppendMemory(_ context.Context, _, _ string, _ api.Appe
 		return nil, m.err
 	}
 	return &api.AppendResponse{
-		MemoryID:   "mem_test_123",
+		ID:         "mem_test_123",
 		Watermark:  "wm_appended",
 		CellsAdded: 2,
 		LedgerID:   "led_app",
@@ -500,7 +500,7 @@ func (m *mockDataSource) ForgetMemory(_ context.Context, _, _ string) (*api.Forg
 		return nil, m.err
 	}
 	return &api.ForgetResponse{
-		MemoryID:      "mem_test_123",
+		ID:            "mem_test_123",
 		Watermark:     "wm_forgotten",
 		CascadedEdges: 3,
 		LedgerID:      "led_forget",
@@ -511,7 +511,7 @@ func (m *mockDataSource) PatchMemory(_ context.Context, _, _ string, _ api.Patch
 		return nil, m.err
 	}
 	return &api.PatchResponse{
-		MemoryID:       "mem_test_123",
+		ID:             "mem_test_123",
 		Watermark:      "wm_patched",
 		PatchesApplied: 2,
 		CellsReembed:   1,
@@ -524,7 +524,7 @@ func (m *mockDataSource) UpdateMemory(_ context.Context, _, _ string, _ api.Upda
 		return nil, m.err
 	}
 	return &api.UpdateResponse{
-		MemoryID:     "mem_test_123",
+		ID:           "mem_test_123",
 		Watermark:    "wm_def",
 		CellsReembed: 2,
 		CellsSkipped: 1,

@@ -56,14 +56,13 @@ func (h *Handler) handleMemoryImprint(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Created</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
+	fmt.Fprintf(w, `<tr><td><strong>Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Cells Created</strong></td><td>%d</td></tr>`, resp.CellsCreated)
 	fmt.Fprintf(w, `<tr><td><strong>Recall Ready</strong></td><td>%s</td></tr>`, recallBadge)
-	fmt.Fprintf(w, `</table><details style="margin-top:0.5rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Technical Details</summary><table style="margin-top:0.25rem">`)
-	fmt.Fprintf(w, `<tr><td><strong>Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `<tr><td><strong>Latency</strong></td><td>%d ms</td></tr>`, resp.LatencyMS)
-	fmt.Fprintf(w, `</table></details></div>`)
+	fmt.Fprintf(w, `</table></div>`)
 }
 
 func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Request) {
@@ -84,10 +83,9 @@ func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-imprint-modal" class="modal modal-wide" aria-labelledby="mem-imprint-title">
-<form hx-post="/ui/api/memories/imprint" hx-target="#imprint-result" hx-swap="innerHTML" class="modal-form">
+	fmt.Fprintf(w, `<dialog id="mem-imprint-modal" class="modal" aria-labelledby="mem-imprint-title">
+<form hx-post="/ui/api/memories/imprint" hx-target="#imprint-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
   <h3 id="mem-imprint-title">Imprint Memory</h3>
-  <p class="form-help" style="margin-top:0">Create a new memory from content</p>
   <div id="imprint-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <label>Content <span class="text-muted">(required)</span>
@@ -106,7 +104,6 @@ func (h *Handler) partialMemoryImprintForm(w http.ResponseWriter, r *http.Reques
       <option value="noop">no-chunk</option>
     </select>
   </label>
-  <p class="form-help">Controls how content is split into cells for embedding</p>
   <fieldset style="border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-top:0.5rem">
     <legend style="font-size:0.9rem;font-weight:600;padding:0 0.25rem">Tags</legend>
     <div id="tag-rows">
@@ -173,13 +170,12 @@ func (h *Handler) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Updated</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
+	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
 	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
-	fmt.Fprintf(w, `</table><details style="margin-top:0.5rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Technical Details</summary><table style="margin-top:0.25rem">`)
-	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
-	fmt.Fprintf(w, `</table></details></div>`)
+	fmt.Fprintf(w, `</table></div>`)
 }
 
 func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) {
@@ -207,8 +203,8 @@ func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) 
 		tagRows = `<div style="display:flex;gap:0.5rem;margin-bottom:0.25rem"><input type="text" name="tag_key" placeholder="key" style="flex:1"><input type="text" name="tag_value" placeholder="value" style="flex:1"></div>`
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-edit-modal" class="modal modal-wide" aria-labelledby="mem-edit-title">
-<form hx-post="/ui/api/memories/update" hx-target="#update-result" hx-swap="innerHTML" class="modal-form">
+	fmt.Fprintf(w, `<dialog id="mem-edit-modal" class="modal" aria-labelledby="mem-edit-title">
+<form hx-post="/ui/api/memories/update" hx-target="#update-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
   <h3 id="mem-edit-title">Edit Memory</h3>
   <div id="update-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
@@ -300,14 +296,13 @@ func (h *Handler) handleMemoryPatch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Patch Applied</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
+	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Patches Applied</strong></td><td>%d</td></tr>`, resp.PatchesApplied)
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
 	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
-	fmt.Fprintf(w, `</table><details style="margin-top:0.5rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Technical Details</summary><table style="margin-top:0.25rem">`)
-	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
-	fmt.Fprintf(w, `</table></details></div>`)
+	fmt.Fprintf(w, `</table></div>`)
 }
 
 func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request) {
@@ -325,8 +320,8 @@ func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal modal-wide" aria-labelledby="mem-patch-title">
-<form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form">
+	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal" aria-labelledby="mem-patch-title">
+<form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form" style="max-width:700px">
   <h3 id="mem-patch-title">Patch Memory</h3>
   <div id="patch-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
@@ -436,12 +431,11 @@ func (h *Handler) handleMemoryAppend(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Content Appended</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
-		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.MemoryID), template.HTMLEscapeString(resp.MemoryID))
-	fmt.Fprintf(w, `<tr><td><strong>Cells Added</strong></td><td>%d</td></tr>`, resp.CellsAdded)
-	fmt.Fprintf(w, `</table><details style="margin-top:0.5rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Technical Details</summary><table style="margin-top:0.25rem">`)
+		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	fmt.Fprintf(w, `<tr><td><strong>Cells Added</strong></td><td>%d</td></tr>`, resp.CellsAdded)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
-	fmt.Fprintf(w, `</table></details></div>`)
+	fmt.Fprintf(w, `</table></div>`)
 }
 
 func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request) {
@@ -459,8 +453,8 @@ func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal modal-wide" aria-labelledby="mem-append-title">
-<form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form">
+	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal" aria-labelledby="mem-append-title">
+<form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
   <h3 id="mem-append-title">Append to Memory</h3>
   <div id="append-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
@@ -515,11 +509,10 @@ func (h *Handler) handleMemoryForget(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Forgotten</h3><table>`)
-	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.MemoryID))
+	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>Cascaded Edges</strong></td><td>%d</td></tr>`, resp.CascadedEdges)
-	fmt.Fprintf(w, `</table><details style="margin-top:0.5rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Technical Details</summary><table style="margin-top:0.25rem">`)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
-	fmt.Fprintf(w, `</table></details><p style="margin-top:0.75rem"><a href="/ui/workspaces/%s?tab=overview">Back to workspace</a></p></div>`,
+	fmt.Fprintf(w, `</table><p style="margin-top:0.75rem"><a href="/ui/workspaces/%s?tab=overview">Back to workspace</a></p></div>`,
 		template.HTMLEscapeString(wsID))
 }
 
@@ -560,7 +553,7 @@ func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request
   </label>
   <div class="modal-actions">
     <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-    <button type="submit" class="btn btn-danger-fill">Forget</button>
+    <button type="submit" class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)">Forget</button>
   </div>
 </form>
 </dialog>`,

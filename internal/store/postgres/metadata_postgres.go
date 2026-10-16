@@ -414,7 +414,7 @@ func (s *MetadataStore) GetMemory(ctx context.Context, id string) (*types.Memory
 	err := s.pool.QueryRow(ctx, `
 SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
        written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
-FROM memora_memories WHERE id = $1`, id).Scan(
+FROM memora_memories WHERE id = $1 AND deleted_at IS NULL`, id).Scan(
 		&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5, &m.HeadWatermark, &m.CreatedWatermark,
 		&m.WrittenByAgentID, &m.LastModifiedByAgentID, &tagsJSON, &m.RecallReady,
 		&m.CreatedAt, &m.UpdatedAt, &deletedAt)
@@ -724,10 +724,10 @@ func applyPatchOps(content string, ops []api.PatchOp) (string, error) {
 	return out, nil
 }
 
-func (s *MetadataStore) ForgetMemory(ctx context.Context, id string) error {
+func (s *MetadataStore) ForgetMemory(ctx context.Context, workspaceID, id string) error {
 	now := time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
-UPDATE memora_memories SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`, now, id)
+UPDATE memora_memories SET deleted_at = $1 WHERE id = $2 AND workspace_id = $3 AND deleted_at IS NULL`, now, id, workspaceID)
 	if err != nil {
 		return err
 	}
