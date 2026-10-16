@@ -128,6 +128,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := h.createSession()
+	//nolint:gosec // G124: Secure follows the request scheme so plain-HTTP local consoles still work; HttpOnly and SameSite are always set
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
@@ -141,12 +142,15 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	//nolint:gosec // G124: same attributes as the login cookie; this one only expires the session
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/ui/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
 	})
 	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
 }

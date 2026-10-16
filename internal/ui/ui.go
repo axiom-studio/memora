@@ -368,13 +368,6 @@ func cellPreview(text string, n int) string {
 	return truncateStr(strings.ReplaceAll(text, "\n", " "), n)
 }
 
-func (h *Handler) partialPlaceholder(msg string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<div class="empty-state"><h3>Coming Soon</h3><p>%s</p></div>`, template.HTMLEscapeString(msg))
-	}
-}
-
 func noCacheStatic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")

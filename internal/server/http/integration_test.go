@@ -297,7 +297,7 @@ func TestCrossTenantReadPrevention(t *testing.T) {
 	}
 
 	// Verify we CAN read from the correct workspace
-	status, resp = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
+	status, _ = doJSON(t, c, jsonReq(t, "GET", base+"/"+wsAID+"/memories/"+memID, nil, agentH))
 	if status != 200 {
 		t.Fatalf("same-workspace lookup: expected 200, got %d", status)
 	}

@@ -68,7 +68,7 @@ func TestHashTag(t *testing.T) {
 		t.Fatalf("hashTag len = %d, want 8", len(tag))
 	}
 	for _, r := range tag {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			t.Fatalf("hashTag(%q)=%q is not lowercase hex", "hunter2", tag)
 		}
 	}

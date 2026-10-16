@@ -49,7 +49,8 @@ func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID,
 	}
 	return func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
 		mem := &types.Memory{ID: memoryID, WorkspaceID: workspaceID}
-		autolink.AutoLink(ctx, autolink.Deps{
+		// Best-effort: AutoLink logs and ledgers its own failures.
+		_, _ = autolink.AutoLink(ctx, autolink.Deps{
 			Metadata: s.Metadata, Vector: s.Vector,
 			Graph: s.Graph, Ledger: s.Ledger,
 			Logger: slog.Default(),
@@ -639,7 +640,7 @@ func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.
 	}
 	vecs, err := s.Embedder.Embed(ctx, []string{req.Query})
 	if err != nil || len(vecs) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilerr // embedding failure degrades recall to keyword results by design
 	}
 	res, err := s.Vector.Query(ctx, adapter.VectorQuery{
 		WorkspaceID: workspaceID,

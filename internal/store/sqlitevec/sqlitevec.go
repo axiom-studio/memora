@@ -155,6 +155,7 @@ func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) err
 		args[i] = k.CellID
 		ph[i] = "?"
 	}
+	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 	q := "DELETE FROM memora_cell_vectors WHERE cell_id IN (" + strings.Join(ph, ",") + ")"
 	_, err := s.db.ExecContext(ctx, q, args...)
 	return err
@@ -172,6 +173,7 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 		where = append(where, "collection_id = ?")
 		args = append(args, q.Filter.CollectionID)
 	}
+	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 	sql := `SELECT workspace_id, collection_id, memory_id, cell_id, vector_blob, metadata_json
 FROM memora_cell_vectors WHERE ` + strings.Join(where, " AND ")
 	rows, err := s.db.QueryContext(ctx, sql, args...)

@@ -31,12 +31,7 @@ func TestAggregate_DedupByMemoryID(t *testing.T) {
 	if len(resp.Results) != 2 {
 		t.Fatalf("expected 2 deduped results, got %d", len(resp.Results))
 	}
-	for _, r := range resp.Results {
-		if r.MemoryID == "mem_a" && r.Score < 0 {
-			// After Z-normalization, scores may change, but the higher
-			// original score should still win dedup. Just verify dedup happened.
-		}
-	}
+	// Z-normalization rescales scores, so only the dedup count is asserted.
 }
 
 func TestAggregate_TopK(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,9 +21,7 @@ func init() {
 }
 
 type MetadataStore struct {
-	pool   *pgxpool.Pool
-	wmkSeq uint64
-	wmkMu  sync.Mutex
+	pool *pgxpool.Pool
 }
 
 func (s *MetadataStore) Open(ctx context.Context, cfg adapter.MetadataConfig) error {

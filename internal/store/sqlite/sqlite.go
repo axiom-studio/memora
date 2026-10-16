@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -28,10 +27,8 @@ func init() {
 
 // Store implements adapter.MetadataStore against SQLite.
 type Store struct {
-	db     *sql.DB
-	dsn    string
-	wmkSeq uint64
-	wmkMu  sync.Mutex
+	db  *sql.DB
+	dsn string
 }
 
 // Open implements adapter.MetadataStore.

@@ -125,6 +125,7 @@ func (c *ContentStore) GetCellContentBatch(ctx context.Context, workspaceID, mem
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
+	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 	query := `SELECT cell_id, content FROM memora_content WHERE workspace_id = ? AND memory_id = ? AND cell_id IN (` + joinStrings(placeholders, ",") + `)`
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {

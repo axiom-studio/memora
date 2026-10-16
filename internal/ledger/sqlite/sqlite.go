@@ -209,6 +209,7 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 
 	sqlStr := "SELECT ledger_id, workspace_id, op, target, agent_id, api_key_id, user_id, watermark_before, watermark_after, ip, user_agent, ts, request_id, latency_ms, metadata_json, redacted, redacted_fields FROM memora_ledger"
 	if len(where) > 0 {
+		//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 		sqlStr += " WHERE " + strings.Join(where, " AND ")
 	}
 	sqlStr += " ORDER BY ts DESC, ledger_id DESC"

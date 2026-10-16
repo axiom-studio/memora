@@ -36,7 +36,6 @@ var (
 	buildDate = ""
 )
 
-const exitOK = 0
 const exitUsage = 1
 const exitAuth = 2
 const exitServer = 3

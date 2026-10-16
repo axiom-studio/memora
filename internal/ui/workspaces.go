@@ -42,37 +42,6 @@ func (h *Handler) partialWorkspaceList(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `</tbody></table>`)
 }
 
-func (h *Handler) handleWorkspaceDetail(w http.ResponseWriter, r *http.Request) {
-	wsID := strings.TrimPrefix(r.URL.Path, "/ui/workspaces/")
-	wsID = strings.TrimSuffix(wsID, "/")
-	if i := strings.IndexByte(wsID, '/'); i >= 0 {
-		wsID = wsID[:i]
-	}
-
-	if wsID == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	tab := r.URL.Query().Get("tab")
-	if tab == "" {
-		tab = "overview"
-	}
-
-	tmpl, ok := h.pages["workspaces"]
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = tmpl.Execute(w, pageData{
-		Title: "Workspace " + truncateStr(wsID, 12),
-		Nav:   "workspaces",
-		Data:  map[string]string{"wsID": wsID, "tab": tab},
-	})
-}
-
 func (h *Handler) partialWorkspaceDetail(w http.ResponseWriter, r *http.Request) {
 	wsID := r.URL.Query().Get("id")
 	tab := r.URL.Query().Get("tab")

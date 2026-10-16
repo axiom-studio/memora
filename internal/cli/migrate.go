@@ -170,7 +170,7 @@ func verifyMemoryContent(ctx context.Context, primary adapter.MetadataStore, con
 	}
 	cells, err := primary.GetCells(ctx, m.WorkspaceID, m.ID)
 	if err != nil {
-		return nil
+		return fmt.Errorf("read cells for memory %s: %w", m.ID, err)
 	}
 	for _, cell := range cells {
 		if cell.Text == "" {

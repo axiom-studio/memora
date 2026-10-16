@@ -1,5 +1,8 @@
-# Memora Core — golangci-lint configuration.
+# Memora Core — golangci-lint v2 configuration.
 # Tuned for OSS contributors: noisy linters off, security/correctness linters on.
+# Every exclusion below states why; per-line suppressions must use
+# `//nolint:<linter> // <reason>` (Issue #5980).
+version: "2"
 
 run:
   timeout: 5m
@@ -7,7 +10,7 @@ run:
   modules-download-mode: readonly
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck       # unchecked errors
     - gosec          # security issues
@@ -15,46 +18,87 @@ linters:
     - ineffassign    # unused assignments
     - staticcheck    # bug & style checks
     - unused         # unused code
-    - gofmt          # formatting
-    - goimports      # import grouping
     - misspell       # common typos
     - revive         # replacement for golint
     - bodyclose      # unclosed HTTP response bodies
     - nilerr         # `return nil` after non-nil error
     - copyloopvar    # loop-variable capture issues (Go 1.22+)
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment   # mostly noise; opt-in per package if needed
-  gosec:
-    excludes:
-      - G104          # unhandled errors (covered by errcheck with better signal)
-      - G304          # file path provided as taint input (false positives in CLI tools)
-  goimports:
-    local-prefixes: github.com/axiom-studio/memora
-  revive:
+  settings:
+    errcheck:
+      exclude-functions:
+        # Deferred rollback after a successful Commit returns ErrTxDone by
+        # design; the real error is the one Commit or the failing statement
+        # already returned.
+        - (*database/sql.Tx).Rollback
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+        # Deferred best-effort close of a WebSocket that is already ending.
+        - (*nhooyr.io/websocket.Conn).CloseNow
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # mostly noise; opt-in per package if needed
+        - shadow         # flags idiomatic `if err := ...` re-declarations; too noisy to gate on
+    gosec:
+      excludes:
+        - G104 # unhandled errors (covered by errcheck with better signal)
+        - G304 # file path provided as taint input (false positives in CLI tools)
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-        arguments:
-          - disableStutteringCheck
+      # Test files: relaxed rules.
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+      # websocket.Dial closes the handshake response body itself.
+      - path: internal/mcp/websocket_test\.go
+        linters:
+          - bodyclose
+      # The console renders HTML with fmt.Fprintf; every string argument goes
+      # through template.HTMLEscapeString (audited for #5980/#5994), so the
+      # G705 taint findings there are false positives. Script-context values
+      # must use jsonEscapeString.
+      - path: internal/ui/
+        linters:
+          - gosec
+        text: G705
+      # nhooyr.io/websocket is deprecated in favour of its drop-in
+      # successor github.com/coder/websocket; the dependency swap is tracked
+      # separately so it gets its own review.
+      - linters:
+          - staticcheck
+        text: "SA1019: .*nhooyr.io/websocket"
+      # Generated files.
+      - path: \.pb\.go$
+        linters:
+          - all
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/axiom-studio/memora
 
 issues:
-  exclude-rules:
-    # Test files: relaxed rules.
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-    # Generated files.
-    - path: \.pb\.go$
-      linters:
-        - all
   max-issues-per-linter: 0
   max-same-issues: 0
 
 output:
   formats:
-    - format: colored-line-number
-  sort-results: true
+    text:
+      path: stdout
+  sort-order:
+    - file

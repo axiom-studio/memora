@@ -1,11 +1,9 @@
 package ui
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -584,22 +582,4 @@ func (h *Handler) streamBulkSSEWithSkip(w http.ResponseWriter, r *http.Request, 
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
-}
-
-// scanNDJSON is used by direct-upload variants (not the JS-parsed path).
-func scanNDJSON(r io.Reader, maxLines int) ([]json.RawMessage, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<20), 1<<20)
-	var out []json.RawMessage
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		out = append(out, json.RawMessage(line))
-		if maxLines > 0 && len(out) >= maxLines {
-			break
-		}
-	}
-	return out, scanner.Err()
 }

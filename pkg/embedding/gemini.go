@@ -98,6 +98,7 @@ func (p *GeminiProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 	for attempt := range 3 {
 		if attempt > 0 {
 			base := time.Duration(1<<uint(attempt-1)) * time.Second
+			//nolint:gosec // G404: retry jitter, not a security value
 			jitter := time.Duration(float64(base) * (0.8 + 0.4*rand.Float64()))
 			select {
 			case <-ctx.Done():

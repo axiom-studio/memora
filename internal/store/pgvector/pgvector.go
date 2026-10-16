@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS memora_cell_vectors (
 	for _, idx := range []string{
 		"CREATE INDEX IF NOT EXISTS idx_cellvec_workspace ON memora_cell_vectors(workspace_id)",
 		"CREATE INDEX IF NOT EXISTS idx_cellvec_memory ON memora_cell_vectors(memory_id)",
-		fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_cellvec_hnsw ON memora_cell_vectors USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)"),
+		"CREATE INDEX IF NOT EXISTS idx_cellvec_hnsw ON memora_cell_vectors USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
 	} {
 		if _, err := pool.Exec(ctx, idx); err != nil {
 			pool.Close()

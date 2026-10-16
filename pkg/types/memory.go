@@ -1,6 +1,7 @@
 package types
 
 import (
+	//nolint:gosec // G501: MD5 is a content-change checksum (patch-mode skip), not a security primitive
 	"crypto/md5"
 	"encoding/hex"
 	"time"

@@ -117,18 +117,6 @@ func (s *Store) AppendBatch(ctx context.Context, entries []api.LedgerEntry) erro
 	return tx.Commit(ctx)
 }
 
-type executor interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-type execAdapter struct {
-	pool *pgxpool.Pool
-}
-
-func (a *execAdapter) Exec(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	return a.pool.Query(ctx, sql, args...)
-}
-
 func (s *Store) appendEntry(ctx context.Context, ex any, e *api.LedgerEntry) error {
 	if e.LedgerID == "" {
 		e.LedgerID = types.NewID(types.LedgerIDPrefix)

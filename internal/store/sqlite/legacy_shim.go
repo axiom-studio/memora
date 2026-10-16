@@ -52,8 +52,7 @@ SELECT edge_id, workspace_id, source_memory_id, target_memory_id, edge_type,
 FROM memora_edges
 WHERE deleted_at IS NULL`)
 	if err != nil {
-		// Don't fail Open() over the shim — the deployer may not need it.
-		return nil //nolint:nilerr
+		return nil //nolint:nilerr // the legacy edges view is optional; Open() must not fail over it
 	}
 	return nil
 }

@@ -144,6 +144,7 @@ func resolveSearchPath(flagPath string) string {
 	candidates = append(candidates, "memora.toml")
 
 	for _, c := range candidates {
+		//nolint:gosec // G703: config search paths come from the operator (flag, env, home dir), by design
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}

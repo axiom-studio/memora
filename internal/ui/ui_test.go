@@ -407,7 +407,7 @@ func (m *mockDataSource) RecentLedgerEntries(_ context.Context, limit int) ([]ap
 	return m.entries, m.err
 }
 func (m *mockDataSource) LedgerEntriesSince(_ context.Context, _ time.Time, _ []string, limit int) ([]api.LedgerEntry, error) {
-	return m.RecentLedgerEntries(nil, limit)
+	return m.RecentLedgerEntries(context.TODO(), limit)
 }
 func (m *mockDataSource) ListWorkspaces(_ context.Context) ([]WorkspaceSummary, error) {
 	return m.workspaces, m.err

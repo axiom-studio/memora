@@ -287,6 +287,7 @@ func (s *Store) memoryHeaders(ctx context.Context, ids []string) ([]types.Memory
 	if len(ids) == 0 {
 		return nil, nil
 	}
+	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 	q := "SELECT id, workspace_id, collection_id, content_md5, head_watermark, tags_json FROM memora_memories WHERE id IN (" + placeholders(len(ids)) + ")"
 	args := make([]any, len(ids))
 	for i, id := range ids {

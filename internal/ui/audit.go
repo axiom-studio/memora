@@ -167,9 +167,9 @@ func (h *Handler) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", "attachment; filename=audit-log.csv")
 		cw := csv.NewWriter(w)
-		cw.Write([]string{"ledger_id", "timestamp", "op", "target", "agent_id", "workspace_id", "latency_ms", "request_id"})
+		_ = cw.Write([]string{"ledger_id", "timestamp", "op", "target", "agent_id", "workspace_id", "latency_ms", "request_id"})
 		for _, e := range entries {
-			cw.Write([]string{
+			_ = cw.Write([]string{
 				e.LedgerID,
 				e.Timestamp.UTC().Format(time.RFC3339),
 				e.Op,
@@ -186,7 +186,7 @@ func (h *Handler) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", "attachment; filename=audit-log.ndjson")
 		enc := json.NewEncoder(w)
 		for _, e := range entries {
-			enc.Encode(e)
+			_ = enc.Encode(e)
 		}
 	}
 }

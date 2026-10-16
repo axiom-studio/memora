@@ -113,7 +113,7 @@ func formatRows(rows [][]string, delim rune) string {
 	w := csv.NewWriter(&b)
 	w.Comma = delim
 	for _, row := range rows {
-		w.Write(row)
+		_ = w.Write(row) // writes into a strings.Builder, which cannot fail
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
