@@ -208,6 +208,14 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("telemetry.log_format: unknown %q", c.Telemetry.LogFormat))
 	}
 
+	// sqlite_graph reads the memora_edges/memora_memories tables that only
+	// the sqlite metadata migrations create, and opens without migrating, so
+	// any other metadata driver boots "healthy" with a graph store that fails
+	// on first use (Issue #4378). No other graph driver exists yet.
+	if c.Storage.GraphDriver == "sqlite_graph" && c.Storage.MetadataDriver != "sqlite" {
+		errs = append(errs, fmt.Errorf(`storage.graph_driver "sqlite_graph" requires storage.metadata_driver "sqlite" (got %q); set storage.graph_driver = "" to run without the context graph`, c.Storage.MetadataDriver))
+	}
+
 	if c.Federation.Enabled {
 		if c.Federation.FederationID == "" {
 			errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))

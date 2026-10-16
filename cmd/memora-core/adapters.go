@@ -103,21 +103,33 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", cdsn)
 	}
 
-	gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: dsnOr(cfg.Storage.GraphDSN)})
-	if err != nil {
-		return nil, nil, fmt.Errorf("open graph (driver %q): %w", cfg.Storage.GraphDriver, err)
+	var gcaps *adapter.GraphCapabilities
+	if cfg.Storage.GraphDriver != "" {
+		// sqlite_graph reuses the metadata database's edge tables, so an
+		// unset graph_dsn follows the metadata DSN rather than data_dir.
+		gdsn := cfg.Storage.GraphDSN
+		if gdsn == "" {
+			gdsn = dsnOr(cfg.Storage.MetadataDSN)
+		}
+		gs, err := adapter.OpenGraph(ctx, adapter.GraphConfig{Driver: cfg.Storage.GraphDriver, DSN: gdsn})
+		if err != nil {
+			return nil, nil, fmt.Errorf("open graph (driver %q): %w", cfg.Storage.GraphDriver, err)
+		}
+		closers = append(closers, gs.Close)
+		svc.Graph = gs
+		c := gs.Capabilities()
+		gcaps = &c
+		logger.Info("graph store enabled", "driver", cfg.Storage.GraphDriver)
+	} else {
+		logger.Warn("graph store disabled (storage.graph_driver is empty); graph tools and auto-link are unavailable")
 	}
-	closers = append(closers, gs.Close)
-	svc.Graph = gs
-	logger.Info("graph store enabled", "driver", cfg.Storage.GraphDriver)
 
 	var ccaps *adapter.ContentCapabilities
 	if svc.Content != nil {
 		c := svc.Content.Capabilities()
 		ccaps = &c
 	}
-	gcaps := gs.Capabilities()
-	if err := adapter.ValidateCompatibility(logger, meta.Capabilities(), ccaps, &gcaps); err != nil {
+	if err := adapter.ValidateCompatibility(logger, meta.Capabilities(), ccaps, gcaps); err != nil {
 		return nil, nil, fmt.Errorf("compatibility check: %w", err)
 	}
 	return svc, closeOpened, nil

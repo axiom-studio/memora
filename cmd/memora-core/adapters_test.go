@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -73,8 +75,37 @@ func TestOpenCoreAdapters_ContentDisabledByDefault(t *testing.T) {
 }
 
 func TestOpenCoreAdapters_GraphStoreRoundTrip(t *testing.T) {
+	assertGraphLinkWorks(t, testAdapterConfig(t))
+}
+
+// With a custom metadata_dsn and no graph_dsn, sqlite_graph must open the
+// metadata database (where memora_edges lives), not <data_dir>/memora.db.
+func TestOpenCoreAdapters_GraphDSNFollowsMetadataDSN(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Storage.MetadataDSN = filepath.Join(t.TempDir(), "custom-metadata.db")
+	assertGraphLinkWorks(t, cfg)
+}
+
+func TestOpenCoreAdapters_EmptyGraphDriver_DisablesGraph(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Storage.GraphDriver = ""
+	svc, closeAll, err := openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("openCoreAdapters: %v", err)
+	}
+	defer closeAll()
+	if svc.Graph != nil {
+		t.Fatal("Graph opened with empty graph_driver; want nil (disabled)")
+	}
+	if _, err := svc.GraphLink(context.Background(), types.Edge{}); !errors.Is(err, types.ErrCapability) {
+		t.Fatalf("GraphLink with graph disabled err = %v, want ErrCapability", err)
+	}
+}
+
+func assertGraphLinkWorks(t *testing.T, cfg config.Config) {
+	t.Helper()
 	ctx := context.Background()
-	svc, closeAll, err := openCoreAdapters(ctx, testAdapterConfig(t), discardLogger())
+	svc, closeAll, err := openCoreAdapters(ctx, cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("openCoreAdapters: %v", err)
 	}

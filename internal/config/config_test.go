@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,53 @@ func TestValidate_FederationNeedsID(t *testing.T) {
 	cfg.Federation.Enabled = true
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for federation without id")
+	}
+}
+
+func TestValidate_GraphDriverMetadataCompatibility(t *testing.T) {
+	cases := []struct {
+		name           string
+		metadataDriver string
+		graphDriver    string
+		graphDSN       string
+		wantErr        bool
+	}{
+		{"defaults: sqlite metadata + sqlite_graph", "sqlite", "sqlite_graph", "", false},
+		{"postgres metadata + sqlite_graph", "postgres", "sqlite_graph", "", true},
+		{"postgres metadata + sqlite_graph with explicit dsn", "postgres", "sqlite_graph", "/data/graph.db", true},
+		{"postgres metadata + graph disabled", "postgres", "", "", false},
+		{"sqlite metadata + graph disabled", "sqlite", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Storage.MetadataDriver = c.metadataDriver
+			cfg.Storage.GraphDriver = c.graphDriver
+			cfg.Storage.GraphDSN = c.graphDSN
+			err := cfg.Validate()
+			if (err != nil) != c.wantErr {
+				t.Fatalf("Validate() err = %v, wantErr %v", err, c.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), `graph_driver = ""`) {
+				t.Fatalf("error %q should tell the operator how to disable the graph", err)
+			}
+		})
+	}
+}
+
+func TestLoad_ShippedDeployConfigsValidate(t *testing.T) {
+	paths, err := filepath.Glob("../../deploy/*/node*.toml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("glob deploy configs: %v (found %d)", err, len(paths))
+	}
+	for _, p := range paths {
+		cfg, err := Load(p)
+		if err != nil {
+			t.Fatalf("Load(%s): %v", p, err)
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("%s does not validate: %v", p, err)
+		}
 	}
 }
 
