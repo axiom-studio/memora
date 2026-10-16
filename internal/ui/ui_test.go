@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1867,6 +1868,37 @@ func TestMemoryDetailHasEditButton(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Edit") {
 		t.Error("memory detail missing Edit button")
+	}
+}
+
+// Issue #5994: memory content is embedded in an inline <script>; it must not
+// be able to close the element and inject markup.
+func TestMemoryPatchForm_ContentCannotBreakOutOfScript(t *testing.T) {
+	payload := "a</script><img src=x onerror=alert(1)>\u2028b&c"
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{
+		memory: &MemorySummary{ID: "mem_abc", Content: payload, Watermark: "wm_123"},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=ws_abc&id=mem_abc", nil)
+	h.partialMemoryPatchForm(w, r)
+	body := w.Body.String()
+
+	if strings.Contains(body, "</script><img") {
+		t.Fatal("memory content closed the inline <script> element (stored XSS)")
+	}
+	start := strings.Index(body, "var patchContent = ")
+	if start < 0 {
+		t.Fatal("patchContent assignment missing")
+	}
+	lit := body[start+len("var patchContent = "):]
+	lit = lit[:strings.Index(lit, ";\n")]
+	var decoded string
+	if err := json.Unmarshal([]byte(lit), &decoded); err != nil {
+		t.Fatalf("patchContent literal %q is not a valid JS/JSON string: %v", lit, err)
+	}
+	if decoded != payload {
+		t.Fatalf("patchContent decodes to %q, want the original content %q", decoded, payload)
 	}
 }
 

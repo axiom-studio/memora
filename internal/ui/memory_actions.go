@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -567,13 +568,12 @@ func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request
 	)
 }
 
+// jsonEscapeString renders s as a JS string literal that is safe inside an
+// inline <script>: encoding/json escapes <, >, &, U+2028 and U+2029, so the
+// content cannot close the element (#5994, stored XSS).
 func jsonEscapeString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", `\n`)
-	s = strings.ReplaceAll(s, "\r", `\r`)
-	s = strings.ReplaceAll(s, "\t", `\t`)
-	return `"` + s + `"`
+	b, _ := json.Marshal(s) // marshalling a string never returns an error
+	return string(b)
 }
 
 func parseTags(r *http.Request) map[string]string {
