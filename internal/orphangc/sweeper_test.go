@@ -15,12 +15,35 @@ import (
 )
 
 type mockLedger struct {
+	mu      sync.Mutex
 	entries []api.LedgerEntry
 }
 
 func (m *mockLedger) AppendLedger(_ context.Context, e api.LedgerEntry) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.entries = append(m.entries, e)
 	return "led_test"
+}
+
+// passes reports how many completed passes have written their ledger entry.
+func (m *mockLedger) passes() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.entries)
+}
+
+// waitFor polls cond until it holds, so tests stop the sweeper only after a
+// completed pass instead of racing a fixed sleep against the ticker.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 type mockMetadata struct {
@@ -171,7 +194,7 @@ func TestSweeper_ReclaimsOrphans(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sw.Start(ctx)
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "a pass that reclaims both orphans", func() bool { return led.passes() > 0 && sw.TotalDeleted() >= 2 })
 	cancel()
 	sw.Stop()
 
@@ -220,8 +243,7 @@ func TestSweeper_EmitsLedgerEntry(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sw.Start(ctx)
-
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "a completed pass", func() bool { return led.passes() > 0 })
 	cancel()
 	sw.Stop()
 
@@ -252,8 +274,7 @@ func TestSweeper_Counters(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sw.Start(ctx)
-
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "a completed pass", func() bool { return led.passes() > 0 })
 	cancel()
 	sw.Stop()
 
