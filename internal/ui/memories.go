@@ -317,20 +317,20 @@ func (h *Handler) partialMemoryDetail(w http.ResponseWriter, r *http.Request) {
 
 	switch tab {
 	case "content":
-		h.renderMemoryContent(w, r, memID)
+		h.renderMemoryContent(w, r, wsID, memID)
 	case "edges":
 		h.renderMemoryEdges(w, r, wsID, memID)
 	case "cells":
-		h.renderMemoryCells(w, r, memID)
+		h.renderMemoryCells(w, r, wsID, memID)
 	case "watermarks":
 		h.renderMemoryWatermarks(w, r, wsID, memID)
 	default:
-		h.renderMemoryContent(w, r, memID)
+		h.renderMemoryContent(w, r, wsID, memID)
 	}
 }
 
-func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, memID string) {
-	mem, err := h.data.GetMemory(r.Context(), memID)
+func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, wsID, memID string) {
+	mem, err := h.data.GetMemory(r.Context(), wsID, memID)
 	if err != nil {
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return
@@ -341,7 +341,6 @@ func (h *Handler) renderMemoryContent(w http.ResponseWriter, r *http.Request, me
 		readyBadge = `<span class="badge badge-warn">Pending</span>`
 	}
 
-	wsID := r.URL.Query().Get("ws")
 	fmt.Fprint(w, `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 class="card-title" style="margin:0">Memory Details</h3>`)
 	if wsID != "" {
 		fmt.Fprintf(w, `<div style="display:flex;gap:0.5rem">`)
@@ -421,8 +420,8 @@ func (h *Handler) renderMemoryEdges(w http.ResponseWriter, r *http.Request, wsID
 	fmt.Fprint(w, `</tbody></table>`)
 }
 
-func (h *Handler) renderMemoryCells(w http.ResponseWriter, r *http.Request, memID string) {
-	cells, err := h.data.GetCells(r.Context(), memID)
+func (h *Handler) renderMemoryCells(w http.ResponseWriter, r *http.Request, wsID, memID string) {
+	cells, err := h.data.GetCells(r.Context(), wsID, memID)
 	if err != nil {
 		fmt.Fprintf(w, `<div class="empty-state"><p>Error: %s</p></div>`, template.HTMLEscapeString(err.Error()))
 		return

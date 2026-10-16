@@ -152,7 +152,7 @@ func (h *Handler) handleEdgeUnlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.data.UnlinkEdge(r.Context(), edgeID); err != nil {
+	if err := h.data.UnlinkEdge(r.Context(), wsID, edgeID); err != nil {
 		h.writeFormError(w, err.Error())
 		return
 	}

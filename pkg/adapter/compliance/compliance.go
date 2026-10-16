@@ -87,14 +87,14 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		wmk, _ := s.ImprintMemory(ctx, mem)
 		mem.Content = "v2"
 		mem.LastModifiedByAgentID = "agent_opaque_compliance"
-		newWmk, err := s.UpdateMemory(ctx, mem.ID, wmk, mem)
+		newWmk, err := s.UpdateMemory(ctx, mem.WorkspaceID, mem.ID, wmk, mem)
 		if err != nil {
 			t.Fatalf("update: %v", err)
 		}
 		if newWmk == wmk {
 			t.Fatal("update didn't bump watermark")
 		}
-		if _, err := s.UpdateMemory(ctx, mem.ID, wmk, mem); err == nil {
+		if _, err := s.UpdateMemory(ctx, mem.WorkspaceID, mem.ID, wmk, mem); err == nil {
 			t.Fatal("expected ErrCAS on stale watermark")
 		}
 	})
@@ -126,7 +126,7 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		if flipped {
 			t.Fatal("flipped with zero cells embedded")
 		}
-		stored, _ := s.GetCells(ctx, mem.ID)
+		stored, _ := s.GetCells(ctx, mem.WorkspaceID, mem.ID)
 		if err := s.UpdateCellVectorKey(ctx, stored[0].CellID, stored[0].CellID, "test:model"); err != nil {
 			t.Fatalf("update cell 0: %v", err)
 		}

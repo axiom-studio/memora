@@ -173,7 +173,7 @@ func (s *Sweeper) sweepCellOrphans(ctx context.Context, workspaceID, memoryID st
 	if len(contentCellIDs) == 0 {
 		return 0
 	}
-	metaCells, err := s.metadata.GetCells(ctx, memoryID)
+	metaCells, err := s.metadata.GetCells(ctx, workspaceID, memoryID)
 	if err != nil {
 		s.logger.Warn("orphan_gc_get_cells_error", "memory", memoryID, "err", err)
 		return 0

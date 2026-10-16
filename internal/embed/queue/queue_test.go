@@ -73,7 +73,11 @@ func (h *harness) seedCells(memID, agent string, texts []string) []types.Cell {
 	if err := h.metadata.UpsertCells(h.ctx, memID, cells); err != nil {
 		h.t.Fatalf("upsert cells: %v", err)
 	}
-	stored, err := h.metadata.GetCells(h.ctx, memID)
+	m, err := h.metadata.GetMemory(h.ctx, memID)
+	if err != nil {
+		h.t.Fatalf("get memory: %v", err)
+	}
+	stored, err := h.metadata.GetCells(h.ctx, m.WorkspaceID, memID)
 	if err != nil {
 		h.t.Fatalf("get cells: %v", err)
 	}
@@ -249,7 +253,7 @@ func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 	if err := h.metadata.UpsertCells(h.ctx, mem.ID, old); err != nil {
 		t.Fatalf("upsert cells after initial: %v", err)
 	}
-	oldWithVK, err := h.metadata.GetCells(h.ctx, mem.ID)
+	oldWithVK, err := h.metadata.GetCells(h.ctx, mem.WorkspaceID, mem.ID)
 	if err != nil {
 		t.Fatalf("get cells after initial: %v", err)
 	}
@@ -373,7 +377,7 @@ func TestPool_RetryWithBackoff(t *testing.T) {
 	if got := len(rec.callShapes()); got != 3 {
 		t.Fatalf("expected 3 Embed attempts (2 fail + 1 success), got %d", got)
 	}
-	stored, _ := h.metadata.GetCells(h.ctx, mem.ID)
+	stored, _ := h.metadata.GetCells(h.ctx, mem.WorkspaceID, mem.ID)
 	if stored[0].VectorKey == "" {
 		t.Fatal("cell has empty vector_key after successful retry")
 	}
@@ -444,7 +448,7 @@ func TestPool_PermanentFailure_AppendsEmbedFailed(t *testing.T) {
 		t.Fatal("recall_ready flipped after permanent embed failure")
 	}
 	// Cells stay with empty vector_key.
-	stored, _ := h.metadata.GetCells(h.ctx, mem.ID)
+	stored, _ := h.metadata.GetCells(h.ctx, mem.WorkspaceID, mem.ID)
 	for _, c := range stored {
 		if c.VectorKey != "" {
 			t.Fatalf("cell %s has vector_key after permanent failure", c.CellID)

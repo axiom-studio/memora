@@ -132,7 +132,7 @@ func MigrateContent(ctx context.Context, primary adapter.MetadataStore, content 
 
 		// Migrate cell content.
 		cellFailed := false
-		cells, err := primary.GetCells(ctx, m.ID)
+		cells, err := primary.GetCells(ctx, m.WorkspaceID, m.ID)
 		if err == nil {
 			for _, cell := range cells {
 				if cell.Text != "" {
@@ -168,7 +168,7 @@ func verifyMemoryContent(ctx context.Context, primary adapter.MetadataStore, con
 			return fmt.Errorf("memory content mismatch: primary md5=%s, content store has different bytes", m.ContentMD5)
 		}
 	}
-	cells, err := primary.GetCells(ctx, m.ID)
+	cells, err := primary.GetCells(ctx, m.WorkspaceID, m.ID)
 	if err != nil {
 		return nil
 	}

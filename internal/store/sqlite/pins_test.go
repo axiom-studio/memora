@@ -34,13 +34,13 @@ func TestPins_CreateListDelete_RoundTrip(t *testing.T) {
 		t.Fatalf("ListPins round trip = %+v, want fields of %+v", got, p)
 	}
 
-	if err := s.DeletePin(ctx, p.PinID); err != nil {
+	if err := s.DeletePin(ctx, ws.ID, p.PinID); err != nil {
 		t.Fatalf("DeletePin: %v", err)
 	}
 	if pins, _ := s.ListPins(ctx, ws.ID); len(pins) != 0 {
 		t.Fatalf("pins after delete = %+v, want none", pins)
 	}
-	if err := s.DeletePin(ctx, p.PinID); !errors.Is(err, types.ErrNotFound) {
+	if err := s.DeletePin(ctx, ws.ID, p.PinID); !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("second DeletePin err = %v, want ErrNotFound", err)
 	}
 }

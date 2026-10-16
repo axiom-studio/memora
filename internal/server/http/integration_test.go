@@ -387,3 +387,68 @@ func TestMCPWebSocketUpgradeThroughMiddleware(t *testing.T) {
 		t.Logf("MCP endpoint returned %d (expected 400 or 405, indicating endpoint exists)", resp.StatusCode)
 	}
 }
+
+// Issue #4373: writes, cell reads and pin deletes addressed through another
+// workspace's URL must 404 (never 412, which would confirm the ID exists)
+// and must leave the owner's data untouched.
+func TestCrossTenantWritesCellsAndPins(t *testing.T) {
+	ts := newTestServer(t)
+	c := ts.Client()
+	base := ts.URL + "/v1/workspaces"
+	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+
+	_, a := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "owner"}, nil))
+	_, b := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "attacker"}, nil))
+	wsA, _ := a["id"].(string)
+	wsB, _ := b["id"].(string)
+
+	status, imp := doJSON(t, c, jsonReq(t, "POST", base+"/"+wsA+"/memories", map[string]any{"content": "owner secret"}, agentH))
+	if status != 201 {
+		t.Fatalf("imprint: %d %v", status, imp)
+	}
+	memID, _ := imp["id"].(string)
+	wmk, _ := imp["watermark"].(string)
+	casH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
+	staleH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": "wmk_stale"}
+	foreign := base + "/" + wsB + "/memories/" + memID
+
+	cases := []struct {
+		name string
+		req  *http.Request
+	}{
+		{"update", jsonReq(t, "PUT", foreign, map[string]any{"content": "pwned"}, casH)},
+		{"update with stale watermark (CAS oracle)", jsonReq(t, "PUT", foreign, map[string]any{"content": "pwned"}, staleH)},
+		{"patch", jsonReq(t, "PATCH", foreign, map[string]any{"patch": []map[string]string{{"old_string": "secret", "new_string": "public"}}}, casH)},
+		{"append", jsonReq(t, "POST", foreign+":append", map[string]any{"content": " pwned"}, casH)},
+		{"lookup", jsonReq(t, "GET", foreign, nil, agentH)},
+	}
+	for _, tc := range cases {
+		if status, resp := doJSON(t, c, tc.req); status != 404 {
+			t.Errorf("cross-tenant %s: status %d, want 404 (%v)", tc.name, status, resp)
+		}
+	}
+
+	status, own := doJSON(t, c, jsonReq(t, "GET", base+"/"+wsA+"/memories/"+memID, nil, agentH))
+	if status != 200 {
+		t.Fatalf("owner lookup: %d", status)
+	}
+	if own["content"] != "owner secret" || own["head_watermark"] != wmk {
+		t.Fatalf("owner memory changed by cross-tenant writes: %v", own)
+	}
+	if cells, _ := own["cells"].([]any); len(cells) == 0 {
+		t.Fatal("owner lookup returned no cells; same-workspace GetCells must still work")
+	}
+
+	status, pin := doJSON(t, c, jsonReq(t, "POST", base+"/"+wsA+"/recall/pins", map[string]any{"query": "q", "watermark": wmk}, agentH))
+	if status != 201 {
+		t.Fatalf("create pin: %d %v", status, pin)
+	}
+	pinID, _ := pin["pin_id"].(string)
+	if status, _ := doJSON(t, c, jsonReq(t, "DELETE", base+"/"+wsB+"/recall/pins/"+pinID, nil, agentH)); status != 404 {
+		t.Fatalf("cross-tenant pin delete: %d, want 404", status)
+	}
+	_, list := doJSON(t, c, jsonReq(t, "GET", base+"/"+wsA+"/recall/pins", nil, agentH))
+	if pins, _ := list["pins"].([]any); len(pins) != 1 {
+		t.Fatalf("owner pins after cross-tenant delete = %v, want 1", list)
+	}
+}

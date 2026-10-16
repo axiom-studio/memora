@@ -88,7 +88,7 @@ func TestGraphStore_UnlinkAndCascade(t *testing.T) {
 	e1, _ := gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
 	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[1], TargetMemoryID: mems[2], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
 
-	if err := gs.Unlink(ctx, e1.EdgeID, "agent"); err != nil {
+	if err := gs.Unlink(ctx, wsID, e1.EdgeID, "agent"); err != nil {
 		t.Fatalf("Unlink: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestGraphStore_UnlinkAndCascade(t *testing.T) {
 		t.Fatalf("expected 0 edges after unlink, got %d", len(edges))
 	}
 
-	n, err := gs.CascadeForget(ctx, mems[1], "agent")
+	n, err := gs.CascadeForget(ctx, wsID, mems[1], "agent")
 	if err != nil {
 		t.Fatalf("CascadeForget: %v", err)
 	}

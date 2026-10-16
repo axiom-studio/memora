@@ -169,7 +169,7 @@ func TestMetadataStore_MemoryCRUD(t *testing.T) {
 		t.Fatalf("content mismatch: %q", got.Content)
 	}
 
-	newWmk, md5, err := ms.AppendMemory(ctx, m.ID, wmk, " appended", types.AgentLegacyVibeflowID)
+	newWmk, md5, err := ms.AppendMemory(ctx, m.WorkspaceID, m.ID, wmk, " appended", types.AgentLegacyVibeflowID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,12 +217,12 @@ func TestMetadataStore_CASConflict(t *testing.T) {
 		Content:               "v2",
 		LastModifiedByAgentID: types.AgentLegacyVibeflowID,
 	}
-	_, err := ms.UpdateMemory(ctx, m.ID, "wrong-watermark", update)
+	_, err := ms.UpdateMemory(ctx, m.WorkspaceID, m.ID, "wrong-watermark", update)
 	if err != types.ErrCAS {
 		t.Fatalf("expected ErrCAS, got %v", err)
 	}
 
-	_, err = ms.UpdateMemory(ctx, m.ID, wmk, update)
+	_, err = ms.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, update)
 	if err != nil {
 		t.Fatalf("expected success with correct watermark, got %v", err)
 	}
@@ -320,7 +320,7 @@ func TestMetadataStore_CellsAndRecallReady(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ms.GetCells(ctx, m.ID)
+	got, err := ms.GetCells(ctx, m.WorkspaceID, m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

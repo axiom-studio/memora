@@ -83,11 +83,17 @@ Every write must produce a fresh `wmk_<ULID>` watermark and append to
 `memora_watermark_history`. The CAS contract is:
 
 ```go
-newWmk, err := store.UpdateMemory(ctx, memID, expectedWmk, mem)
+newWmk, err := store.UpdateMemory(ctx, workspaceID, memID, expectedWmk, mem)
 // if expectedWmk != head: return ErrCAS + current head_watermark
 ```
 
 Return `types.ErrCAS` on conflict — the HTTP layer maps that to 412.
+
+Every method that addresses a row by ID also takes the caller's
+`workspaceID` and must scope its query by it. A row that exists in another
+workspace must look exactly like a missing row: return `types.ErrNotFound`,
+never `ErrCAS`, so a foreign ID cannot be confirmed or have its watermark
+read.
 
 ## Closed edge_type enum
 

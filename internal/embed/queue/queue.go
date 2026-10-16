@@ -221,11 +221,11 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 
 	// Per-memory cell cache for the moat skip-check.
 	cellsByMemory := map[string][]types.Cell{}
-	loadCells := func(memID string) []types.Cell {
+	loadCells := func(wsID, memID string) []types.Cell {
 		if cs, ok := cellsByMemory[memID]; ok {
 			return cs
 		}
-		cs, err := p.deps.Metadata.GetCells(ctx, memID)
+		cs, err := p.deps.Metadata.GetCells(ctx, wsID, memID)
 		if err != nil {
 			return nil
 		}
@@ -247,7 +247,7 @@ func (p *Pool) runBatch(ctx context.Context, jobs []Job) {
 		// re-embed. Release the in-flight gate immediately.
 		if j.Cell.VectorKey != "" && j.Cell.TextMD5 != "" {
 			skipped := false
-			for _, c := range loadCells(j.MemoryID) {
+			for _, c := range loadCells(j.WorkspaceID, j.MemoryID) {
 				if c.CellID == j.Cell.CellID && c.TextMD5 == j.Cell.TextMD5 && c.VectorKey != "" {
 					skipped = true
 					break

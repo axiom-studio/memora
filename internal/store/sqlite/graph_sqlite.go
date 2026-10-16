@@ -132,13 +132,13 @@ func (g *GraphStore) assertEndpointsInWorkspace(ctx context.Context, wsID, src, 
 	return nil
 }
 
-func (g *GraphStore) Unlink(ctx context.Context, edgeID, agentID string) error {
+func (g *GraphStore) Unlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
 	if strings.HasPrefix(edgeID, "edg_synthetic_") {
 		return types.ErrSyntheticEdge
 	}
 	res, err := g.db.ExecContext(ctx, `
-UPDATE memora_edges SET deleted_at = ? WHERE edge_id = ? AND deleted_at IS NULL`,
-		time.Now().UTC(), edgeID)
+UPDATE memora_edges SET deleted_at = ? WHERE edge_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+		time.Now().UTC(), edgeID, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -165,11 +165,11 @@ func (g *GraphStore) LinkBatch(ctx context.Context, edges []types.Edge) ([]adapt
 	return results, nil
 }
 
-func (g *GraphStore) CascadeForget(ctx context.Context, memoryID, agentID string) (int, error) {
+func (g *GraphStore) CascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
 	now := time.Now().UTC()
 	res, err := g.db.ExecContext(ctx, `
 UPDATE memora_edges SET deleted_at = ?
-WHERE deleted_at IS NULL AND (source_memory_id = ? OR target_memory_id = ?)`, now, memoryID, memoryID)
+WHERE deleted_at IS NULL AND workspace_id = ? AND (source_memory_id = ? OR target_memory_id = ?)`, now, workspaceID, memoryID, memoryID)
 	if err != nil {
 		return 0, err
 	}

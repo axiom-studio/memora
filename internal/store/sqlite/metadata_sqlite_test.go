@@ -96,7 +96,7 @@ func TestMetadataStore_CellRoundtrip(t *testing.T) {
 		t.Fatalf("UpsertCells: %v", err)
 	}
 
-	got, err := ms.GetCells(ctx, m.ID)
+	got, err := ms.GetCells(ctx, m.WorkspaceID, m.ID)
 	if err != nil {
 		t.Fatalf("GetCells: %v", err)
 	}

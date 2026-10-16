@@ -331,7 +331,7 @@ func TestMigrateContent_VerifyChecksCells(t *testing.T) {
 		t.Fatalf("verify: %v", err)
 	}
 
-	cells, _ := primary.GetCells(ctx, m.ID)
+	cells, _ := primary.GetCells(ctx, m.WorkspaceID, m.ID)
 	if len(cells) > 0 {
 		if result.Mismatches == 0 {
 			t.Fatal("expected mismatches > 0 when cell content is missing from content store")

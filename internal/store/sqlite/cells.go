@@ -46,10 +46,14 @@ ON CONFLICT(memory_id, seq) DO UPDATE SET
 }
 
 // GetCells returns a Memory's cells ordered by seq.
-func (s *Store) GetCells(ctx context.Context, memoryID string) ([]types.Cell, error) {
+func (s *Store) GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error) {
+	// memora_cells has no workspace_id column; scope through the parent memory.
 	rows, err := s.db.QueryContext(ctx, `
 SELECT cell_id, memory_id, seq, text, text_md5, written_by_agent_id, embedding_model, vector_key, metadata_json, created_at
-FROM memora_cells WHERE memory_id = ? ORDER BY seq`, memoryID)
+FROM memora_cells
+WHERE memory_id = ?
+  AND EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)
+ORDER BY seq`, memoryID, memoryID, workspaceID)
 	if err != nil {
 		return nil, err
 	}

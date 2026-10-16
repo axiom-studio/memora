@@ -69,7 +69,7 @@ func (m *mockMetadata) GetMemory(_ context.Context, id string) (*types.Memory, e
 	return nil, types.ErrNotFound
 }
 
-func (m *mockMetadata) GetCells(_ context.Context, memoryID string) ([]types.Cell, error) {
+func (m *mockMetadata) GetCells(_ context.Context, _, memoryID string) ([]types.Cell, error) {
 	if m.cells != nil {
 		return m.cells[memoryID], nil
 	}

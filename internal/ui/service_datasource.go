@@ -286,10 +286,13 @@ func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit
 	return out, nil
 }
 
-func (s *ServiceDataSource) GetMemory(ctx context.Context, memID string) (*MemorySummary, error) {
+func (s *ServiceDataSource) GetMemory(ctx context.Context, wsID, memID string) (*MemorySummary, error) {
 	m, err := s.Metadata.GetMemory(ctx, memID)
 	if err != nil {
 		return nil, err
+	}
+	if m.WorkspaceID != wsID {
+		return nil, types.ErrNotFound // indistinguishable from a missing memory
 	}
 	return &MemorySummary{
 		ID:          m.ID,
@@ -304,8 +307,8 @@ func (s *ServiceDataSource) GetMemory(ctx context.Context, memID string) (*Memor
 	}, nil
 }
 
-func (s *ServiceDataSource) GetCells(ctx context.Context, memID string) ([]CellSummary, error) {
-	cells, err := s.Metadata.GetCells(ctx, memID)
+func (s *ServiceDataSource) GetCells(ctx context.Context, wsID, memID string) ([]CellSummary, error) {
+	cells, err := s.Metadata.GetCells(ctx, wsID, memID)
 	if err != nil {
 		return nil, err
 	}
@@ -621,11 +624,11 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 	return out.EdgeID, nil
 }
 
-func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, edgeID string) error {
+func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, wsID, edgeID string) error {
 	if s.Graph == nil {
 		return fmt.Errorf("graph store not configured")
 	}
-	return s.Graph.Unlink(ctx, edgeID, "ui-admin")
+	return s.Graph.Unlink(ctx, wsID, edgeID, "ui-admin")
 }
 
 func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {
@@ -702,8 +705,8 @@ func (s *ServiceDataSource) CreatePin(ctx context.Context, wsID string, query, m
 	return p.PinID, nil
 }
 
-func (s *ServiceDataSource) DeletePin(ctx context.Context, pinID string) error {
-	return s.Metadata.DeletePin(ctx, pinID)
+func (s *ServiceDataSource) DeletePin(ctx context.Context, wsID, pinID string) error {
+	return s.Metadata.DeletePin(ctx, wsID, pinID)
 }
 
 func (s *ServiceDataSource) HealthStatus(ctx context.Context) (*HealthInfo, error) {

@@ -547,7 +547,7 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 	return out, nextCursor, nil
 }
 
-func (s *MetadataStore) UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error) {
+func (s *MetadataStore) UpdateMemory(ctx context.Context, workspaceID, id, expectedWatermark string, m *types.Memory) (string, error) {
 	newWmk := types.NewWatermark()
 	contentMD5 := types.MD5Hex(m.Content)
 	tagsJSON, _ := json.Marshal(m.Tags)
@@ -563,15 +563,15 @@ func (s *MetadataStore) UpdateMemory(ctx context.Context, id, expectedWatermark 
 UPDATE memora_memories
 SET content=$1, content_md5=$2, head_watermark=$3, last_modified_by_agent_id=$4,
     tags_json=$5, updated_at=$6
-WHERE id=$7 AND head_watermark=$8 AND deleted_at IS NULL`,
+WHERE id=$7 AND head_watermark=$8 AND workspace_id=$9 AND deleted_at IS NULL`,
 		m.Content, contentMD5, newWmk, m.LastModifiedByAgentID,
-		nullableJSON(tagsJSON), now, id, expectedWatermark)
+		nullableJSON(tagsJSON), now, id, expectedWatermark, workspaceID)
 	if err != nil {
 		return "", fmt.Errorf("update memory: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		var headWmk string
-		err := tx.QueryRow(ctx, "SELECT head_watermark FROM memora_memories WHERE id = $1", id).Scan(&headWmk)
+		err := tx.QueryRow(ctx, "SELECT head_watermark FROM memora_memories WHERE id = $1 AND workspace_id = $2", id, workspaceID).Scan(&headWmk)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", types.ErrNotFound
 		}
@@ -604,7 +604,7 @@ VALUES ($1, $2, 'update', $3, $4, $5)`,
 	return newWmk, nil
 }
 
-func (s *MetadataStore) AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (string, string, error) {
+func (s *MetadataStore) AppendMemory(ctx context.Context, workspaceID, id, expectedWatermark string, body string, agentID string) (string, string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", "", err
@@ -613,7 +613,7 @@ func (s *MetadataStore) AppendMemory(ctx context.Context, id, expectedWatermark 
 
 	var current, headWmk string
 	err = tx.QueryRow(ctx,
-		"SELECT content, head_watermark FROM memora_memories WHERE id = $1 AND deleted_at IS NULL", id).
+		"SELECT content, head_watermark FROM memora_memories WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL", id, workspaceID).
 		Scan(&current, &headWmk)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", types.ErrNotFound
@@ -649,7 +649,7 @@ VALUES ($1, $2, 'append', $3, $4, $5, $6)`,
 	return newWmk, newMD5, nil
 }
 
-func (s *MetadataStore) PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error) {
+func (s *MetadataStore) PatchMemory(ctx context.Context, workspaceID, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", nil, "", err
@@ -658,7 +658,7 @@ func (s *MetadataStore) PatchMemory(ctx context.Context, id, expectedWatermark s
 
 	var current, headWmk string
 	err = tx.QueryRow(ctx,
-		"SELECT content, head_watermark FROM memora_memories WHERE id = $1 AND deleted_at IS NULL", id).
+		"SELECT content, head_watermark FROM memora_memories WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL", id, workspaceID).
 		Scan(&current, &headWmk)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, "", types.ErrNotFound
@@ -773,10 +773,14 @@ ON CONFLICT(memory_id, seq) DO UPDATE SET
 	return tx.Commit(ctx)
 }
 
-func (s *MetadataStore) GetCells(ctx context.Context, memoryID string) ([]types.Cell, error) {
+func (s *MetadataStore) GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error) {
+	// memora_cells has no workspace_id column; scope through the parent memory.
 	rows, err := s.pool.Query(ctx, `
 SELECT cell_id, memory_id, seq, text, text_md5, written_by_agent_id, embedding_model, vector_key, metadata_json, created_at
-FROM memora_cells WHERE memory_id = $1 ORDER BY seq`, memoryID)
+FROM memora_cells
+WHERE memory_id = $1
+  AND EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $2)
+ORDER BY seq`, memoryID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1065,8 +1069,8 @@ FROM memora_pins WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID)
 	return out, rows.Err()
 }
 
-func (s *MetadataStore) DeletePin(ctx context.Context, pinID string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM memora_pins WHERE pin_id = $1", pinID)
+func (s *MetadataStore) DeletePin(ctx context.Context, workspaceID, pinID string) error {
+	tag, err := s.pool.Exec(ctx, "DELETE FROM memora_pins WHERE pin_id = $1 AND workspace_id = $2", pinID, workspaceID)
 	if err != nil {
 		return err
 	}

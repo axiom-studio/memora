@@ -432,13 +432,13 @@ func (m *mockDataSource) ListCollections(_ context.Context, _ string) ([]Collect
 func (m *mockDataSource) ListMemories(_ context.Context, _ string, _ int) ([]MemorySummary, error) {
 	return m.memories, m.err
 }
-func (m *mockDataSource) GetMemory(_ context.Context, id string) (*MemorySummary, error) {
+func (m *mockDataSource) GetMemory(_ context.Context, _, id string) (*MemorySummary, error) {
 	if m.memory != nil {
 		return m.memory, m.err
 	}
 	return nil, fmt.Errorf("memory %s not found", id)
 }
-func (m *mockDataSource) GetCells(_ context.Context, _ string) ([]CellSummary, error) {
+func (m *mockDataSource) GetCells(_ context.Context, _, _ string) ([]CellSummary, error) {
 	return m.cells, m.err
 }
 func (m *mockDataSource) GetEdges(_ context.Context, _, _ string) ([]EdgeSummary, error) {
@@ -558,7 +558,7 @@ func (m *mockDataSource) LinkEdge(_ context.Context, _, _, _, _ string) (string,
 	}
 	return "edge_test_new", nil
 }
-func (m *mockDataSource) UnlinkEdge(_ context.Context, _ string) error {
+func (m *mockDataSource) UnlinkEdge(_ context.Context, _, _ string) error {
 	return m.err
 }
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
@@ -578,7 +578,7 @@ func (m *mockDataSource) ListPins(_ context.Context, _ string) ([]PinSummary, er
 func (m *mockDataSource) CreatePin(_ context.Context, _, _, _ string, _ int, _, _ string) (string, error) {
 	return "pin_test", m.err
 }
-func (m *mockDataSource) DeletePin(_ context.Context, _ string) error { return m.err }
+func (m *mockDataSource) DeletePin(_ context.Context, _, _ string) error { return m.err }
 func (m *mockDataSource) HealthStatus(_ context.Context) (*HealthInfo, error) {
 	if m.err != nil {
 		return nil, m.err

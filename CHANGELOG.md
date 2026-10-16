@@ -13,7 +13,21 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 
 ## [Unreleased]
 
+### Security
+- Cross-tenant access closed on every ID-addressed primitive (#4373, after
+  #4228/#4229): Update/Patch/Append, cell reads, pin deletes, edge unlink,
+  edge cascade-forget, MCP `memora_lookup` and Recall lookup mode now
+  return not-found for another workspace's IDs. Update's CAS conflict
+  check is scoped too, so a foreign ID no longer answers 412 with its
+  head watermark.
+
 ### Changed
+- **BREAKING (adapter API)**: `MetadataStore.UpdateMemory`, `AppendMemory`,
+  `PatchMemory`, `GetCells`, `DeletePin` and `GraphStore.Unlink`,
+  `CascadeForget` take `workspaceID` immediately after `ctx`, matching
+  `ForgetMemory` and `GetAgent`. Third-party adapters must add the
+  parameter and scope their queries by it; `pkg/adapter/compliance` is
+  updated. MCP `memora_unlink` now requires `workspace_id`.
 - **BREAKING (wire API)**: Imprint, Update, Patch, Append and Forget
   responses return the Memory's identifier as `id` instead of
   `memory_id` (REST and MCP), matching the `id` field on Memory and

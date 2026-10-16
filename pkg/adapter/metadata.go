@@ -66,9 +66,9 @@ type MetadataStore interface {
 	GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error)
 	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
 	ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error)
-	UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
-	AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)
-	PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (newWatermark string, deltas []types.CellDelta, newContent string, err error)
+	UpdateMemory(ctx context.Context, workspaceID, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
+	AppendMemory(ctx context.Context, workspaceID, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)
+	PatchMemory(ctx context.Context, workspaceID, id, expectedWatermark string, ops []api.PatchOp, agentID string) (newWatermark string, deltas []types.CellDelta, newContent string, err error)
 	ForgetMemory(ctx context.Context, workspaceID, id string) error
 
 	// --- Cell CRUD ---
@@ -77,7 +77,7 @@ type MetadataStore interface {
 	// ContentStore is a dual-write target for cell text.
 
 	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
-	GetCells(ctx context.Context, memoryID string) ([]types.Cell, error)
+	GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error)
 	UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error
 	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (flipped bool, err error)
 
@@ -102,7 +102,7 @@ type MetadataStore interface {
 
 	CreatePin(ctx context.Context, p *types.Pin) error
 	ListPins(ctx context.Context, workspaceID string) ([]types.Pin, error)
-	DeletePin(ctx context.Context, pinID string) error
+	DeletePin(ctx context.Context, workspaceID, pinID string) error
 }
 
 // MetadataFactory builds a MetadataStore from config.

@@ -190,7 +190,7 @@ func (h *Handler) handlePinDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.data.DeletePin(r.Context(), pinID); err != nil {
+	if err := h.data.DeletePin(r.Context(), wsID, pinID); err != nil {
 		h.writeFormError(w, err.Error())
 		return
 	}

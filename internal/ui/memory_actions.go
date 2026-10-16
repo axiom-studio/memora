@@ -187,7 +187,7 @@ func (h *Handler) partialMemoryEditForm(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	mem, err := h.data.GetMemory(r.Context(), memID)
+	mem, err := h.data.GetMemory(r.Context(), wsID, memID)
 	if err != nil {
 		h.writeFormError(w, err.Error())
 		return
@@ -314,7 +314,7 @@ func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	mem, err := h.data.GetMemory(r.Context(), memID)
+	mem, err := h.data.GetMemory(r.Context(), wsID, memID)
 	if err != nil {
 		h.writeFormError(w, err.Error())
 		return
@@ -447,7 +447,7 @@ func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mem, err := h.data.GetMemory(r.Context(), memID)
+	mem, err := h.data.GetMemory(r.Context(), wsID, memID)
 	if err != nil {
 		h.writeFormError(w, err.Error())
 		return
@@ -525,14 +525,14 @@ func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	mem, err := h.data.GetMemory(r.Context(), memID)
+	mem, err := h.data.GetMemory(r.Context(), wsID, memID)
 	if err != nil {
 		h.writeFormError(w, err.Error())
 		return
 	}
 
 	edges, _ := h.data.GetEdges(r.Context(), wsID, memID)
-	cells, _ := h.data.GetCells(r.Context(), memID)
+	cells, _ := h.data.GetCells(r.Context(), wsID, memID)
 
 	fmt.Fprintf(w, `<dialog id="mem-forget-modal" class="modal" aria-labelledby="mem-forget-title">
 <form hx-post="/ui/api/memories/forget" hx-target="#forget-result" hx-swap="innerHTML" class="modal-form">

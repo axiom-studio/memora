@@ -60,6 +60,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err != nil {
 			return nil, err
 		}
+		if m.WorkspaceID != in.WorkspaceID {
+			return nil, fmt.Errorf("memory %q in workspace %q: %w", in.MemoryID, in.WorkspaceID, types.ErrNotFound)
+		}
 		return m, nil
 	case "memora_update":
 		var in struct {
@@ -169,23 +172,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		// DeletePin is not workspace-scoped (Issue #4373), so confirm the
-		// pin belongs to the caller's workspace first. O(pins in workspace).
-		pins, err := s.svc.Metadata.ListPins(ctx, in.WorkspaceID)
-		if err != nil {
-			return nil, err
-		}
-		owned := false
-		for _, p := range pins {
-			if p.PinID == in.PinID {
-				owned = true
-				break
-			}
-		}
-		if !owned {
-			return nil, fmt.Errorf("pin %q in workspace %q: %w", in.PinID, in.WorkspaceID, types.ErrNotFound)
-		}
-		if err := s.svc.Metadata.DeletePin(ctx, in.PinID); err != nil {
+		if err := s.svc.Metadata.DeletePin(ctx, in.WorkspaceID, in.PinID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"pin_id": in.PinID, "unpinned": true}, nil
@@ -363,8 +350,9 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		return out, nil
 	case "memora_unlink":
 		var in struct {
-			EdgeID  string `json:"edge_id"`
-			AgentID string `json:"agent_id"`
+			WorkspaceID string `json:"workspace_id"`
+			EdgeID      string `json:"edge_id"`
+			AgentID     string `json:"agent_id"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
@@ -372,7 +360,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if pinned != "" {
 			in.AgentID = pinned
 		}
-		if err := s.svc.GraphUnlink(ctx, in.EdgeID, in.AgentID); err != nil {
+		if err := s.svc.GraphUnlink(ctx, in.WorkspaceID, in.EdgeID, in.AgentID); err != nil {
 			return nil, err
 		}
 		return map[string]any{"edge_id": in.EdgeID, "unlinked": true}, nil

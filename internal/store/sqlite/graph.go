@@ -106,13 +106,13 @@ func isUniqueViolation(err error) bool {
 }
 
 // GraphUnlink soft-deletes an edge.
-func (s *Store) GraphUnlink(ctx context.Context, edgeID, agentID string) error {
+func (s *Store) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
 	if strings.HasPrefix(edgeID, "edg_synthetic_") {
 		return types.ErrSyntheticEdge
 	}
 	res, err := s.db.ExecContext(ctx, `
-UPDATE memora_edges SET deleted_at = ? WHERE edge_id = ? AND deleted_at IS NULL`,
-		time.Now().UTC(), edgeID)
+UPDATE memora_edges SET deleted_at = ? WHERE edge_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+		time.Now().UTC(), edgeID, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -144,11 +144,11 @@ func (s *Store) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]adapt
 }
 
 // GraphCascadeForget soft-deletes every edge incident to a memory.
-func (s *Store) GraphCascadeForget(ctx context.Context, memoryID, agentID string) (int, error) {
+func (s *Store) GraphCascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `
 UPDATE memora_edges SET deleted_at = ?
-WHERE deleted_at IS NULL AND (source_memory_id = ? OR target_memory_id = ?)`, now, memoryID, memoryID)
+WHERE deleted_at IS NULL AND workspace_id = ? AND (source_memory_id = ? OR target_memory_id = ?)`, now, workspaceID, memoryID, memoryID)
 	if err != nil {
 		return 0, err
 	}

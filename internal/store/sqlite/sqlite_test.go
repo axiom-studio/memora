@@ -71,7 +71,7 @@ func TestUpdateMemory_CAS(t *testing.T) {
 	// Happy path.
 	m.Content = "v2"
 	m.LastModifiedByAgentID = "agent_opaque_x"
-	newWmk, err := s.UpdateMemory(ctx, m.ID, wmk, m)
+	newWmk, err := s.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, m)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestUpdateMemory_CAS(t *testing.T) {
 		t.Fatal("watermark didn't bump")
 	}
 	// CAS conflict.
-	_, err = s.UpdateMemory(ctx, m.ID, wmk, m)
+	_, err = s.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, m)
 	if err != types.ErrCAS {
 		t.Fatalf("expected ErrCAS, got %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPatchMemory_AppliesOps(t *testing.T) {
 	wmk, _ := s.ImprintMemory(ctx, m)
 
 	ops := []api.PatchOp{{OldString: "beta", NewString: "BETA"}}
-	newWmk, _, content, err := s.PatchMemory(ctx, m.ID, wmk, ops, "agent_opaque_p")
+	newWmk, _, content, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, ops, "agent_opaque_p")
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestPatchMemory_AmbiguousAnchorRejected(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, ws)
 	m := &types.Memory{WorkspaceID: ws.ID, Content: "x x", WrittenByAgentID: "agent_opaque_p"}
 	wmk, _ := s.ImprintMemory(ctx, m)
-	_, _, _, err := s.PatchMemory(ctx, m.ID, wmk, []api.PatchOp{{OldString: "x", NewString: "y"}}, "agent_opaque_p")
+	_, _, _, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, []api.PatchOp{{OldString: "x", NewString: "y"}}, "agent_opaque_p")
 	if err == nil {
 		t.Fatal("expected ErrPatchAnchor on ambiguous")
 	}
@@ -187,7 +187,7 @@ func TestGraphCascadeForget(t *testing.T) {
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
 	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
-	n, err := s.GraphCascadeForget(ctx, a.ID, "agent_opaque_c")
+	n, err := s.GraphCascadeForget(ctx, ws.ID, a.ID, "agent_opaque_c")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func TestUpdateMemory_ConcurrentWriters(t *testing.T) {
 				Content:               fmt.Sprintf("v%d", i+1),
 				LastModifiedByAgentID: "agent_opaque_r",
 			}
-			_, err := s.UpdateMemory(ctx, m.ID, wmk, m2)
+			_, err := s.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, m2)
 			switch {
 			case err == nil:
 				winnerCount.Add(1)
@@ -472,7 +472,7 @@ func TestUpsertCells_Idempotent(t *testing.T) {
 	if err := s.UpsertCells(ctx, m.ID, cells); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.GetCells(ctx, m.ID)
+	got, err := s.GetCells(ctx, m.WorkspaceID, m.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

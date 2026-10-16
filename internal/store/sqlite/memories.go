@@ -171,7 +171,7 @@ FROM memora_memories WHERE workspace_id = ? AND deleted_at IS NULL`
 }
 
 // UpdateMemory replaces a Memory's content with CAS via expected watermark.
-func (s *Store) UpdateMemory(ctx context.Context, id, expectedWatermark string, m *types.Memory) (string, error) {
+func (s *Store) UpdateMemory(ctx context.Context, workspaceID, id, expectedWatermark string, m *types.Memory) (string, error) {
 	newWmk := types.NewWatermark()
 	contentMD5 := types.MD5Hex(m.Content)
 	tagsJSON, _ := json.Marshal(m.Tags)
@@ -188,9 +188,9 @@ func (s *Store) UpdateMemory(ctx context.Context, id, expectedWatermark string, 
 UPDATE memora_memories
 SET content=?, content_md5=?, head_watermark=?, last_modified_by_agent_id=?,
     tags_json=?, updated_at=?
-WHERE id=? AND head_watermark=? AND deleted_at IS NULL`,
+WHERE id=? AND workspace_id=? AND head_watermark=? AND deleted_at IS NULL`,
 		m.Content, contentMD5, newWmk, m.LastModifiedByAgentID, nullableStr(string(tagsJSON)), now,
-		id, expectedWatermark)
+		id, workspaceID, expectedWatermark)
 	if err != nil {
 		return "", fmt.Errorf("update memory: %w", err)
 	}
@@ -198,7 +198,7 @@ WHERE id=? AND head_watermark=? AND deleted_at IS NULL`,
 	if n == 0 {
 		// Distinguish "not found" from "CAS conflict".
 		var headWmk string
-		err := tx.QueryRowContext(ctx, "SELECT head_watermark FROM memora_memories WHERE id = ?", id).Scan(&headWmk)
+		err := tx.QueryRowContext(ctx, "SELECT head_watermark FROM memora_memories WHERE id = ? AND workspace_id = ?", id, workspaceID).Scan(&headWmk)
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", types.ErrNotFound
 		}
@@ -238,7 +238,7 @@ VALUES (?, ?, 'update', ?, ?, ?)`,
 
 // AppendMemory tacks content onto an existing Memory and bumps watermark.
 // Returns the new watermark and content_md5.
-func (s *Store) AppendMemory(ctx context.Context, id, expectedWatermark string, body string, agentID string) (string, string, error) {
+func (s *Store) AppendMemory(ctx context.Context, workspaceID, id, expectedWatermark string, body string, agentID string) (string, string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", "", err
@@ -246,7 +246,7 @@ func (s *Store) AppendMemory(ctx context.Context, id, expectedWatermark string, 
 	defer tx.Rollback()
 
 	var current, headWmk string
-	err = tx.QueryRowContext(ctx, "SELECT content, head_watermark FROM memora_memories WHERE id = ? AND deleted_at IS NULL", id).
+	err = tx.QueryRowContext(ctx, "SELECT content, head_watermark FROM memora_memories WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL", id, workspaceID).
 		Scan(&current, &headWmk)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", types.ErrNotFound
@@ -289,7 +289,7 @@ VALUES (?, ?, 'append', ?, ?, ?, ?)`,
 // content. The actual cell-diffing happens in the service layer because
 // it depends on the chunker — this primitive only handles the content
 // edit + CAS + watermark + history bookkeeping.
-func (s *Store) PatchMemory(ctx context.Context, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error) {
+func (s *Store) PatchMemory(ctx context.Context, workspaceID, id, expectedWatermark string, ops []api.PatchOp, agentID string) (string, []types.CellDelta, string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", nil, "", err
@@ -297,7 +297,7 @@ func (s *Store) PatchMemory(ctx context.Context, id, expectedWatermark string, o
 	defer tx.Rollback()
 
 	var current, headWmk string
-	err = tx.QueryRowContext(ctx, "SELECT content, head_watermark FROM memora_memories WHERE id = ? AND deleted_at IS NULL", id).
+	err = tx.QueryRowContext(ctx, "SELECT content, head_watermark FROM memora_memories WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL", id, workspaceID).
 		Scan(&current, &headWmk)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil, "", types.ErrNotFound

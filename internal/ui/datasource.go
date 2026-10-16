@@ -221,8 +221,8 @@ type DataSource interface {
 	AppendMemory(ctx context.Context, wsID, memID string, req api.AppendRequest) (*api.AppendResponse, error)
 	ForgetMemory(ctx context.Context, wsID, memID string) (*api.ForgetResponse, error)
 	ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error)
-	GetMemory(ctx context.Context, memID string) (*MemorySummary, error)
-	GetCells(ctx context.Context, memID string) ([]CellSummary, error)
+	GetMemory(ctx context.Context, wsID, memID string) (*MemorySummary, error)
+	GetCells(ctx context.Context, wsID, memID string) ([]CellSummary, error)
 	GetEdges(ctx context.Context, wsID, memID string) ([]EdgeSummary, error)
 	Recall(ctx context.Context, wsID string, query string, mode string, k int) (*api.RecallResponse, error)
 	RecallFull(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
@@ -231,7 +231,7 @@ type DataSource interface {
 	GraphTraverse(ctx context.Context, wsID, seedMemID, direction string, edgeTypes []string, depth int) (*GraphData, error)
 	GraphStats(ctx context.Context, wsID string) (int, map[string]int, error)
 	LinkEdge(ctx context.Context, wsID, sourceMemID, targetMemID, edgeType string) (string, error)
-	UnlinkEdge(ctx context.Context, edgeID string) error
+	UnlinkEdge(ctx context.Context, wsID, edgeID string) error
 	GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
 	UpsertTag(ctx context.Context, wsID, memID, key, value string) error
 	DeleteTag(ctx context.Context, wsID, memID, key string) error
@@ -241,6 +241,6 @@ type DataSource interface {
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 	ListPins(ctx context.Context, wsID string) ([]PinSummary, error)
 	CreatePin(ctx context.Context, wsID string, query, mode string, k int, watermark, label string) (string, error)
-	DeletePin(ctx context.Context, pinID string) error
+	DeletePin(ctx context.Context, wsID, pinID string) error
 	HealthStatus(ctx context.Context) (*HealthInfo, error)
 }

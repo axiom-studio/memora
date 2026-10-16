@@ -40,14 +40,14 @@ type GraphStore interface {
 	Link(ctx context.Context, edge types.Edge) (types.Edge, error)
 	// Unlink soft-deletes an edge. Returns ErrNotFound if absent.
 	// Returns ErrSyntheticEdge for system-generated edges.
-	Unlink(ctx context.Context, edgeID, agentID string) error
+	Unlink(ctx context.Context, workspaceID, edgeID, agentID string) error
 	// LinkBatch creates up to MaxLinkBatchSize edges. Per-edge errors
 	// are returned in LinkResult; the call itself only errors on
 	// systemic failure.
 	LinkBatch(ctx context.Context, edges []types.Edge) ([]LinkResult, error)
 	// CascadeForget soft-deletes every edge incident to a memory
 	// (GDPR Art. 17 cascade). Returns the count of deleted edges.
-	CascadeForget(ctx context.Context, memoryID, agentID string) (cascadedCount int, err error)
+	CascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (cascadedCount int, err error)
 
 	// Neighbors returns one-hop edges and neighbor headers for a
 	// memory, filtered by direction and edge types.

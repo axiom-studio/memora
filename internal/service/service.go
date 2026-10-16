@@ -66,11 +66,11 @@ func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, erro
 }
 
 // GraphUnlink delegates to the configured GraphStore.
-func (s *Service) GraphUnlink(ctx context.Context, edgeID, agentID string) error {
+func (s *Service) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
 	if s.Graph == nil {
 		return fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Graph.Unlink(ctx, edgeID, agentID)
+	return s.Graph.Unlink(ctx, workspaceID, edgeID, agentID)
 }
 
 // GraphLinkBatch delegates to the configured GraphStore.
@@ -82,11 +82,11 @@ func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]ada
 }
 
 // GraphCascadeForget delegates to the configured GraphStore.
-func (s *Service) GraphCascadeForget(ctx context.Context, memoryID, agentID string) (int, error) {
+func (s *Service) GraphCascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
 	if s.Graph == nil {
 		return 0, nil
 	}
-	return s.Graph.CascadeForget(ctx, memoryID, agentID)
+	return s.Graph.CascadeForget(ctx, workspaceID, memoryID, agentID)
 }
 
 // GraphNeighbors delegates to the configured GraphStore.
@@ -266,7 +266,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	mem.Tags = req.Tags
 	mem.LastModifiedByAgentID = agentID
 	start := time.Now()
-	newWmk, err := s.Metadata.UpdateMemory(ctx, memoryID, expected, &mem)
+	newWmk, err := s.Metadata.UpdateMemory(ctx, workspaceID, memoryID, expected, &mem)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +274,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	if err != nil {
 		return nil, err
 	}
-	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, workspaceID, memoryID)
 	newCells, err := ck.Chunk(ctx, req.Content)
 	if err != nil {
 		return nil, err
@@ -334,7 +334,7 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		return nil, fmt.Errorf("%w: If-Match or expected_watermark required for patch", types.ErrInvalidInput)
 	}
 	start := time.Now()
-	newWmk, _, newContent, err := s.Metadata.PatchMemory(ctx, memoryID, expected, req.Patch, agentID)
+	newWmk, _, newContent, err := s.Metadata.PatchMemory(ctx, workspaceID, memoryID, expected, req.Patch, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 	if err != nil {
 		return nil, err
 	}
-	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, workspaceID, memoryID)
 	newCells, err := ck.Chunk(ctx, newContent)
 	if err != nil {
 		return nil, err
@@ -405,7 +405,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 	if expected == "" {
 		expected = req.ExpectedWatermark
 	}
-	newWmk, md5, err := s.Metadata.AppendMemory(ctx, memoryID, expected, req.Content, agentID)
+	newWmk, md5, err := s.Metadata.AppendMemory(ctx, workspaceID, memoryID, expected, req.Content, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 	if err != nil {
 		return nil, err
 	}
-	oldCells, _ := s.Metadata.GetCells(ctx, memoryID)
+	oldCells, _ := s.Metadata.GetCells(ctx, workspaceID, memoryID)
 	newCells, err := ck.Chunk(ctx, existing.Content)
 	if err != nil {
 		return nil, err
@@ -469,7 +469,7 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 			{WorkspaceID: workspaceID, MemoryID: memoryID},
 		})
 	}
-	n, _ := s.GraphCascadeForget(ctx, memoryID, agentID)
+	n, _ := s.GraphCascadeForget(ctx, workspaceID, memoryID, agentID)
 	wmk := types.NewWatermark()
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
 		WorkspaceID: workspaceID, Op: "forget", Target: memoryID, AgentID: agentID,
@@ -500,8 +500,8 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	case api.RecallModeLookup:
 		for _, id := range req.MemoryIDs {
 			m, err := s.Metadata.GetMemory(ctx, id)
-			if err != nil {
-				continue
+			if err != nil || m.WorkspaceID != workspaceID {
+				continue // other workspaces' memories are indistinguishable from missing ones
 			}
 			seeds = append(seeds, api.RecallHit{
 				MemoryID: m.ID, Text: m.Content, Watermark: m.HeadWatermark, Via: "seed",

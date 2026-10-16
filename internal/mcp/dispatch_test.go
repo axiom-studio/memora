@@ -141,3 +141,20 @@ func TestDispatch_UpdateWorkspace_Unknown_ReturnsNotFound(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestDispatch_Lookup_FromOtherWorkspace_ReturnsNotFound(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	owner := createWorkspace(t, s, map[string]any{"name": "owner"})
+	other := createWorkspace(t, s, map[string]any{"name": "other"})
+	imp, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": owner, "agent_id": "agent_opaque_t", "content": "owner secret"})
+	if err != nil {
+		t.Fatalf("imprint: %v", err)
+	}
+	if _, err := dispatchJSON(t, s, "memora_lookup", map[string]any{"workspace_id": other, "memory_id": imp["id"]}); !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("cross-workspace lookup err = %v, want ErrNotFound", err)
+	}
+	if _, err := dispatchJSON(t, s, "memora_lookup", map[string]any{"workspace_id": owner, "memory_id": imp["id"]}); err != nil {
+		t.Fatalf("same-workspace lookup: %v", err)
+	}
+}

@@ -394,3 +394,41 @@ func TestRecall_GraphExpansion_WithoutGraphStoreReturnsSeedsOnly(t *testing.T) {
 		t.Fatalf("results = %+v expanded=%d, want the seed alone", r.Results, r.GraphNodesExpanded)
 	}
 }
+
+// Issue #4373: an edge can only be unlinked, and a memory's edges only
+// cascaded, from the workspace that owns them.
+func TestGraphUnlinkAndCascade_ScopedToWorkspace(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	owner := newTestWorkspace(t, s)
+	attacker := newTestWorkspace(t, s)
+	a, b := imprint(t, s, owner, "a"), imprint(t, s, owner, "b")
+	e, err := s.GraphLink(ctx, types.Edge{WorkspaceID: owner, SourceMemoryID: a, TargetMemoryID: b, EdgeType: types.EdgeType("references"), CreatedByAgentID: testAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.GraphUnlink(ctx, attacker, e.EdgeID, testAgent); !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("cross-workspace unlink err = %v, want ErrNotFound", err)
+	}
+	if n, _ := s.GraphCascadeForget(ctx, attacker, a, testAgent); n != 0 {
+		t.Fatalf("cross-workspace cascade removed %d edges, want 0", n)
+	}
+	if err := s.GraphUnlink(ctx, owner, e.EdgeID, testAgent); err != nil {
+		t.Fatalf("same-workspace unlink: %v", err)
+	}
+}
+
+func TestRecall_LookupMode_IgnoresOtherWorkspacesMemories(t *testing.T) {
+	s := newTestService(t)
+	owner, attacker := newTestWorkspace(t, s), newTestWorkspace(t, s)
+	id := imprint(t, s, owner, "owner secret")
+
+	r, err := s.Recall(context.Background(), attacker, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{id}})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(r.Results) != 0 {
+		t.Fatalf("lookup from another workspace returned %+v, want nothing", r.Results)
+	}
+}

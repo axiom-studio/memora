@@ -317,7 +317,7 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request, wsID, id s
 		s.writeError(w, 404, "not_found", "memory not found", nil)
 		return
 	}
-	cells, _ := s.cfg.Service.Metadata.GetCells(r.Context(), id)
+	cells, _ := s.cfg.Service.Metadata.GetCells(r.Context(), wsID, id)
 	s.writeJSON(w, 200, api.MemoryEnvelope{Memory: m, Cells: cells})
 }
 
@@ -463,7 +463,7 @@ func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string,
 		}
 		s.writeJSON(w, 201, api.PinResponse{PinID: p.PinID, Watermark: p.Watermark})
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Metadata.DeletePin(r.Context(), rest[0]); err != nil {
+		if err := s.cfg.Service.Metadata.DeletePin(r.Context(), wsID, rest[0]); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -625,7 +625,7 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
-	if err := s.cfg.Service.GraphUnlink(r.Context(), seg, agentFrom(r.Context())); err != nil {
+	if err := s.cfg.Service.GraphUnlink(r.Context(), wsID, seg, agentFrom(r.Context())); err != nil {
 		s.writeErrorFromService(w, err)
 		return
 	}

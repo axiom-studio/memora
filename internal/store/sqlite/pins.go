@@ -43,8 +43,8 @@ FROM memora_pins WHERE workspace_id = ? ORDER BY created_at DESC`, workspaceID)
 	return out, rows.Err()
 }
 
-func (s *Store) DeletePin(ctx context.Context, pinID string) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM memora_pins WHERE pin_id = ?", pinID)
+func (s *Store) DeletePin(ctx context.Context, workspaceID, pinID string) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM memora_pins WHERE pin_id = ? AND workspace_id = ?", pinID, workspaceID)
 	if err != nil {
 		return err
 	}

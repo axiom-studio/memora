@@ -256,8 +256,8 @@ func toolCatalog() []Tool {
 			Description: "Soft-delete a Context Graph edge.",
 			InputSchema: map[string]any{
 				"type":       "object",
-				"properties": map[string]any{"edge_id": stringP(), "agent_id": stringP()},
-				"required":   []string{"edge_id", "agent_id"},
+				"properties": map[string]any{"workspace_id": stringP(), "edge_id": stringP(), "agent_id": stringP()},
+				"required":   []string{"workspace_id", "edge_id", "agent_id"},
 			},
 		},
 		{
