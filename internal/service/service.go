@@ -208,6 +208,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	}, workspaceID, req.CollectionID, mem.ID, nil, cells)
 	if err == nil {
 		_ = s.Metadata.UpsertCells(ctx, mem.ID, cells)
+		s.markRecallReady(ctx, mem.ID)
 	}
 	recallReady := err == nil
 
@@ -286,6 +287,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(req.Content), req.Content)
 		for _, cell := range newCells {
@@ -354,6 +356,7 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(newContent), newContent)
 		for _, cell := range newCells {
@@ -424,6 +427,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
 	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, md5, existing.Content)
 		for _, cell := range newCells {
@@ -549,6 +553,15 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		GraphNodesExpanded:     graphExpanded,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
 	}, nil
+}
+
+// markRecallReady persists recall_ready once every cell of the memory has a
+// vector key. The update is conditional and idempotent, so calling it after
+// a partially failed embed is harmless (Issue #4379).
+func (s *Service) markRecallReady(ctx context.Context, memoryID string) {
+	if _, err := s.Metadata.FlipRecallReadyIfAllEmbedded(ctx, memoryID); err != nil {
+		slog.Default().Warn("recall_ready flip failed", "memory_id", memoryID, "err", err)
+	}
 }
 
 // appendLedger writes a ledger entry, ignoring errors (audit log is

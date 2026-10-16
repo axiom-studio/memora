@@ -24,6 +24,7 @@ import (
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/mcp"
+	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/ui"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -234,6 +235,16 @@ func serve() {
 		bootLog.Fatalf("%v", err)
 	}
 	defer closeAdapters()
+
+	// Reclaims content blobs stranded when a content write succeeds and the
+	// metadata write fails. Deferred after closeAdapters, so it stops (and
+	// waits for an in-flight pass) before the stores close.
+	if svc.Content != nil {
+		sweeper := orphangc.New(svc.Metadata, svc.Content, svc, logger, orphangc.Config{})
+		sweeper.Start(ctx)
+		defer sweeper.Stop()
+		logger.Info("orphan content GC started")
+	}
 
 	var uiFederation *ui.FederationInfo
 	if cfg.Federation.Enabled {
