@@ -17,12 +17,12 @@ type GraphConfig struct {
 
 // GraphCapabilities advertises what a GraphStore can do.
 type GraphCapabilities struct {
-	MaxDepth              int  `json:"max_depth"`
-	MaxNeighborsK         int  `json:"max_neighbors_k"`
-	MaxLinkBatchSize      int  `json:"max_link_batch_size"`
+	MaxDepth                  int  `json:"max_depth"`
+	MaxNeighborsK             int  `json:"max_neighbors_k"`
+	MaxLinkBatchSize          int  `json:"max_link_batch_size"`
 	SupportsBudgetedTraversal bool `json:"supports_budgeted_traversal"`
-	SupportsCypher        bool `json:"supports_cypher"`
-	NativeBFS             bool `json:"native_bfs"`
+	SupportsCypher            bool `json:"supports_cypher"`
+	NativeBFS                 bool `json:"native_bfs"`
 }
 
 // GraphStore is the Context Graph persistence contract — edges,
@@ -96,8 +96,8 @@ type TraverseResult struct {
 
 // LinkResult is the per-edge outcome inside a LinkBatch response.
 type LinkResult struct {
-	Index   int
-	Status  string // "ok" | "error"
-	EdgeID  string
-	Error   error
+	Index  int
+	Status string // "ok" | "error"
+	EdgeID string
+	Error  error
 }

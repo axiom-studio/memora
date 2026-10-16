@@ -14,17 +14,17 @@ type Workspace struct {
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 
-	AutoLinkEnabled          bool    `json:"auto_link_enabled"`
-	AutoLinkThreshold        float64 `json:"auto_link_threshold,omitempty"`
-	AutoLinkMaxEdges         int     `json:"auto_link_max_edges,omitempty"`
-	AutoLinkMaxIncomingPerDay int    `json:"auto_link_max_incoming_per_day,omitempty"`
+	AutoLinkEnabled           bool    `json:"auto_link_enabled"`
+	AutoLinkThreshold         float64 `json:"auto_link_threshold,omitempty"`
+	AutoLinkMaxEdges          int     `json:"auto_link_max_edges,omitempty"`
+	AutoLinkMaxIncomingPerDay int     `json:"auto_link_max_incoming_per_day,omitempty"`
 }
 
 const (
-	AutoLinkDefaultThreshold        = 0.7
-	AutoLinkDefaultMaxEdges         = 10
+	AutoLinkDefaultThreshold         = 0.7
+	AutoLinkDefaultMaxEdges          = 10
 	AutoLinkDefaultMaxIncomingPerDay = 100
-	AutoLinkHardCapMaxEdges         = 50
+	AutoLinkHardCapMaxEdges          = 50
 )
 
 // AutoLinkDefaults fills zero-valued auto-link fields with defaults and

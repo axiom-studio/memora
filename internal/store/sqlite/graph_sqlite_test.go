@@ -56,10 +56,10 @@ func TestGraphStore_LinkAndNeighbors(t *testing.T) {
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-link-test", 2)
 
 	e, err := gs.Link(ctx, types.Edge{
-		WorkspaceID:    wsID,
-		SourceMemoryID: mems[0],
-		TargetMemoryID: mems[1],
-		EdgeType:       types.EdgeTypeReferences,
+		WorkspaceID:      wsID,
+		SourceMemoryID:   mems[0],
+		TargetMemoryID:   mems[1],
+		EdgeType:         types.EdgeTypeReferences,
 		CreatedByAgentID: "agent",
 	})
 	if err != nil {

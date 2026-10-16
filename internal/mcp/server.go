@@ -34,9 +34,9 @@ type Server struct {
 	svc         *service.Service
 	logger      *stdlog.Logger
 	apiKey      string
-	mu          sync.Mutex   // serializes writes to a single transport
-	initialized atomic.Bool  // flipped by a successful initialize handshake
-	pinnedAgent string       // set once at initialize when auth verifies identity; read-only thereafter
+	mu          sync.Mutex  // serializes writes to a single transport
+	initialized atomic.Bool // flipped by a successful initialize handshake
+	pinnedAgent string      // set once at initialize when auth verifies identity; read-only thereafter
 }
 
 // NewServer returns a ready Server with auth disabled. Equivalent to

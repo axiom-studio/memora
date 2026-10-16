@@ -38,7 +38,7 @@ type AgentResponse = types.Agent
 type LedgerQueryRequest struct {
 	Since         *time.Time `json:"since,omitempty"`
 	Until         *time.Time `json:"until,omitempty"`
-	Actor         string     `json:"actor,omitempty"`     // api_key_id
+	Actor         string     `json:"actor,omitempty"` // api_key_id
 	AgentID       string     `json:"agent_id,omitempty"`
 	Op            []string   `json:"op,omitempty"`
 	MemoryID      string     `json:"memory_id,omitempty"`
@@ -49,23 +49,23 @@ type LedgerQueryRequest struct {
 
 // LedgerEntry is one audit-log row.
 type LedgerEntry struct {
-	LedgerID         string         `json:"ledger_id"`
-	WorkspaceID      string         `json:"workspace_id"`
-	Op               string         `json:"op"`
-	Target           string         `json:"target,omitempty"`
-	AgentID          string         `json:"agent_id"`
-	APIKeyID         string         `json:"api_key_id,omitempty"`
-	UserID           string         `json:"user_id,omitempty"`
-	WatermarkBefore  string         `json:"watermark_before,omitempty"`
-	WatermarkAfter   string         `json:"watermark_after,omitempty"`
-	IP               string         `json:"ip,omitempty"`
-	UserAgent        string         `json:"user_agent,omitempty"`
-	Timestamp        time.Time      `json:"ts"`
-	RequestID        string         `json:"request_id,omitempty"`
-	LatencyMS        int            `json:"latency_ms,omitempty"`
-	Metadata         map[string]any `json:"metadata,omitempty"`
-	Redacted         bool           `json:"redacted,omitempty"`
-	RedactedFields   []string       `json:"redacted_fields,omitempty"`
+	LedgerID        string         `json:"ledger_id"`
+	WorkspaceID     string         `json:"workspace_id"`
+	Op              string         `json:"op"`
+	Target          string         `json:"target,omitempty"`
+	AgentID         string         `json:"agent_id"`
+	APIKeyID        string         `json:"api_key_id,omitempty"`
+	UserID          string         `json:"user_id,omitempty"`
+	WatermarkBefore string         `json:"watermark_before,omitempty"`
+	WatermarkAfter  string         `json:"watermark_after,omitempty"`
+	IP              string         `json:"ip,omitempty"`
+	UserAgent       string         `json:"user_agent,omitempty"`
+	Timestamp       time.Time      `json:"ts"`
+	RequestID       string         `json:"request_id,omitempty"`
+	LatencyMS       int            `json:"latency_ms,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	Redacted        bool           `json:"redacted,omitempty"`
+	RedactedFields  []string       `json:"redacted_fields,omitempty"`
 }
 
 // LedgerResponse is the paginated ledger query result.
@@ -77,7 +77,7 @@ type LedgerResponse struct {
 // HealthResponse is GET /healthz / /readyz output.
 type HealthResponse struct {
 	OK      bool              `json:"ok"`
-	Status  string            `json:"status"` // "live" | "ready" | "degraded"
+	Status  string            `json:"status"`            // "live" | "ready" | "degraded"
 	Adapter map[string]string `json:"adapter,omitempty"` // primary/vector/ledger -> "ok" | "down" | "degraded"
 	Version string            `json:"version,omitempty"`
 }

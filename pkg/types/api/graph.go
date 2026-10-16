@@ -31,10 +31,10 @@ type LinkBatchRequest struct {
 
 // LinkResult is the per-edge outcome inside a LinkBatchResponse.
 type LinkResult struct {
-	Index   int    `json:"index"`
-	Status  string `json:"status"` // "ok" | "error"
-	EdgeID  string `json:"edge_id,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Index  int    `json:"index"`
+	Status string `json:"status"` // "ok" | "error"
+	EdgeID string `json:"edge_id,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // LinkBatchResponse summarizes a LinkBatch call.
@@ -69,8 +69,8 @@ type TraverseRequest struct {
 
 // TraverseHit is one BFS layer entry.
 type TraverseHit struct {
-	MemoryID   string `json:"memory_id"`
-	ViaEdgeID  string `json:"via_edge_id"`
+	MemoryID    string `json:"memory_id"`
+	ViaEdgeID   string `json:"via_edge_id"`
 	ViaEdgeType string `json:"via_edge_type"`
 }
 

@@ -34,8 +34,8 @@ func (c *ContentStore) Open(_ context.Context, _ adapter.ContentConfig) error {
 	return fmt.Errorf("%w: S3 ContentStore is not yet wired (cloud milestone; use --content-driver=sqlite or file for now)", types.ErrCapability)
 }
 
-func (c *ContentStore) Close() error                                   { return nil }
-func (c *ContentStore) Ping(_ context.Context) error                   { return types.ErrCapability }
+func (c *ContentStore) Close() error                 { return nil }
+func (c *ContentStore) Ping(_ context.Context) error { return types.ErrCapability }
 func (c *ContentStore) Capabilities() adapter.ContentCapabilities {
 	return adapter.ContentCapabilities{
 		SupportsConditionalPut:      true,

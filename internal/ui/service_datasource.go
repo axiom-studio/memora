@@ -118,12 +118,12 @@ func (s *ServiceDataSource) GetWorkspace(ctx context.Context, id string) (*Works
 			CreatedAt:      w.CreatedAt,
 		},
 		Region:                    w.Region,
-		ChunkerID:                w.ChunkerID,
-		AutoLinkEnabled:          w.AutoLinkEnabled,
-		AutoLinkThreshold:        w.AutoLinkThreshold,
-		AutoLinkMaxEdges:         w.AutoLinkMaxEdges,
+		ChunkerID:                 w.ChunkerID,
+		AutoLinkEnabled:           w.AutoLinkEnabled,
+		AutoLinkThreshold:         w.AutoLinkThreshold,
+		AutoLinkMaxEdges:          w.AutoLinkMaxEdges,
 		AutoLinkMaxIncomingPerDay: w.AutoLinkMaxIncomingPerDay,
-		Meta:                     w.Meta,
+		Meta:                      w.Meta,
 	}, nil
 }
 

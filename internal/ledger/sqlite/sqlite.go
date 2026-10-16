@@ -229,7 +229,7 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 		var e api.LedgerEntry
 		var (
 			target, apiKey, userID, wmkB, wmkA, ip, ua, tsStr, reqID, metaJSON, redFields sql.NullString
-			latency, redacted                                                               sql.NullInt64
+			latency, redacted                                                             sql.NullInt64
 		)
 		if err := rows.Scan(&e.LedgerID, &e.WorkspaceID, &e.Op, &target, &e.AgentID, &apiKey, &userID,
 			&wmkB, &wmkA, &ip, &ua, &tsStr, &reqID, &latency, &metaJSON, &redacted, &redFields); err != nil {

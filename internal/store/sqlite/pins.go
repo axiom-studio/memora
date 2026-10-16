@@ -54,4 +54,3 @@ func (s *Store) DeletePin(ctx context.Context, workspaceID, pinID string) error 
 	}
 	return nil
 }
-

@@ -10,20 +10,20 @@ import (
 // blob of text + structured metadata. It is also a node in the
 // Context Graph.
 type Memory struct {
-	ID                     string            `json:"id"`
-	WorkspaceID            string            `json:"workspace_id"`
-	CollectionID           string            `json:"collection_id,omitempty"`
-	Content                string            `json:"content"`
-	ContentMD5             string            `json:"content_md5"`
-	HeadWatermark          string            `json:"head_watermark"`
-	CreatedWatermark       string            `json:"created_watermark"`
-	WrittenByAgentID       string            `json:"written_by_agent_id"`
-	LastModifiedByAgentID  string            `json:"last_modified_by_agent_id"`
-	Tags                   map[string]string `json:"tags,omitempty"`
-	RecallReady            bool              `json:"recall_ready"`
-	CreatedAt              time.Time         `json:"created_at"`
-	UpdatedAt              time.Time         `json:"updated_at"`
-	DeletedAt              *time.Time        `json:"deleted_at,omitempty"`
+	ID                    string            `json:"id"`
+	WorkspaceID           string            `json:"workspace_id"`
+	CollectionID          string            `json:"collection_id,omitempty"`
+	Content               string            `json:"content"`
+	ContentMD5            string            `json:"content_md5"`
+	HeadWatermark         string            `json:"head_watermark"`
+	CreatedWatermark      string            `json:"created_watermark"`
+	WrittenByAgentID      string            `json:"written_by_agent_id"`
+	LastModifiedByAgentID string            `json:"last_modified_by_agent_id"`
+	Tags                  map[string]string `json:"tags,omitempty"`
+	RecallReady           bool              `json:"recall_ready"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
+	DeletedAt             *time.Time        `json:"deleted_at,omitempty"`
 }
 
 // Validate returns an error if the memory is malformed.

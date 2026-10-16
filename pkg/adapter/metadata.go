@@ -17,11 +17,11 @@ type MetadataConfig struct {
 
 // MetadataCapabilities tells the server what a MetadataStore supports.
 type MetadataCapabilities struct {
-	SupportsCAS              bool `json:"supports_cas"`
-	SupportsTransactions     bool `json:"supports_transactions"`
-	SupportsBatchUpsert      bool `json:"supports_batch_upsert"`
+	SupportsCAS                bool `json:"supports_cas"`
+	SupportsTransactions       bool `json:"supports_transactions"`
+	SupportsBatchUpsert        bool `json:"supports_batch_upsert"`
 	SupportsLogicalReplication bool `json:"supports_logical_replication"`
-	RecommendedMaxSizeGB     int  `json:"recommended_max_size_gb"`
+	RecommendedMaxSizeGB       int  `json:"recommended_max_size_gb"`
 }
 
 // MetadataStore is the tabular persistence contract for everything
