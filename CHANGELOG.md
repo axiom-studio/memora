@@ -14,6 +14,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Changed
+- **BREAKING (Helm chart)**: values key `primary.driver` is now
+  `metadata.driver`, matching the `--metadata-driver` flag. The chart now
+  refuses to render unless `apiKey` is set or `allowNoAuth: true` is set
+  explicitly, and its liveness/readiness probes exec `memora-cli health` /
+  `memora-cli ready` so they authenticate with the configured key.
 - **BREAKING**: Retired monolithic `PrimaryStore` interface in favor of
   five dedicated adapters: `MetadataStore`, `ContentStore`, `GraphStore`,
   `VectorStore`, `LedgerStore`. CLI flag `--primary-driver` is now

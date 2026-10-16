@@ -64,6 +64,30 @@ jobs:
           path: coverage.out
           if-no-files-found: ignore
 
+  helm:
+    name: Helm chart boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/memora-core --set apiKey=ci
+
+      - name: Boot rendered args and run rendered probes
+        run: test/helm/boot-chart-args.sh
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

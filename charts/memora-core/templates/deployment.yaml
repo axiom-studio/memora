@@ -1,3 +1,6 @@
+{{- if and (not .Values.apiKey) (not .Values.allowNoAuth) }}
+{{- fail "memora-core refuses to start without auth on a non-loopback bind: set apiKey, or set allowNoAuth=true to run unauthenticated" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,11 +37,14 @@ spec:
                 - ALL
           args:
             - serve
-            - --primary-driver={{ .Values.primary.driver }}
+            - --metadata-driver={{ .Values.metadata.driver }}
             - --vector-driver={{ .Values.vector.driver }}
             - --ledger-driver={{ .Values.ledger.driver }}
             - --embedding-model={{ .Values.embeddingModel }}
             - --data-dir=/data
+            {{- if .Values.allowNoAuth }}
+            - --allow-no-auth
+            {{- end }}
           env:
             {{- if .Values.apiKey }}
             - name: MEMORA_API_KEY
@@ -54,16 +60,16 @@ spec:
             - name: http
               containerPort: 7777
               protocol: TCP
+          # exec probes: memora-cli reads MEMORA_API_KEY from the container
+          # env, so they authenticate without exposing the key in the spec.
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            exec:
+              command: ["/usr/local/bin/memora-cli", "health"]
             initialDelaySeconds: 5
             periodSeconds: 15
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: http
+            exec:
+              command: ["/usr/local/bin/memora-cli", "ready"]
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:

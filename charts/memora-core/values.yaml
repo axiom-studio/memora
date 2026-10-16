@@ -1,6 +1,6 @@
 # Memora Core Helm values. The default values produce a single-replica
 # SQLite-backed deployment suitable for local-dev or small-team use.
-# For multi-replica deployments set primary.driver: postgres (which
+# For multi-replica deployments set metadata.driver: postgres (which
 # lands in v0.5; OSS v0.1 supports only sqlite single-replica).
 
 replicaCount: 1
@@ -26,7 +26,7 @@ ingress:
   tls: []
 
 # Adapter selection. SQLite is the OSS-default zero-dependency triple.
-primary:
+metadata:
   driver: sqlite
 vector:
   driver: sqlite-vec
@@ -37,9 +37,14 @@ ledger:
 # (and provide OPENAI_API_KEY in `extraEnv`) for real embeddings.
 embeddingModel: noop:default
 
-# API bearer key. Leave empty for local-dev (auth disabled). Set via a
-# Helm value or via `--set apiKey=...` for production deployments.
+# API bearer key, injected as MEMORA_API_KEY via a chart-managed Secret.
+# Required unless allowNoAuth is true: the server binds a non-loopback
+# address in-cluster and refuses to start unauthenticated otherwise.
 apiKey: ""
+
+# Explicit opt-in to run with no API key (passes --allow-no-auth). Only
+# for trusted networks / local-dev clusters.
+allowNoAuth: false
 
 resources:
   requests:
