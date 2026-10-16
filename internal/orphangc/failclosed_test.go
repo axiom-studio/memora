@@ -149,3 +149,27 @@ func TestFileContentStore_DeleteAllForMemory_HonoursCancelledContext(t *testing.
 		t.Fatal("content deleted despite a cancelled context")
 	}
 }
+
+// A pass aborted by cancellation must not overwrite the last completed
+// pass's LastDeleted (it reported 0 and broke TestSweeper_ReclaimsOrphans
+// intermittently after #5991).
+func TestSweep_AbortedPass_KeepsLastCompletedStats(t *testing.T) {
+	r := newRealStores(t)
+	gone := r.liveMemory(t, "orphan")
+	if err := r.meta.ForgetMemory(context.Background(), r.ws, gone); err != nil {
+		t.Fatal(err)
+	}
+	sw := New(r.meta, r.content, nil, quietLogger(), Config{})
+	sw.cfg.MinAge = 0
+	sw.sweep(context.Background())
+	if sw.LastDeleted() != 1 {
+		t.Fatalf("completed pass LastDeleted = %d, want 1", sw.LastDeleted())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sw.sweep(ctx)
+	if sw.LastDeleted() != 1 {
+		t.Fatalf("aborted pass overwrote LastDeleted with %d, want the completed pass's 1", sw.LastDeleted())
+	}
+}

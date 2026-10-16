@@ -164,6 +164,13 @@ func (s *Sweeper) sweep(ctx context.Context) {
 		cursor = nextCursor
 	}
 
+	if ctx.Err() != nil {
+		// An aborted pass is not a result: keep the last completed pass's
+		// stats and skip its ledger entry, but count what it did reclaim.
+		s.totalDeleted.Add(int64(deleted))
+		s.logger.Info("orphan_gc_pass_aborted", "scanned", scanned, "deleted", deleted)
+		return
+	}
 	s.lastDeleted.Store(int64(deleted))
 	s.totalDeleted.Add(int64(deleted))
 	s.logger.Info("orphan_gc_pass_done", "scanned", scanned, "deleted", deleted)
