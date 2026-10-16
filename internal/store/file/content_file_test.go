@@ -147,3 +147,23 @@ func TestFileContentStore_WorkspaceIsolation(t *testing.T) {
 		t.Errorf("isolation failed: A=%q B=%q", gotA, gotB)
 	}
 }
+
+// The memory body file must never be reported as a cell: the orphan sweeper
+// deletes any listed cell id that has no metadata cell (#5991).
+func TestFileContentStore_ListCellIDs_ExcludesMemoryBody(t *testing.T) {
+	cs := openTestFileStore(t)
+	ctx := context.Background()
+	if err := cs.PutMemoryContent(ctx, "ws-1", "mem-1", "", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.PutCellContent(ctx, "ws-1", "mem-1", "cell-1", "", "cell text"); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := cs.ListCellIDs(ctx, "ws-1", "mem-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "cell-1" {
+		t.Fatalf("ListCellIDs = %v, want only [cell-1] (memory body must be excluded)", ids)
+	}
+}

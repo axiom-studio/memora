@@ -32,6 +32,11 @@ type ContentStore struct {
 
 var idSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_\-]{1,128}$`)
 
+// memoryFileName holds a memory's body; every other *.txt in a memory
+// directory is a cell. ListCellIDs must skip it, or the orphan sweeper
+// reclaims the body of every live memory as an orphan "cell".
+const memoryFileName = "memory.txt"
+
 func validIDSegment(s string) bool { return idSegmentRe.MatchString(s) }
 
 func (c *ContentStore) Open(_ context.Context, cfg adapter.ContentConfig) error {
@@ -66,7 +71,7 @@ func (c *ContentStore) PutMemoryContent(_ context.Context, workspaceID, memoryID
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "memory.txt"), []byte(content), 0o600)
+	return os.WriteFile(filepath.Join(dir, memoryFileName), []byte(content), 0o600)
 }
 
 func (c *ContentStore) GetMemoryContent(_ context.Context, workspaceID, memoryID string) (string, error) {
@@ -74,7 +79,7 @@ func (c *ContentStore) GetMemoryContent(_ context.Context, workspaceID, memoryID
 	if err != nil {
 		return "", err
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "memory.txt"))
+	b, err := os.ReadFile(filepath.Join(dir, memoryFileName))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", types.ErrNotFound
 	}
@@ -89,7 +94,7 @@ func (c *ContentStore) DeleteMemoryContent(_ context.Context, workspaceID, memor
 	if err != nil {
 		return err
 	}
-	err = os.Remove(filepath.Join(dir, "memory.txt"))
+	err = os.Remove(filepath.Join(dir, memoryFileName))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -150,7 +155,12 @@ func (c *ContentStore) GetCellContentBatch(_ context.Context, workspaceID, memor
 	return out, nil
 }
 
-func (c *ContentStore) DeleteCellContent(_ context.Context, workspaceID, memoryID, cellID string) error {
+func (c *ContentStore) DeleteCellContent(ctx context.Context, workspaceID, memoryID, cellID string) error {
+	// Filesystem calls ignore ctx; check it so a cancelled caller (e.g. the
+	// orphan sweeper at shutdown) stops instead of deleting on (#5991).
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !validIDSegment(cellID) {
 		return fmt.Errorf("%w: invalid cell_id segment", types.ErrInvalidInput)
 	}
@@ -165,7 +175,12 @@ func (c *ContentStore) DeleteCellContent(_ context.Context, workspaceID, memoryI
 	return err
 }
 
-func (c *ContentStore) DeleteAllForMemory(_ context.Context, workspaceID, memoryID string) error {
+func (c *ContentStore) DeleteAllForMemory(ctx context.Context, workspaceID, memoryID string) error {
+	// Filesystem calls ignore ctx; check it so a cancelled caller (e.g. the
+	// orphan sweeper at shutdown) stops instead of deleting on (#5991).
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir, err := c.memoryDir(workspaceID, memoryID)
 	if err != nil {
 		return err
@@ -198,7 +213,12 @@ func (c *ContentStore) ListMemoryIDs(_ context.Context, workspaceID string) ([]s
 	return ids, nil
 }
 
-func (c *ContentStore) ListCellIDs(_ context.Context, workspaceID, memoryID string) ([]string, error) {
+func (c *ContentStore) ListCellIDs(ctx context.Context, workspaceID, memoryID string) ([]string, error) {
+	// Filesystem calls ignore ctx; check it so a cancelled caller (e.g. the
+	// orphan sweeper at shutdown) stops instead of deleting on (#5991).
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	dir, err := c.memoryDir(workspaceID, memoryID)
 	if err != nil {
 		return nil, err
@@ -216,7 +236,7 @@ func (c *ContentStore) ListCellIDs(_ context.Context, workspaceID, memoryID stri
 			continue
 		}
 		name := e.Name()
-		if name == "content.txt" {
+		if name == memoryFileName { // the memory body, not a cell (#5991)
 			continue
 		}
 		if strings.HasSuffix(name, ".txt") {
@@ -226,7 +246,12 @@ func (c *ContentStore) ListCellIDs(_ context.Context, workspaceID, memoryID stri
 	return ids, nil
 }
 
-func (c *ContentStore) ListMemoryIDsOlderThan(_ context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
+func (c *ContentStore) ListMemoryIDsOlderThan(ctx context.Context, workspaceID string, cutoff time.Time) ([]string, error) {
+	// Filesystem calls ignore ctx; check it so a cancelled caller (e.g. the
+	// orphan sweeper at shutdown) stops instead of deleting on (#5991).
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !validIDSegment(workspaceID) {
 		return nil, fmt.Errorf("%w: invalid workspace_id segment", types.ErrInvalidInput)
 	}

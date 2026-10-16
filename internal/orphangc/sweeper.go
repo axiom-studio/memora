@@ -8,11 +8,13 @@ package orphangc
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -100,7 +102,9 @@ func (s *Sweeper) loop(ctx context.Context) {
 // sweep runs one GC pass. For each workspace (paginated) it enumerates
 // content keys older than MinAge via ContentStore.ListMemoryIDsOlderThan,
 // cross-references each against MetadataStore.GetMemory, and deletes
-// content for memories that are missing or forgotten (ErrNotFound).
+// content only for memories that are missing or forgotten (ErrNotFound).
+// It fails closed: any other metadata error skips the memory, and a
+// cancelled context aborts the pass (#5991).
 func (s *Sweeper) sweep(ctx context.Context) {
 	s.logger.Info("orphan_gc_pass_start")
 
@@ -123,16 +127,26 @@ func (s *Sweeper) sweep(ctx context.Context) {
 		}
 
 		for _, ws := range workspaces {
+			if ctx.Err() != nil {
+				break
+			}
 			memIDs, err := s.content.ListMemoryIDsOlderThan(ctx, ws.ID, cutoff)
 			if err != nil {
 				s.logger.Warn("orphan_gc_list_keys_error", "workspace", ws.ID, "err", err)
 				continue
 			}
 			for _, memID := range memIDs {
+				if ctx.Err() != nil {
+					break
+				}
 				scanned++
 				_, err := s.metadata.GetMemory(ctx, memID)
 				if err == nil {
 					deleted += s.sweepCellOrphans(ctx, ws.ID, memID)
+					continue
+				}
+				if !errors.Is(err, types.ErrNotFound) {
+					s.logger.Warn("orphan_gc_metadata_error", "workspace", ws.ID, "memory", memID, "err", err)
 					continue
 				}
 				if err := s.content.DeleteAllForMemory(ctx, ws.ID, memID); err != nil {
@@ -144,7 +158,7 @@ func (s *Sweeper) sweep(ctx context.Context) {
 			}
 		}
 
-		if nextCursor == "" {
+		if nextCursor == "" || ctx.Err() != nil {
 			break
 		}
 		cursor = nextCursor
