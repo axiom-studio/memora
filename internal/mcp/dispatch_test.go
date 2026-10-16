@@ -1,0 +1,143 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/axiom-studio/memora/pkg/types"
+)
+
+// TestDispatch_EveryCatalogToolIsRouted guards against catalog/dispatch
+// drift: every tool advertised by tools/list must reach a dispatch case.
+// Calls use empty arguments, so most tools return a validation or
+// not-found error — anything except "unknown tool" proves routing.
+func TestDispatch_EveryCatalogToolIsRouted(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	for _, tool := range toolCatalog() {
+		_, err := s.dispatchTool(context.Background(), tool.Name, json.RawMessage(`{}`))
+		if err != nil && strings.Contains(err.Error(), "unknown tool") {
+			t.Errorf("%s is advertised by tools/list but has no dispatch case", tool.Name)
+		}
+	}
+}
+
+func dispatchJSON(t *testing.T, s *Server, name string, args map[string]any) (map[string]any, error) {
+	t.Helper()
+	raw, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal %s args: %v", name, err)
+	}
+	out, err := s.dispatchTool(context.Background(), name, raw)
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal %s result: %v", name, err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("decode %s result %s: %v", name, b, err)
+	}
+	return m, nil
+}
+
+func createWorkspace(t *testing.T, s *Server, args map[string]any) string {
+	t.Helper()
+	ws, err := dispatchJSON(t, s, "memora_create_workspace", args)
+	if err != nil {
+		t.Fatalf("create_workspace: %v", err)
+	}
+	return ws["id"].(string)
+}
+
+func TestDispatch_PinThenUnpin_RemovesPin(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	wsID := createWorkspace(t, s, map[string]any{"name": "pins"})
+
+	pin, err := dispatchJSON(t, s, "memora_pin", map[string]any{
+		"workspace_id": wsID, "query": "quarterly goals", "watermark": "wm_1", "label": "q3",
+	})
+	if err != nil {
+		t.Fatalf("memora_pin: %v", err)
+	}
+	pinID, _ := pin["pin_id"].(string)
+	if pinID == "" || pin["watermark"] != "wm_1" {
+		t.Fatalf("memora_pin result = %v, want pin_id and watermark wm_1", pin)
+	}
+	pins, _ := svc.Metadata.ListPins(context.Background(), wsID)
+	if len(pins) != 1 || pins[0].Mode != "hybrid" || pins[0].K != 10 || pins[0].Label != "q3" {
+		t.Fatalf("stored pins = %+v, want one pin with REST defaults mode=hybrid k=10", pins)
+	}
+
+	if _, err := dispatchJSON(t, s, "memora_unpin", map[string]any{"workspace_id": wsID, "pin_id": pinID}); err != nil {
+		t.Fatalf("memora_unpin: %v", err)
+	}
+	if pins, _ := svc.Metadata.ListPins(context.Background(), wsID); len(pins) != 0 {
+		t.Fatalf("pins after unpin = %+v, want none", pins)
+	}
+	if _, err := dispatchJSON(t, s, "memora_unpin", map[string]any{"workspace_id": wsID, "pin_id": pinID}); !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("second unpin err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDispatch_Pin_WithoutQuery_ReturnsInvalidInput(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	wsID := createWorkspace(t, s, map[string]any{"name": "pins"})
+	_, err := dispatchJSON(t, s, "memora_pin", map[string]any{"workspace_id": wsID, "watermark": "wm_1"})
+	if !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("err = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestDispatch_Unpin_FromOtherWorkspace_ReturnsNotFoundAndKeepsPin(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	owner := createWorkspace(t, s, map[string]any{"name": "owner"})
+	other := createWorkspace(t, s, map[string]any{"name": "other"})
+
+	pin, err := dispatchJSON(t, s, "memora_pin", map[string]any{"workspace_id": owner, "query": "q", "watermark": "wm_1"})
+	if err != nil {
+		t.Fatalf("memora_pin: %v", err)
+	}
+	_, err = dispatchJSON(t, s, "memora_unpin", map[string]any{"workspace_id": other, "pin_id": pin["pin_id"]})
+	if !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("cross-workspace unpin err = %v, want ErrNotFound", err)
+	}
+	if pins, _ := svc.Metadata.ListPins(context.Background(), owner); len(pins) != 1 {
+		t.Fatalf("owner pins = %+v, want the pin to survive", pins)
+	}
+}
+
+func TestDispatch_UpdateWorkspace_RenamesAndPreservesOtherFields(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	wsID := createWorkspace(t, s, map[string]any{"name": "before", "region": "eu-west", "chunker_id": "markdown"})
+
+	got, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": wsID, "name": "after"})
+	if err != nil {
+		t.Fatalf("memora_update_workspace: %v", err)
+	}
+	if got["name"] != "after" {
+		t.Fatalf("result name = %v, want after", got["name"])
+	}
+	ws, err := svc.Metadata.GetWorkspace(context.Background(), wsID)
+	if err != nil {
+		t.Fatalf("GetWorkspace: %v", err)
+	}
+	if ws.Name != "after" || ws.Region != "eu-west" || ws.ChunkerID != "markdown" {
+		t.Fatalf("stored workspace = %+v, want name=after with region/chunker preserved", ws)
+	}
+}
+
+func TestDispatch_UpdateWorkspace_Unknown_ReturnsNotFound(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	_, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": "ws_missing", "name": "x"})
+	if !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}

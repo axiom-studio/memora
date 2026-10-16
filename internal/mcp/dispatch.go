@@ -135,6 +135,60 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		_ = json.Unmarshal(args, &wrapper)
 		return s.svc.Recall(ctx, wrapper.WorkspaceID, in)
+	case "memora_pin":
+		var in struct {
+			WorkspaceID string `json:"workspace_id"`
+			api.PinRequest
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		if in.Query == "" {
+			return nil, fmt.Errorf("%w: query is required", types.ErrInvalidInput)
+		}
+		// Defaults mirror the REST handler (POST .../recall/pins).
+		if in.Mode == "" {
+			in.Mode = "hybrid"
+		}
+		if in.K <= 0 {
+			in.K = 10
+		}
+		p := &types.Pin{
+			WorkspaceID: in.WorkspaceID, Query: in.Query, Mode: in.Mode, K: in.K,
+			Watermark: in.Watermark, Label: in.Label, CreatedBy: pinned,
+		}
+		if err := s.svc.Metadata.CreatePin(ctx, p); err != nil {
+			return nil, err
+		}
+		return api.PinResponse{PinID: p.PinID, Watermark: p.Watermark}, nil
+	case "memora_unpin":
+		var in struct {
+			WorkspaceID string `json:"workspace_id"`
+			PinID       string `json:"pin_id"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		// DeletePin is not workspace-scoped (Issue #4373), so confirm the
+		// pin belongs to the caller's workspace first. O(pins in workspace).
+		pins, err := s.svc.Metadata.ListPins(ctx, in.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		owned := false
+		for _, p := range pins {
+			if p.PinID == in.PinID {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			return nil, fmt.Errorf("pin %q in workspace %q: %w", in.PinID, in.WorkspaceID, types.ErrNotFound)
+		}
+		if err := s.svc.Metadata.DeletePin(ctx, in.PinID); err != nil {
+			return nil, err
+		}
+		return map[string]any{"pin_id": in.PinID, "unpinned": true}, nil
 	case "memora_list_workspaces":
 		return s.svc.Metadata.ListWorkspaces(ctx, 100)
 	case "memora_create_workspace":
@@ -155,6 +209,27 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			return nil, err
 		}
 		return s.svc.Metadata.GetWorkspace(ctx, in.WorkspaceID)
+	case "memora_update_workspace":
+		var in struct {
+			WorkspaceID string `json:"workspace_id"`
+			Name        string `json:"name"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		// UpdateWorkspace overwrites every column, so read-modify-write to
+		// change only the fields this tool exposes.
+		ws, err := s.svc.Metadata.GetWorkspace(ctx, in.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		if in.Name != "" {
+			ws.Name = in.Name
+		}
+		if err := s.svc.Metadata.UpdateWorkspace(ctx, ws); err != nil {
+			return nil, err
+		}
+		return ws, nil
 	case "memora_delete_workspace":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`

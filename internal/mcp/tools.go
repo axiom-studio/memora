@@ -137,14 +137,17 @@ func toolCatalog() []Tool {
 			Description: "Bind a Recall query to a watermark for reproducible reads.",
 			InputSchema: map[string]any{
 				"type":       "object",
-				"properties": map[string]any{"workspace_id": stringP(), "query": map[string]any{"type": "object"}, "watermark": stringP()},
-				"required":   []string{"workspace_id", "query", "watermark"},
+				"properties": map[string]any{
+					"workspace_id": stringP(), "query": stringP(), "watermark": stringP(),
+					"mode": stringP(), "k": intP(1, 100, 10), "label": stringP(),
+				},
+				"required": []string{"workspace_id", "query", "watermark"},
 			},
 		},
 		{
 			Name:        "memora_unpin",
 			Description: "Release a previously-created pin.",
-			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"pin_id": stringP()}, "required": []string{"pin_id"}},
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"workspace_id": stringP(), "pin_id": stringP()}, "required": []string{"workspace_id", "pin_id"}},
 		},
 		{
 			Name:        "memora_list_workspaces",
