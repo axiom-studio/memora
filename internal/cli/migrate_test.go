@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -162,7 +163,9 @@ func TestMigrateContent_ResumeFrom(t *testing.T) {
 		memIDs = append(memIDs, m.ID)
 	}
 
-	// Migrate from the 3rd memory onwards.
+	// Resume order is lexicographic by ID, and IDs minted in the same
+	// millisecond are not creation-ordered, so pick the token from sorted IDs.
+	sort.Strings(memIDs)
 	result, err := MigrateContent(ctx, primary, content, MigrateContentConfig{
 		WorkspaceID: ws.ID,
 		ResumeFrom:  memIDs[2],
@@ -170,9 +173,8 @@ func TestMigrateContent_ResumeFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	// Should migrate memories after the resume token.
-	if result.Total < 1 {
-		t.Fatalf("total = %d, want >= 1 (memories after resume token)", result.Total)
+	if result.Total != 2 {
+		t.Fatalf("total = %d, want 2 (the memories after the 3rd-smallest ID)", result.Total)
 	}
 }
 
