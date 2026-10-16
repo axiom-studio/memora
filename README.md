@@ -57,7 +57,7 @@ WMK=$(./bin/memora-cli lookup mem_XXXX -o json | jq -r .head_watermark)
 Docker:
 
 ```bash
-docker run -p 7777:7777 -v memora-data:/data ghcr.io/axiomstudio/memora-core:latest
+docker run -p 7777:7777 -v memora-data:/data ghcr.io/axiom-studio/memora-core:latest
 ```
 
 Attach via MCP (Claude Code, etc.):
