@@ -112,7 +112,7 @@ cosign verify ghcr.io/axiom-studio/memora-core:$TAG \
 - Release candidates: `v0.1.0-rc1`, `-rc2`, … goreleaser's `prerelease: auto`
   classifies these as GitHub pre-releases automatically.
 - Post-1.0: strict semver per the [Memora API
-  contract](./architecture.md#api-contract).
+  contract](./architecture.md#adapter-contracts).
 
 ## Known gaps (not blockers, tracked separately)
 
