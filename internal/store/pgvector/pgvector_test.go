@@ -76,6 +76,26 @@ func TestStore_PutQueryDelete(t *testing.T) {
 	}
 }
 
+func TestStore_PutWithMismatchedDimension_ReturnsError(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	ctx := context.Background()
+
+	s := &Store{}
+	if err := s.Open(ctx, adapter.VectorConfig{DSN: dsn, Dim: 3}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	err := s.PutVectorsBatch(ctx, []adapter.VectorPut{{
+		Key:       adapter.VectorKey{WorkspaceID: "ws_pgvec_dim", MemoryID: "m1", CellID: "c_dim_mismatch"},
+		Embedding: []float32{1, 0, 0, 0},
+	}})
+	if err == nil {
+		_ = s.DeleteVectors(ctx, []adapter.VectorKey{{CellID: "c_dim_mismatch"}})
+		t.Fatal("4-dim write into a vector(3) column succeeded; want an error")
+	}
+}
+
 func TestFloatsToVectorLiteral(t *testing.T) {
 	got := floatsToVectorLiteral([]float32{1.5, -2.3, 0})
 	expected := "[1.5,-2.3,0]"

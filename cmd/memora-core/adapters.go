@@ -47,12 +47,6 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 	}
 	closers = append(closers, meta.Close)
 
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN), Dim: 384})
-	if err != nil {
-		return nil, nil, fmt.Errorf("open vector (driver %q): %w", cfg.Storage.VectorDriver, err)
-	}
-	closers = append(closers, vec.Close)
-
 	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN)})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open ledger (driver %q): %w", cfg.Storage.LedgerDriver, err)
@@ -64,6 +58,14 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("open embedding (model %q): %w", cfg.Embedding.Model, err)
 	}
 	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
+
+	// The vector store sizes its column from Dim, so the embedder opens
+	// first and dictates it (Issue #4375).
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN), Dim: embedProvider.Dim()})
+	if err != nil {
+		return nil, nil, fmt.Errorf("open vector (driver %q, dim %d): %w", cfg.Storage.VectorDriver, embedProvider.Dim(), err)
+	}
+	closers = append(closers, vec.Close)
 
 	identityMap := map[string]adapter.IdentityProvider{}
 	for _, name := range []string{
