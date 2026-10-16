@@ -21,6 +21,11 @@ import (
 // The returned close func releases every opened store; on error, anything
 // already opened is closed before returning.
 func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logger) (svc *service.Service, closeAll func(), err error) {
+	// Commands also validate up front to exit with EX_CONFIG; checking here
+	// too means no command can open adapters on an invalid config (#4378).
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("config validation failed: %w", err)
+	}
 	var closers []func() error
 	closeOpened := func() {
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -104,7 +109,7 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 	}
 
 	var gcaps *adapter.GraphCapabilities
-	if cfg.Storage.GraphDriver != "" {
+	if cfg.Storage.GraphEnabled() {
 		// sqlite_graph reuses the metadata database's edge tables, so an
 		// unset graph_dsn follows the metadata DSN rather than data_dir.
 		gdsn := cfg.Storage.GraphDSN
@@ -121,7 +126,7 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		gcaps = &c
 		logger.Info("graph store enabled", "driver", cfg.Storage.GraphDriver)
 	} else {
-		logger.Warn("graph store disabled (storage.graph_driver is empty); graph tools and auto-link are unavailable")
+		logger.Warn("graph store disabled (storage.graph_driver is empty or \"none\"); graph tools and auto-link are unavailable")
 	}
 
 	var ccaps *adapter.ContentCapabilities

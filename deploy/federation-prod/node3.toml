@@ -13,7 +13,7 @@ ledger_driver = "postgres"
 ledger_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node3?sslmode=disable"
 # No graph driver exists for postgres metadata yet; sqlite_graph needs the
 # sqlite metadata tables, so the context graph is disabled on this topology.
-graph_driver = ""
+graph_driver = "none"
 content_driver = "postgres"
 content_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node3?sslmode=disable"
 

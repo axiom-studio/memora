@@ -174,6 +174,13 @@ func (c *Config) expandPaths() {
 	c.Server.APIKeyFile = expandTilde(c.Server.APIKeyFile)
 }
 
+// GraphEnabled reports whether a graph store should be opened. "" and
+// "none" both disable it; "none" exists because env overlays ignore empty
+// values, so MEMORA_GRAPH_DRIVER="" cannot express "off".
+func (s StorageConfig) GraphEnabled() bool {
+	return s.GraphDriver != "" && s.GraphDriver != "none"
+}
+
 // Validate checks for configuration errors. Returns a non-nil error
 // suitable for display; the caller should os.Exit(EX_CONFIG).
 func (c *Config) Validate() error {
@@ -213,7 +220,7 @@ func (c *Config) Validate() error {
 	// any other metadata driver boots "healthy" with a graph store that fails
 	// on first use (Issue #4378). No other graph driver exists yet.
 	if c.Storage.GraphDriver == "sqlite_graph" && c.Storage.MetadataDriver != "sqlite" {
-		errs = append(errs, fmt.Errorf(`storage.graph_driver "sqlite_graph" requires storage.metadata_driver "sqlite" (got %q); set storage.graph_driver = "" to run without the context graph`, c.Storage.MetadataDriver))
+		errs = append(errs, fmt.Errorf(`storage.graph_driver "sqlite_graph" requires storage.metadata_driver "sqlite" (got %q); set storage.graph_driver = "none" (or MEMORA_GRAPH_DRIVER=none) to run without the context graph`, c.Storage.MetadataDriver))
 	}
 
 	if c.Federation.Enabled {

@@ -140,6 +140,7 @@ func TestValidate_GraphDriverMetadataCompatibility(t *testing.T) {
 		{"postgres metadata + sqlite_graph with explicit dsn", "postgres", "sqlite_graph", "/data/graph.db", true},
 		{"postgres metadata + graph disabled", "postgres", "", "", false},
 		{"sqlite metadata + graph disabled", "sqlite", "", "", false},
+		{"postgres metadata + graph none sentinel", "postgres", "none", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -151,7 +152,7 @@ func TestValidate_GraphDriverMetadataCompatibility(t *testing.T) {
 			if (err != nil) != c.wantErr {
 				t.Fatalf("Validate() err = %v, wantErr %v", err, c.wantErr)
 			}
-			if err != nil && !strings.Contains(err.Error(), `graph_driver = ""`) {
+			if err != nil && !strings.Contains(err.Error(), `graph_driver = "none"`) {
 				t.Fatalf("error %q should tell the operator how to disable the graph", err)
 			}
 		})

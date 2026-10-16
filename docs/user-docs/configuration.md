@@ -74,7 +74,7 @@ TOML table `[storage]`. Each seam takes a driver name and an optional DSN.
 | `storage.metadata_dsn` | string | *(empty — falls back to `<data_dir>/memora.db`)* |
 | `storage.vector_driver` | string | `sqlite-vec` |
 | `storage.vector_dsn` | string | *(empty — falls back to `<data_dir>/memora.db`)* |
-| `storage.graph_driver` | string | `sqlite_graph` *(set `""` to disable the graph)* |
+| `storage.graph_driver` | string | `sqlite_graph` *(set `"none"` to disable the graph)* |
 | `storage.graph_dsn` | string | *(empty — falls back to the metadata DSN)* |
 | `storage.ledger_driver` | string | `sqlite` |
 | `storage.ledger_dsn` | string | *(empty — falls back to `<data_dir>/memora.db`)* |
@@ -83,7 +83,7 @@ TOML table `[storage]`. Each seam takes a driver name and an optional DSN.
 
 At the defaults, four of the five seams share one SQLite file at `<data_dir>/memora.db` and the content store is switched off entirely, which is what makes a fresh instance dependency-free.
 
-`sqlite_graph` stores edges in the SQLite metadata database, so it requires `metadata_driver = "sqlite"`; `check-config` rejects any other combination. With a non-SQLite metadata store, set `graph_driver = ""` to run without the context graph — graph operations then report that the graph store is not configured.
+`sqlite_graph` stores edges in the SQLite metadata database, so it requires `metadata_driver = "sqlite"`; `check-config` rejects any other combination. With a non-SQLite metadata store, set `graph_driver = "none"` (or `MEMORA_GRAPH_DRIVER=none`) to run without the context graph; an empty string also disables it, but cannot be set through the environment. With the graph disabled, graph operations report that the graph store is not configured.
 
 The content store is the one seam that is off rather than defaulted. When `content_driver` is set and `content_dsn` is not, the DSN becomes the SQLite database for the `sqlite` driver and `<data_dir>/content` for any other driver. See [Adapters](adapters.md) for which drivers each seam accepts.
 

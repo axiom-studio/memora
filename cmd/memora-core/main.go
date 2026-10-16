@@ -198,7 +198,8 @@ func serve() {
 		*embedModel, *apiKey, *mode, *allowNoAuth, *mcpEnable)
 
 	if err := cfg.Validate(); err != nil {
-		bootLog.Fatalf("config validation failed (exit %d): %v", config.EX_CONFIG, err)
+		// Printf, not Fatalf: Fatalf exits 1 before EX_CONFIG is reached.
+		bootLog.Printf("config validation failed (exit %d): %v", config.EX_CONFIG, err)
 		os.Exit(config.EX_CONFIG)
 	}
 
@@ -439,6 +440,11 @@ func runMCP() {
 	}
 	if set["api-key"] {
 		cfg.Server.APIKey = *apiKey
+	}
+
+	if err := cfg.Validate(); err != nil {
+		bootLog.Printf("config validation failed (exit %d): %v", config.EX_CONFIG, err)
+		os.Exit(config.EX_CONFIG)
 	}
 
 	resolvedKey, err := cfg.ResolveAPIKey()
