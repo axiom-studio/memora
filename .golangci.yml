@@ -64,14 +64,6 @@ linters:
       - path: internal/mcp/websocket_test\.go
         linters:
           - bodyclose
-      # The console renders HTML with fmt.Fprintf; every string argument goes
-      # through template.HTMLEscapeString (audited for #5980/#5994), so the
-      # G705 taint findings there are false positives. Script-context values
-      # must use jsonEscapeString.
-      - path: internal/ui/
-        linters:
-          - gosec
-        text: G705
       # nhooyr.io/websocket is deprecated in favour of its drop-in
       # successor github.com/coder/websocket; the dependency swap is tracked
       # separately so it gets its own review.

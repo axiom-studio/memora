@@ -192,6 +192,7 @@ func (h *Handler) partialWorkspaceDeleteForm(w http.ResponseWriter, r *http.Requ
 		h.writeFormError(w, err.Error())
 		return
 	}
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<dialog id="ws-delete-modal" class="modal" aria-labelledby="ws-delete-title">
 <form hx-post="/ui/api/workspaces/delete" hx-target="#delete-form-errors" hx-swap="innerHTML" class="modal-form">
   <h3 id="ws-delete-title">Delete Workspace</h3>

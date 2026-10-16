@@ -128,6 +128,7 @@ func (h *Handler) partialCollectionDeleteForm(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<dialog id="coll-delete-modal" class="modal" aria-labelledby="coll-delete-title">
 <form hx-post="/ui/api/collections/delete" hx-target="#coll-delete-form-errors" hx-swap="innerHTML" class="modal-form">
   <h3 id="coll-delete-title">Delete Collection</h3>

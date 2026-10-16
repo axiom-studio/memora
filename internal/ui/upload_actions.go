@@ -271,6 +271,7 @@ func (h *Handler) handleMemoryUpload(w http.ResponseWriter, r *http.Request) {
 	if filename != "" {
 		fmt.Fprintf(w, `<tr><td><strong>Source File</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(filename))
 	}
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Created</strong></td><td>%d</td></tr>`, resp.CellsCreated)
 	recallBadge := `<span class="badge badge-ok">Yes</span>`
 	if !resp.RecallReady {

@@ -88,7 +88,9 @@ func (h *Handler) renderWorkspaceOverview(w http.ResponseWriter, r *http.Request
 	fmt.Fprintf(w, `<tr><td><strong>Embedding Model</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(orDash(ws.EmbeddingModel)))
 	fmt.Fprintf(w, `<tr><td><strong>Chunker</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(orDash(ws.ChunkerID)))
 	fmt.Fprintf(w, `<tr><td><strong>Auto-Link</strong></td><td>%s</td></tr>`, boolBadge(ws.AutoLinkEnabled))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Agents</strong></td><td>%d</td></tr>`, ws.AgentCount)
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Memories</strong></td><td><a href="/ui/workspaces/%s/memories">%d</a></td></tr>`, template.HTMLEscapeString(ws.ID), ws.MemoryCount)
 	fmt.Fprintf(w, `<tr><td><strong>Created</strong></td><td>%s</td></tr>`, template.HTMLEscapeString(ws.CreatedAt.UTC().Format("2006-01-02 15:04:05 UTC")))
 	fmt.Fprintf(w, `</table></div>`)
@@ -194,6 +196,7 @@ func (h *Handler) renderWorkspaceConfig(w http.ResponseWriter, r *http.Request, 
 		enabledChecked = " checked"
 	}
 
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Auto-Link Configuration</h3>
 <div id="config-result"></div>
 <form hx-post="/ui/api/workspaces/config" hx-target="#config-result" hx-swap="innerHTML">

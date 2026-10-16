@@ -59,9 +59,11 @@ func (h *Handler) handleMemoryImprint(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
 		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Created</strong></td><td>%d</td></tr>`, resp.CellsCreated)
 	fmt.Fprintf(w, `<tr><td><strong>Recall Ready</strong></td><td>%s</td></tr>`, recallBadge)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Latency</strong></td><td>%d ms</td></tr>`, resp.LatencyMS)
 	fmt.Fprintf(w, `</table></div>`)
 }
@@ -173,7 +175,9 @@ func (h *Handler) handleMemoryUpdate(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
 		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `</table></div>`)
@@ -299,8 +303,11 @@ func (h *Handler) handleMemoryPatch(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
 		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Patches Applied</strong></td><td>%d</td></tr>`, resp.PatchesApplied)
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Re-embedded</strong></td><td>%d</td></tr>`, resp.CellsReembed)
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Skipped</strong></td><td>%d</td></tr>`, resp.CellsSkipped)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `</table></div>`)
@@ -321,6 +328,7 @@ func (h *Handler) partialMemoryPatchForm(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	//nolint:gosec // G705: audited — HTML values are HTMLEscapeString-ed; the <script> value goes through jsonEscapeString (#5994)
 	fmt.Fprintf(w, `<dialog id="mem-patch-modal" class="modal" aria-labelledby="mem-patch-title">
 <form hx-post="/ui/api/memories/patch" hx-target="#patch-result" hx-swap="innerHTML" class="modal-form" style="max-width:700px">
   <h3 id="mem-patch-title">Patch Memory</h3>
@@ -434,6 +442,7 @@ func (h *Handler) handleMemoryAppend(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td></tr>`,
 		template.HTMLEscapeString(wsID), template.HTMLEscapeString(resp.ID), template.HTMLEscapeString(resp.ID))
 	fmt.Fprintf(w, `<tr><td><strong>New Watermark</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.Watermark))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cells Added</strong></td><td>%d</td></tr>`, resp.CellsAdded)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `</table></div>`)
@@ -454,6 +463,7 @@ func (h *Handler) partialMemoryAppendForm(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<dialog id="mem-append-modal" class="modal" aria-labelledby="mem-append-title">
 <form hx-post="/ui/api/memories/append" hx-target="#append-result" hx-swap="innerHTML" class="modal-form" style="max-width:600px">
   <h3 id="mem-append-title">Append to Memory</h3>
@@ -511,6 +521,7 @@ func (h *Handler) handleMemoryForget(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="card"><h3 class="card-title">Memory Forgotten</h3><table>`)
 	fmt.Fprintf(w, `<tr><td><strong>Memory ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.ID))
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<tr><td><strong>Cascaded Edges</strong></td><td>%d</td></tr>`, resp.CascadedEdges)
 	fmt.Fprintf(w, `<tr><td><strong>Ledger ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(resp.LedgerID))
 	fmt.Fprintf(w, `</table><p style="margin-top:0.75rem"><a href="/ui/workspaces/%s?tab=overview">Back to workspace</a></p></div>`,
@@ -535,6 +546,7 @@ func (h *Handler) partialMemoryForgetForm(w http.ResponseWriter, r *http.Request
 	edges, _ := h.data.GetEdges(r.Context(), wsID, memID)
 	cells, _ := h.data.GetCells(r.Context(), wsID, memID)
 
+	//nolint:gosec // G705: audited — every string argument is template.HTMLEscapeString-ed; the rest are integers or constants
 	fmt.Fprintf(w, `<dialog id="mem-forget-modal" class="modal" aria-labelledby="mem-forget-title">
 <form hx-post="/ui/api/memories/forget" hx-target="#forget-result" hx-swap="innerHTML" class="modal-form">
   <h3 id="mem-forget-title">Forget Memory</h3>
