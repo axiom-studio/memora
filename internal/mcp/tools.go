@@ -134,14 +134,14 @@ func toolCatalog() []Tool {
 		},
 		{
 			Name:        "memora_pin",
-			Description: "Bind a Recall query to a watermark for reproducible reads.",
+			Description: "Save a Recall query as a pin. watermark is optional and stored as given (not validated); pass a real head_watermark from memora_lookup, never an invented one.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"workspace_id": stringP(), "query": stringP(), "watermark": stringP(),
 					"mode": stringP(), "k": intP(1, 100, 10), "label": stringP(),
 				},
-				"required": []string{"workspace_id", "query", "watermark"},
+				"required": []string{"workspace_id", "query"},
 			},
 		},
 		{

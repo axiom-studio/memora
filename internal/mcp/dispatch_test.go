@@ -158,3 +158,28 @@ func TestDispatch_Lookup_FromOtherWorkspace_ReturnsNotFound(t *testing.T) {
 		t.Fatalf("same-workspace lookup: %v", err)
 	}
 }
+
+// Issue #5987: the advertised schema must match what dispatch enforces, so
+// clients (and LLMs) are not pushed into inventing a watermark.
+func TestDispatch_PinSchemaRequiredMatchesHandler(t *testing.T) {
+	var schema map[string]any
+	for _, tool := range toolCatalog() {
+		if tool.Name == "memora_pin" {
+			schema = tool.InputSchema
+		}
+	}
+	required, _ := schema["required"].([]string)
+	if strings.Join(required, ",") != "workspace_id,query" {
+		t.Fatalf("memora_pin required = %v, want [workspace_id query]", required)
+	}
+
+	s := NewServer(newTestService(t), testLogger())
+	wsID := createWorkspace(t, s, map[string]any{"name": "pins"})
+	pin, err := dispatchJSON(t, s, "memora_pin", map[string]any{"workspace_id": wsID, "query": "no watermark"})
+	if err != nil {
+		t.Fatalf("memora_pin without watermark: %v (schema says it is optional)", err)
+	}
+	if pin["pin_id"] == "" || pin["watermark"] != "" {
+		t.Fatalf("memora_pin without watermark = %v, want a pin with an empty watermark", pin)
+	}
+}
