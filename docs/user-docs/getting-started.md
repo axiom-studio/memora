@@ -120,7 +120,7 @@ To expose Memora to an MCP-aware agent, run the binary in stdio mode and point t
 ./bin/memora-core mcp --data-dir=./data
 ```
 
-This speaks JSON-RPC 2.0 over stdio and exposes tools covering workspaces, collections, memories, recall, and agents. It reads the same data directory as `serve`, so a stdio MCP session and an HTTP client can share one instance.
+This speaks JSON-RPC 2.0 over stdio and exposes tools covering workspaces, collections, memories, recall, the graph, and agents. It reads the same data directory as `serve`, so a stdio MCP session and an HTTP client can share one instance.
 
 > **The stdio transport is unauthenticated unless you give it a key.** With no key configured it trusts its caller completely — it only talks to the process that started it — and logs a warning saying so. Passing `--api-key`, or setting `MEMORA_API_KEY`, makes the `initialize` handshake require that key and gates every other method behind it.
 
