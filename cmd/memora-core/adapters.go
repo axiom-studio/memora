@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"path/filepath"
+	"regexp"
 
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/service"
@@ -105,7 +107,7 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		}
 		closers = append(closers, cs.Close)
 		svc.Content = cs
-		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", cdsn)
+		logger.Info("content store enabled", "driver", cfg.Storage.ContentDriver, "dsn", redactDSN(cdsn))
 	}
 
 	var gcaps *adapter.GraphCapabilities
@@ -138,4 +140,16 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("compatibility check: %w", err)
 	}
 	return svc, closeOpened, nil
+}
+
+var libpqPassword = regexp.MustCompile(`(?i)(password=)\S+`)
+
+// redactDSN masks a password in a URL DSN (postgres://user:pw@host/db) or a
+// libpq keyword DSN (password=pw) so it can be logged; paths pass through
+// unchanged (#5985).
+func redactDSN(dsn string) string {
+	if u, err := url.Parse(dsn); err == nil && u.User != nil {
+		return u.Redacted()
+	}
+	return libpqPassword.ReplaceAllString(dsn, "${1}xxxxx")
 }

@@ -198,3 +198,48 @@ WHERE a.attrelid = 'memora_cell_vectors'::regclass AND a.attname = 'embedding'`)
 		t.Fatalf("embedding column = %s, want vector(1536) from the embedder's Dim()", colType)
 	}
 }
+
+// Issue #5985: adapter logs must never carry a database password.
+func TestRedactDSN(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"postgres://memora:s3cret@db:5432/memora?sslmode=require", "postgres://memora:xxxxx@db:5432/memora?sslmode=require"},
+		{"postgres://memora@db:5432/memora", "postgres://memora@db:5432/memora"},
+		{"host=db user=memora password=s3cret dbname=memora", "host=db user=memora password=xxxxx dbname=memora"},
+		{"/data/content", "/data/content"},
+		{"./data/memora.db?_pragma=foreign_keys(ON)", "./data/memora.db?_pragma=foreign_keys(ON)"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := redactDSN(c.in); got != c.want {
+			t.Errorf("redactDSN(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestOpenCoreAdapters_ContentLogOmitsPassword(t *testing.T) {
+	dsn := freshPostgresDB(t) // URL DSN carrying the server's real password
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, ok := u.User.Password()
+	if !ok || password == "" {
+		t.Skip("MEMORA_POSTGRES_DSN has no password to leak")
+	}
+	var buf strings.Builder
+	cfg := testAdapterConfig(t)
+	cfg.Storage.ContentDriver = "postgres"
+	cfg.Storage.ContentDSN = dsn
+	_, closeAll, err := openCoreAdapters(t.Context(), cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+	if err != nil {
+		t.Fatalf("openCoreAdapters: %v", err)
+	}
+	defer closeAll()
+	logs := buf.String()
+	if !strings.Contains(logs, "content store enabled") {
+		t.Fatalf("expected the content-store log line; got:\n%s", logs)
+	}
+	if leaked := u.User.Username() + ":" + password + "@"; strings.Contains(logs, leaked) {
+		t.Fatalf("startup logs contain the database credentials %q:\n%s", leaked, logs)
+	}
+}
