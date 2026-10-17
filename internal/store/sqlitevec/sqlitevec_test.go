@@ -2,11 +2,13 @@ package sqlitevec
 
 import (
 	"context"
+	"errors"
 	"math"
 	"path/filepath"
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 func openStore(t *testing.T) *Store {
@@ -155,5 +157,53 @@ func TestEncodeDecodeFloats_RoundTrip(t *testing.T) {
 	}
 	if _, err := decodeFloats([]byte{1, 2, 3}); err == nil {
 		t.Fatal("decodeFloats of a 3-byte blob succeeded; want a length error")
+	}
+}
+
+// Issue #5989: the store is sized from the embedder (#4375) and must reject
+// vectors of any other width instead of scoring them 0 silently.
+func TestStore_Put_WrongDimension_ReturnsInvalidInput(t *testing.T) {
+	s := openStore(t) // Dim 3
+	err := s.PutVector(context.Background(), adapter.VectorPut{
+		Key:       adapter.VectorKey{WorkspaceID: "ws", MemoryID: "m", CellID: "c"},
+		Embedding: []float32{1, 0, 0, 0},
+	})
+	if !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("4-dim PutVector into a Dim-3 store err = %v, want ErrInvalidInput", err)
+	}
+	if hits := query(t, s, adapter.VectorQuery{WorkspaceID: "ws", Embedding: []float32{1, 0, 0}, K: 5}); len(hits) != 0 {
+		t.Fatalf("rejected vector was stored: %+v", hits)
+	}
+}
+
+func TestStore_Query_WrongDimension_ReturnsInvalidInput(t *testing.T) {
+	s := openStore(t)
+	put(t, s, "ws", "", "m", "c", 1, 0, 0)
+	if _, err := s.Query(context.Background(), adapter.VectorQuery{WorkspaceID: "ws", Embedding: []float32{1, 0}, K: 5}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("2-dim Query against a Dim-3 store err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// Rows written at an older width (before an embedding-model change) cannot
+// be compared and must not come back as zero-score hits.
+func TestStore_Query_SkipsRowsOfAnotherWidth(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "vec.db")
+	old := &Store{}
+	if err := old.Open(context.Background(), adapter.VectorConfig{Driver: "sqlite-vec", DSN: dsn, Dim: 2}); err != nil {
+		t.Fatal(err)
+	}
+	put(t, old, "ws", "", "m_old", "c_old", 1, 0)
+	_ = old.Close()
+
+	s := &Store{}
+	if err := s.Open(context.Background(), adapter.VectorConfig{Driver: "sqlite-vec", DSN: dsn, Dim: 3}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	put(t, s, "ws", "", "m_new", "c_new", 1, 0, 0)
+
+	hits := query(t, s, adapter.VectorQuery{WorkspaceID: "ws", Embedding: []float32{1, 0, 0}, K: 5})
+	if len(hits) != 1 || hits[0].Key.CellID != "c_new" {
+		t.Fatalf("hits = %+v, want only the current-width row", hits)
 	}
 }

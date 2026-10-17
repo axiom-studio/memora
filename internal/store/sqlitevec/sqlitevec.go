@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 
 	_ "modernc.org/sqlite"
 )
@@ -113,6 +114,12 @@ func (s *Store) PutVectorsBatch(ctx context.Context, puts []adapter.VectorPut) e
 	if len(puts) == 0 {
 		return nil
 	}
+	for _, p := range puts {
+		if len(p.Embedding) != s.dim {
+			return fmt.Errorf("%w: cell %s vector has %d dimensions, store is sized for %d (re-embed after changing the embedding model)",
+				types.ErrInvalidInput, p.Key.CellID, len(p.Embedding), s.dim)
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -167,8 +174,13 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 	if q.K <= 0 {
 		q.K = 5
 	}
-	where := []string{"workspace_id = ?"}
-	args := []any{q.WorkspaceID}
+	if len(q.Embedding) != s.dim {
+		return nil, fmt.Errorf("%w: query vector has %d dimensions, store is sized for %d", types.ErrInvalidInput, len(q.Embedding), s.dim)
+	}
+	// Rows written at another width (before an embedding-model change) are
+	// not comparable; skip them rather than returning zero-score hits.
+	where := []string{"workspace_id = ?", "dim = ?"}
+	args := []any{q.WorkspaceID, s.dim}
 	if q.Filter.CollectionID != "" {
 		where = append(where, "collection_id = ?")
 		args = append(args, q.Filter.CollectionID)
