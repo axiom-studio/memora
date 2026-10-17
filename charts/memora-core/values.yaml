@@ -14,6 +14,8 @@ service:
   type: ClusterIP
   port: 7777
 
+# Ingress in front of the http Service. tls entries take hosts + secretName
+# (the TLS Secret is created outside this chart, e.g. by cert-manager).
 ingress:
   enabled: false
   className: ""
@@ -66,7 +68,3 @@ extraEnv: []
 #     secretKeyRef:
 #       name: openai
 #       key: api_key
-
-serviceMonitor:
-  enabled: false
-  interval: 30s

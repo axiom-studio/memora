@@ -18,6 +18,16 @@ trap cleanup EXIT
 
 make build >/dev/null
 
+# Every top-level values key must be consumed by a template; otherwise the
+# chart advertises a setting that silently does nothing (#5983).
+for key in $(grep -E '^[a-zA-Z][a-zA-Z0-9]*:' "$CHART/values.yaml" | cut -d: -f1); do
+	if ! grep -rqE "\.Values\.$key\b" "$CHART/templates"; then
+		echo "FAIL: values.yaml key '$key' is not used by any template" >&2
+		exit 1
+	fi
+done
+echo "ok: every top-level values key is used by a template"
+
 # Default values must refuse to render: the server would refuse to start.
 if helm template t "$CHART" >/dev/null 2>"$WORK/err"; then
 	echo "FAIL: default values rendered; expected the no-auth guard to fail" >&2

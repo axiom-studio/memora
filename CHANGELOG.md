@@ -38,6 +38,9 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   refuses to render unless `apiKey` is set or `allowNoAuth: true` is set
   explicitly, and its liveness/readiness probes exec `memora-cli health` /
   `memora-cli ready` so they authenticate with the configured key.
+- Helm chart: `ingress.*` values now render a `networking.k8s.io/v1`
+  Ingress; the `serviceMonitor.*` values, which no template ever used, are
+  removed until `/metrics` exposes real metrics.
 - **BREAKING**: Retired monolithic `PrimaryStore` interface in favor of
   five dedicated adapters: `MetadataStore`, `ContentStore`, `GraphStore`,
   `VectorStore`, `LedgerStore`. CLI flag `--primary-driver` is now
