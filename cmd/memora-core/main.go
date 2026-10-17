@@ -109,6 +109,7 @@ Common flags for 'serve':
   --vector-driver      vector-store driver (default sqlite-vec)
   --ledger-driver      ledger-store driver (default sqlite)
   --embedding-model    embedding model id (default noop:default)
+  --async-embed        embed cells on a background worker pool instead of inline (default false)
   --api-key            API bearer key (default $MEMORA_API_KEY; empty disables auth — local dev)
   --allow-no-auth      explicit opt-in to run with an empty API key on a non-loopback bind
   --mode               single-tenant | multi-tenant (default single-tenant)
@@ -180,6 +181,7 @@ func serve() {
 	contentDriver := fs.String("content-driver", "", "content-store driver (empty = disabled; file | sqlite)")
 	contentDSN := fs.String("content-dsn", "", "content-store DSN")
 	embedModel := fs.String("embedding-model", "", "embedding model id")
+	asyncEmbed := fs.Bool("async-embed", false, "embed cells on a background worker pool instead of inline")
 	apiKey := fs.String("api-key", "", "API bearer key (empty disables auth)")
 	allowNoAuth := fs.Bool("allow-no-auth", false, "explicit opt-in to run with an empty API key on a non-loopback bind")
 	mode := fs.String("mode", "", "single-tenant | multi-tenant")
@@ -196,7 +198,7 @@ func serve() {
 	cfg.ApplyEnv()
 	applyServeFlags(fs, &cfg, *addr, *dataDir, *metadataDriver, *vectorDriver,
 		*ledgerDriver, *graphDriver, *contentDriver, *contentDSN,
-		*embedModel, *apiKey, *mode, *allowNoAuth, *mcpEnable)
+		*embedModel, *apiKey, *mode, *allowNoAuth, *mcpEnable, *asyncEmbed)
 
 	if err := cfg.Validate(); err != nil {
 		// Printf, not Fatalf: Fatalf exits 1 before EX_CONFIG is reached.
@@ -354,7 +356,7 @@ func serve() {
 func applyServeFlags(fs *flag.FlagSet, cfg *config.Config,
 	addr, dataDir, metaDriver, vecDriver, ledgerDriver, graphDriver,
 	contentDriver, contentDSN, embedModel, apiKey, mode string,
-	allowNoAuth, mcpEnable bool,
+	allowNoAuth, mcpEnable, asyncEmbed bool,
 ) {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
@@ -397,6 +399,9 @@ func applyServeFlags(fs *flag.FlagSet, cfg *config.Config,
 	}
 	if set["mcp-enable"] {
 		cfg.Server.MCPEnable = mcpEnable
+	}
+	if set["async-embed"] {
+		cfg.Embedding.Async = asyncEmbed
 	}
 }
 

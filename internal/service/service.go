@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"log/slog"
@@ -38,7 +39,14 @@ type Service struct {
 	Graph    adapter.GraphStore   // nil = graph ops unavailable
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
-	Pool     *embedqueue.Pool
+	// Pool, when set, takes cell embedding off the write path: writes
+	// queue vectorless cells and the pool flips recall_ready once they
+	// are all embedded (`embedding.async`). nil = embed inline.
+	Pool *embedqueue.Pool
+
+	// noAutoLink holds memory IDs imprinted with auto_link=false while
+	// Pool is set, so the pool's post-embed hook skips them.
+	noAutoLink sync.Map
 }
 
 // PostEmbedAutoLinkHook returns a closure suitable for embedqueue.PoolConfig.PostEmbedHook.
@@ -48,6 +56,9 @@ func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID,
 		return nil
 	}
 	return func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
+		if _, skip := s.noAutoLink.LoadAndDelete(memoryID); skip {
+			return
+		}
 		mem := &types.Memory{ID: memoryID, WorkspaceID: workspaceID}
 		// Best-effort: AutoLink logs and ledgers its own failures.
 		_, _ = autolink.AutoLink(ctx, autolink.Deps{
@@ -133,11 +144,11 @@ func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chu
 	return chunker.Get(ws.ChunkerID)
 }
 
-// Imprint creates a Memory, chunks it, persists the cells, and runs
-// embedding inline so the returned response reflects recall_ready
-// for the synchronous test/dev path. For high-throughput production
-// deployers the worker pool's Submit() is what the handler should
-// call; v0.1 keeps things synchronous to make the moat visible.
+// Imprint creates a Memory, chunks it, persists the cells, and embeds
+// them. By default embedding runs inline, so the response reports a
+// final recall_ready. With a Pool (`embedding.async`) the cells are
+// queued instead: the response says recall_ready=false and the pool
+// flips it once every cell has a vector.
 func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required for imprint", types.ErrInvalidInput)
@@ -203,17 +214,24 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	if err := s.Metadata.UpsertCells(ctx, mem.ID, cells); err != nil {
 		return nil, err
 	}
-	// Inline-embed so the response reports a finalized recall_ready.
-	embedRes, err := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
-	}, workspaceID, req.CollectionID, mem.ID, nil, cells)
-	if err == nil {
+	// Inline-embed so the response reports a finalized recall_ready;
+	// with a Pool the cells are queued and recall_ready flips later.
+	wantAutoLink := req.AutoLink == nil || *req.AutoLink
+	embedRes, err := s.embedCells(ctx, workspaceID, req.CollectionID, mem.ID, nil, cells)
+	recallReady := false
+	switch {
+	case err != nil:
+	case s.Pool != nil:
+		if s.Graph != nil && !wantAutoLink {
+			s.noAutoLink.Store(mem.ID, struct{}{})
+		}
+		s.submitPendingEmbeds(ctx, workspaceID, req.CollectionID, mem.ID)
+	default:
 		_ = s.Metadata.UpsertCells(ctx, mem.ID, cells)
 		s.markRecallReady(ctx, mem.ID)
+		recallReady = true
 	}
-	recallReady := err == nil
 
-	wantAutoLink := req.AutoLink == nil || *req.AutoLink
 	var autoLinked []types.Edge
 	if recallReady && s.Graph != nil && wantAutoLink {
 		autoLinked, _ = autolink.AutoLink(ctx, autolink.Deps{
@@ -284,10 +302,9 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID
 	}
-	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
-	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
+	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(req.Content), req.Content)
@@ -353,10 +370,9 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID
 	}
-	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
-	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
+	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(newContent), newContent)
@@ -424,10 +440,9 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 		newCells[i].MemoryID = memoryID
 		newCells[i].WrittenByAgentID = agentID
 	}
-	embedRes, _ := embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
-		Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
-	}, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
+	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, md5, existing.Content)
@@ -564,6 +579,44 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 // markRecallReady persists recall_ready once every cell of the memory has a
 // vector key. The update is conditional and idempotent, so calling it after
 // a partially failed embed is harmless (Issue #4379).
+// embedCells applies the moat classification to newCells. Without a Pool
+// it embeds the changed cells inline; with one it only classifies, leaving
+// them vectorless for submitPendingEmbeds, so the re-embed and skip counts
+// are the same in both modes.
+func (s *Service) embedCells(ctx context.Context, workspaceID, collectionID, memoryID string, oldCells, newCells []types.Cell) (embedqueue.Result, error) {
+	if s.Pool == nil {
+		return embedqueue.EmbedNow(ctx, embedqueue.EmbedderDeps{
+			Metadata: s.Metadata, Vector: s.Vector, Provider: s.Embedder,
+		}, workspaceID, collectionID, memoryID, oldCells, newCells)
+	}
+	reembed, skipped := embedqueue.ClassifyCells(oldCells, newCells)
+	res := embedqueue.Result{Skipped: skipped}
+	for _, i := range reembed {
+		res.Reembed = append(res.Reembed, newCells[i].CellID)
+	}
+	return res, nil
+}
+
+// submitPendingEmbeds queues every stored cell of memoryID that has no
+// vector yet. It reads the stored rows rather than the cells just written
+// because UpsertCells keeps a row's original cell_id when it rewrites a
+// seq, and the pool records the vector against that id.
+func (s *Service) submitPendingEmbeds(ctx context.Context, workspaceID, collectionID, memoryID string) {
+	if s.Pool == nil {
+		return
+	}
+	cells, err := s.Metadata.GetCells(ctx, workspaceID, memoryID)
+	if err != nil {
+		slog.Default().Warn("async embed: list cells failed; memory stays not recall_ready", "memory_id", memoryID, "err", err)
+		return
+	}
+	for _, c := range cells {
+		if c.VectorKey == "" {
+			s.Pool.Submit(embedqueue.Job{WorkspaceID: workspaceID, CollectionID: collectionID, MemoryID: memoryID, Cell: c})
+		}
+	}
+}
+
 func (s *Service) markRecallReady(ctx context.Context, memoryID string) {
 	if _, err := s.Metadata.FlipRecallReadyIfAllEmbedded(ctx, memoryID); err != nil {
 		slog.Default().Warn("recall_ready flip failed", "memory_id", memoryID, "err", err)

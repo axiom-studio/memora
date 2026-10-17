@@ -371,25 +371,19 @@ func (p *Pool) logEmbedFailed(j Job, cause error) {
 	})
 }
 
-// EmbedNow runs the embed inline (no worker hand-off) and reports
-// per-cell re-embed / skip counts — used by the Patch handler so the
-// HTTP response can surface the moat metric synchronously.
-func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string, oldCells, newCells []types.Cell) (Result, error) {
-	if deps.Provider == nil {
-		return Result{}, errors.New("embed queue: no provider configured")
-	}
-	var res Result
+// ClassifyCells is the moat decision shared by the synchronous and async
+// write paths: a new cell whose text_md5 matches the old cell with the
+// same cell_id (or, failing that, the same seq) and which already has a
+// vector inherits that cell's id, vector_key and embedding_model and is
+// skipped. Every other cell needs an embed and is given a cell_id if it
+// has none. newCells is updated in place; reembed holds indexes into it.
+func ClassifyCells(oldCells, newCells []types.Cell) (reembed []int, skipped []string) {
 	oldByCellID := map[string]types.Cell{}
-	for _, c := range oldCells {
-		oldByCellID[c.CellID] = c
-	}
-	// Also index by seq for diff-by-position when the cell ids differ.
 	oldBySeq := map[int]types.Cell{}
 	for _, c := range oldCells {
+		oldByCellID[c.CellID] = c
 		oldBySeq[c.Seq] = c
 	}
-
-	res.Embeddings = make([][]float32, len(newCells))
 	for i := range newCells {
 		nc := &newCells[i]
 		var match types.Cell
@@ -404,12 +398,28 @@ func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string,
 			nc.CellID = match.CellID
 			nc.VectorKey = match.VectorKey
 			nc.EmbeddingModel = match.EmbeddingModel
-			res.Skipped = append(res.Skipped, nc.CellID)
+			skipped = append(skipped, nc.CellID)
 			continue
 		}
 		if nc.CellID == "" {
 			nc.CellID = types.NewID(types.CellIDPrefix)
 		}
+		reembed = append(reembed, i)
+	}
+	return reembed, skipped
+}
+
+// EmbedNow runs the embed inline (no worker hand-off) and reports
+// per-cell re-embed / skip counts — used by the Patch handler so the
+// HTTP response can surface the moat metric synchronously.
+func EmbedNow(ctx context.Context, deps EmbedderDeps, ws, coll, memoryID string, oldCells, newCells []types.Cell) (Result, error) {
+	if deps.Provider == nil {
+		return Result{}, errors.New("embed queue: no provider configured")
+	}
+	reembed, skipped := ClassifyCells(oldCells, newCells)
+	res := Result{Skipped: skipped, Embeddings: make([][]float32, len(newCells))}
+	for _, i := range reembed {
+		nc := &newCells[i]
 		vecs, err := deps.Provider.Embed(ctx, []string{nc.Text})
 		if err != nil {
 			return res, err

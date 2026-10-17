@@ -2,8 +2,11 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"strings"
 	"testing"
+
+	"github.com/axiom-studio/memora/internal/config"
 )
 
 func TestBindsToLoopback(t *testing.T) {
@@ -77,5 +80,28 @@ func TestHashTag(t *testing.T) {
 	}
 	if hashTag("hunter2") == hashTag("hunter3") {
 		t.Errorf("distinct keys must produce distinct tags (probabilistically; collision here is a sha256 break)")
+	}
+}
+
+func TestApplyServeFlags_AsyncEmbed(t *testing.T) {
+	cfg := config.Defaults()
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	asyncEmbed := fs.Bool("async-embed", false, "")
+	if err := fs.Parse([]string{"--async-embed"}); err != nil {
+		t.Fatal(err)
+	}
+	applyServeFlags(fs, &cfg, "", "", "", "", "", "", "", "", "", "", "", false, false, *asyncEmbed)
+	if !cfg.Embedding.Async {
+		t.Fatal("--async-embed did not set embedding.async")
+	}
+
+	// Unset, the flag leaves a config-file value alone.
+	cfg.Embedding.Async = true
+	fs = flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.Bool("async-embed", false, "")
+	_ = fs.Parse(nil)
+	applyServeFlags(fs, &cfg, "", "", "", "", "", "", "", "", "", "", "", false, false, false)
+	if !cfg.Embedding.Async {
+		t.Fatal("an unset --async-embed overrode embedding.async = true")
 	}
 }

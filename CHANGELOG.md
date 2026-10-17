@@ -60,6 +60,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Opt-in async embedding (`embedding.async`, `MEMORA_EMBEDDING_ASYNC`,
+  `serve --async-embed`; default off). Writes return once their Cells are
+  stored and the in-process embed pool fills in vectors; imprint responds
+  `recall_ready: false` and the Memory flips to ready when every Cell is
+  embedded. Re-embed/skip counts match the inline mode, `auto_link: false`
+  is honoured, and shutdown drains the queue before closing the stores.
 - Cross-platform release pipeline (`.goreleaser.yaml` + `.github/workflows/release.yml`):
   cross-compiles to linux/darwin/windows × amd64/arm64, generates
   SPDX SBOMs via syft, signs every checksum and Docker manifest via

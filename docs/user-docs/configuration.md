@@ -94,8 +94,11 @@ TOML table `[embedding]`.
 | Key | Type | Default |
 |---|---|---|
 | `embedding.model` | string | `noop:default` |
+| `embedding.async` | bool | `false` |
 
 The value is a `prefix:model` string where the prefix selects the provider. The default provider is a stub that returns meaningless vectors; set a real one before evaluating recall quality.
+
+By default a write embeds its changed Cells before it returns, so an imprint responds with `recall_ready: true`. With `embedding.async = true` the write returns as soon as the Cells are stored and a background worker pool embeds them: imprint responds with `recall_ready: false`, and the Memory's `recall_ready` turns `true` once all of its Cells have vectors. Poll a lookup to see when it does. The re-embedded and skipped Cell counts in write responses and the ledger are the same in both modes. On shutdown the server finishes embedding the queued Cells before closing its stores.
 
 ## Telemetry Keys
 
@@ -130,9 +133,10 @@ Each variable overrides its file counterpart when set and non-empty.
 | `MEMORA_CONTENT_DRIVER` | string | *(empty)* |
 | `MEMORA_CONTENT_DSN` | string | *(empty)* |
 | `MEMORA_EMBEDDING_MODEL` | string | `noop:default` |
+| `MEMORA_EMBEDDING_ASYNC` | bool | `false` — set to the literal `true` to enable |
 | `MEMORA_MCP_ENABLE` | bool | `false` — set to the literal `true` to enable |
 
-`MEMORA_MCP_ENABLE` is the only boolean in this layer and it is matched against the exact string `true`; any other value leaves the file setting alone. There are no environment variables for the TLS keys, the API key file, `allow_no_auth`, or telemetry.
+`MEMORA_EMBEDDING_ASYNC` and `MEMORA_MCP_ENABLE` are the only booleans in this layer, and each is matched against the exact string `true`; any other value leaves the file setting alone. There are no environment variables for the TLS keys, the API key file, `allow_no_auth`, or telemetry.
 
 ## Flags for `serve`
 
@@ -148,6 +152,7 @@ Each variable overrides its file counterpart when set and non-empty.
 | `--content-driver` | string | *(empty)* |
 | `--content-dsn` | string | *(empty)* |
 | `--embedding-model` | string | *(empty)* |
+| `--async-embed` | bool | `false` |
 | `--api-key` | string | *(empty)* |
 | `--allow-no-auth` | bool | `false` |
 | `--mode` | string | *(empty)* |

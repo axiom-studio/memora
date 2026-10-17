@@ -59,6 +59,10 @@ type StorageConfig struct {
 
 type EmbeddingConfig struct {
 	Model string `toml:"model"`
+	// Async moves cell embedding off the write path onto an in-process
+	// worker pool: writes return recall_ready=false and the Memory turns
+	// recall_ready once its cells are embedded. Default false (inline).
+	Async bool `toml:"async"`
 }
 
 type FederationConfig struct {
@@ -282,6 +286,9 @@ func (c *Config) ApplyEnv() {
 	setIfEnv(&c.Storage.GraphDSN, "MEMORA_GRAPH_DSN")
 	setIfEnv(&c.Storage.ContentDSN, "MEMORA_CONTENT_DSN")
 	setIfEnv(&c.Embedding.Model, "MEMORA_EMBEDDING_MODEL")
+	if os.Getenv("MEMORA_EMBEDDING_ASYNC") == "true" {
+		c.Embedding.Async = true
+	}
 	if os.Getenv("MEMORA_MCP_ENABLE") == "true" {
 		c.Server.MCPEnable = true
 	}

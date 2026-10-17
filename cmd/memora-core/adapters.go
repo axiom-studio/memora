@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/axiom-studio/memora/internal/config"
+	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/embedding"
@@ -138,6 +139,17 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 	}
 	if err := adapter.ValidateCompatibility(logger, meta.Capabilities(), ccaps, gcaps); err != nil {
 		return nil, nil, fmt.Errorf("compatibility check: %w", err)
+	}
+
+	// Opened last so it closes first: Close drains queued cells while the
+	// stores they are written to are still open.
+	if cfg.Embedding.Async {
+		pool := embedqueue.NewPool(embedqueue.EmbedderDeps{
+			Metadata: meta, Vector: vec, Provider: embedProvider, Ledger: led,
+		}, embedqueue.PoolConfig{PostEmbedHook: svc.PostEmbedAutoLinkHook()})
+		closers = append(closers, func() error { pool.Close(); return nil })
+		svc.Pool = pool
+		logger.Info("async embed enabled; writes return before their cells are embedded")
 	}
 	return svc, closeOpened, nil
 }

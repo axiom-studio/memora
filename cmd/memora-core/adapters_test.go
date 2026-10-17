@@ -17,6 +17,7 @@ import (
 
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/pkg/types"
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 func testAdapterConfig(t *testing.T) config.Config {
@@ -241,5 +242,61 @@ func TestOpenCoreAdapters_ContentLogOmitsPassword(t *testing.T) {
 	}
 	if leaked := u.User.Username() + ":" + password + "@"; strings.Contains(logs, leaked) {
 		t.Fatalf("startup logs contain the database credentials %q:\n%s", leaked, logs)
+	}
+}
+
+// Todo #4229: embedding.async wires the embed pool, and closeAll drains it
+// before closing the stores, so a write accepted just before shutdown is
+// still embedded.
+func TestOpenCoreAdapters_AsyncEmbedPoolDrainsOnClose(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	ctx := context.Background()
+
+	svc, closeAll, err := openCoreAdapters(ctx, cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("openCoreAdapters: %v", err)
+	}
+	if svc.Pool != nil {
+		closeAll()
+		t.Fatal("Pool wired with embedding.async unset; want nil (inline embed is the default)")
+	}
+	closeAll()
+
+	cfg.Embedding.Async = true
+	svc, closeAll, err = openCoreAdapters(ctx, cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("openCoreAdapters (async): %v", err)
+	}
+	if svc.Pool == nil {
+		closeAll()
+		t.Fatal("Pool is nil with embedding.async = true")
+	}
+	ws := &types.Workspace{Name: "async"}
+	if err := svc.Metadata.CreateWorkspace(ctx, ws); err != nil {
+		closeAll()
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	resp, err := svc.Imprint(ctx, ws.ID, "agent_async_test", api.ImprintRequest{Content: "queued before shutdown"})
+	if err != nil {
+		closeAll()
+		t.Fatalf("Imprint: %v", err)
+	}
+	if resp.RecallReady {
+		t.Error("Imprint returned recall_ready=true with async embed")
+	}
+	closeAll()
+
+	cfg.Embedding.Async = false
+	svc, closeAll, err = openCoreAdapters(ctx, cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer closeAll()
+	m, err := svc.Metadata.GetMemory(ctx, resp.ID)
+	if err != nil {
+		t.Fatalf("GetMemory: %v", err)
+	}
+	if !m.RecallReady {
+		t.Fatal("memory not recall_ready after closeAll; the pool did not drain before the stores closed")
 	}
 }

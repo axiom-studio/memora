@@ -350,3 +350,30 @@ func TestSearchPath_Precedence(t *testing.T) {
 		t.Errorf("expected env to win over flag in search path; got addr=%s", cfg.Server.Addr)
 	}
 }
+
+// Todo #4229: async embed is opt-in from the file or the environment.
+func TestEmbeddingAsync_DefaultOffFileAndEnv(t *testing.T) {
+	if Defaults().Embedding.Async {
+		t.Fatal("embedding.async defaults to true; want false (inline embed)")
+	}
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[embedding]\nasync = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MEMORA_CONFIG", path)
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Embedding.Async {
+		t.Fatal("[embedding] async = true not loaded")
+	}
+
+	env := Defaults()
+	t.Setenv("MEMORA_EMBEDDING_ASYNC", "true")
+	env.ApplyEnv()
+	if !env.Embedding.Async {
+		t.Fatal("MEMORA_EMBEDDING_ASYNC=true not applied")
+	}
+}
