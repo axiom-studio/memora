@@ -84,7 +84,8 @@ docker compose up -d
 # Start federation (SQLite):
 docker compose -f deploy/federation/docker-compose.yml up -d
 
-# Start federation-prod (Postgres):
+# Start federation-prod (Postgres) — needs secrets first, see deploy/federation-prod/README.md:
+cp deploy/federation-prod/.env.example deploy/federation-prod/.env   # then fill it in
 docker compose -f deploy/federation-prod/docker-compose.yml up -d
 ```
 

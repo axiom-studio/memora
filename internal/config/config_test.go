@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -171,6 +172,43 @@ func TestLoad_ShippedDeployConfigsValidate(t *testing.T) {
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("%s does not validate: %v", p, err)
+		}
+	}
+}
+
+// Shipped deploy configs are copied verbatim by operators, and this repo is
+// public, so they must not carry credentials (#5988): no password in a DSN,
+// no inline API key.
+func TestShippedDeployConfigs_ContainNoCredentials(t *testing.T) {
+	paths, err := filepath.Glob("../../deploy/*/*.toml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("glob deploy configs: %v (found %d)", err, len(paths))
+	}
+	dsnWithPassword := regexp.MustCompile(`://[^/@\s:]+:[^/@\s]+@`)
+	for _, p := range paths {
+		if !strings.Contains(p, "federation-prod") {
+			continue // deploy/federation keeps fixed dev keys the CLI fixtures rely on; out of #5988 scope
+		}
+		cfg, err := Load(p)
+		if err != nil {
+			t.Fatalf("Load(%s): %v", p, err)
+		}
+		s := cfg.Storage
+		for name, dsn := range map[string]string{
+			"metadata_dsn": s.MetadataDSN, "vector_dsn": s.VectorDSN, "ledger_dsn": s.LedgerDSN,
+			"graph_dsn": s.GraphDSN, "content_dsn": s.ContentDSN,
+		} {
+			if dsnWithPassword.MatchString(dsn) {
+				t.Errorf("%s: %s embeds a password; supply it via MEMORA_*_DSN from a secret", p, name)
+			}
+		}
+		if cfg.Server.APIKey != "" {
+			t.Errorf("%s: server.api_key is inline; supply it via MEMORA_API_KEY from a secret", p)
+		}
+		for i, peer := range cfg.Federation.Peers {
+			if peer.APIKey != "" {
+				t.Errorf("%s: federation.peers[%d].api_key is inline", p, i)
+			}
 		}
 	}
 }

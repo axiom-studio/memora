@@ -1,21 +1,19 @@
 [server]
 addr = ":7777"
 mode = "single-tenant"
-api_key = "memora-fed-key-2"
+# api_key comes from MEMORA_API_KEY (set per node in docker-compose.yml).
 
 [storage]
 data_dir = "/data"
+# DSNs come from MEMORA_{METADATA,VECTOR,LEDGER,CONTENT}_DSN, built in
+# docker-compose.yml from POSTGRES_PASSWORD. Never commit credentials here.
 metadata_driver = "postgres"
-metadata_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
 vector_driver = "pgvector"
-vector_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
 ledger_driver = "postgres"
-ledger_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
 # No graph driver exists for postgres metadata yet; sqlite_graph needs the
 # sqlite metadata tables, so the context graph is disabled on this topology.
 graph_driver = "none"
 content_driver = "postgres"
-content_dsn = "postgres://memora:memora-dev-pw@postgres:5432/memora_node2?sslmode=disable"
 
 [embedding]
 model = "noop:default"
@@ -27,9 +25,7 @@ federation_id = "fed_prod_cluster"
 [[federation.peers]]
 name = "node1"
 url = "http://memora-node1:7777"
-api_key = "memora-fed-key-1"
 
 [[federation.peers]]
 name = "node3"
 url = "http://memora-node3:7777"
-api_key = "memora-fed-key-3"
