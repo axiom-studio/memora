@@ -452,3 +452,44 @@ func TestCrossTenantWritesCellsAndPins(t *testing.T) {
 		t.Fatalf("owner pins after cross-tenant delete = %v, want 1", list)
 	}
 }
+
+// Issue #5984: pin create/delete are agent writes; they must require
+// Memora-Agent-Id and attribute created_by, while POST /recall stays a
+// header-free read.
+func TestRecallPins_RequireAndRecordAgent(t *testing.T) {
+	ts := newTestServer(t)
+	c := ts.Client()
+	base := ts.URL + "/v1/workspaces"
+	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_pinner"}
+
+	_, ws := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "pins"}, nil))
+	wsID, _ := ws["id"].(string)
+	pins := base + "/" + wsID + "/recall/pins"
+
+	if status, resp := doJSON(t, c, jsonReq(t, "POST", pins, map[string]any{"query": "q", "watermark": "wm"}, nil)); status != 400 || resp["error_code"] != "missing_agent_id" {
+		t.Fatalf("create without agent: %d %v, want 400 missing_agent_id", status, resp)
+	}
+	status, created := doJSON(t, c, jsonReq(t, "POST", pins, map[string]any{"query": "q", "watermark": "wm"}, agentH))
+	if status != 201 {
+		t.Fatalf("create with agent: %d %v", status, created)
+	}
+	pinID, _ := created["pin_id"].(string)
+
+	_, list := doJSON(t, c, jsonReq(t, "GET", pins, nil, nil))
+	entries, _ := list["pins"].([]any)
+	if len(entries) != 1 || entries[0].(map[string]any)["created_by"] != "agent_opaque_pinner" {
+		t.Fatalf("listed pins = %v, want created_by agent_opaque_pinner", list)
+	}
+
+	if status, resp := doJSON(t, c, jsonReq(t, "DELETE", pins+"/"+pinID, nil, nil)); status != 400 || resp["error_code"] != "missing_agent_id" {
+		t.Fatalf("delete without agent: %d %v, want 400 missing_agent_id", status, resp)
+	}
+	if status, _ := doJSON(t, c, jsonReq(t, "DELETE", pins+"/"+pinID, nil, agentH)); status != 204 {
+		t.Fatalf("delete with agent: %d, want 204", status)
+	}
+
+	// POST /recall is a read: unchanged, no agent header needed.
+	if status, resp := doJSON(t, c, jsonReq(t, "POST", base+"/"+wsID+"/recall", map[string]any{"query": "q", "mode": "keyword"}, nil)); status != 200 {
+		t.Fatalf("POST /recall without agent: %d %v, want 200", status, resp)
+	}
+}

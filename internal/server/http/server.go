@@ -376,8 +376,11 @@ func isWriteVerb(method, path string) bool {
 		return false
 	}
 	// Workspace / collection / agent CRUD: no agent_id required.
-	// Heuristic: anything ending with /memories or /memories/... and any /edges* / /graph/* / /recall is an agent write.
-	if strings.Contains(path, "/memories") || strings.Contains(path, "/edges") || strings.Contains(path, "/graph/") {
+	// Agent writes: /memories*, /edges*, /graph/* and /recall/pins* (pin
+	// create/delete). Plain POST /recall is a query sent as POST, so it is
+	// not a write (#5984).
+	if strings.Contains(path, "/memories") || strings.Contains(path, "/edges") ||
+		strings.Contains(path, "/graph/") || strings.Contains(path, "/recall/pins") {
 		return true
 	}
 	return false
