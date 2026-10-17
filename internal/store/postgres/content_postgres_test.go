@@ -244,7 +244,7 @@ func TestMetadataStore_AgentRegistry(t *testing.T) {
 	}
 	defer ms.DeleteWorkspace(ctx, w.ID)
 
-	agentID := "test-agent-" + types.NewID("t")
+	agentID := types.NewID(types.AgentIDPrefix) // Agent.Validate requires the agent_ prefix
 	a := &types.Agent{
 		AgentID:          agentID,
 		WorkspaceID:      w.ID,

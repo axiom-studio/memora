@@ -30,6 +30,21 @@ jobs:
       matrix:
         go-version: ['1.25.x']
 
+    # Postgres + pgvector for the DSN-gated integration tests (store/postgres,
+    # store/pgvector, ledger/postgres, cmd/memora-core); without it they skip.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -55,6 +70,8 @@ jobs:
 
       - name: Test (race + cover)
         run: make test
+        env:
+          MEMORA_POSTGRES_DSN: postgres://postgres:ci-only-throwaway@localhost:5432/postgres?sslmode=disable
 
       - name: Upload coverage profile
         if: always()
