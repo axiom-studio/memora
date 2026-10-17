@@ -1,0 +1,20 @@
+# Keep the build context to source only: no local binaries, data, secrets,
+# or agent state (#5993). The Dockerfile builds from source and needs
+# none of these.
+.git
+bin/
+dist/
+/memora-core
+/memora-cli
+data/
+models/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+.env
+.env.*
+.vibeflow-*
+.claude/
+coverage.*
+*.out

@@ -8,9 +8,11 @@
 *.so
 *.dylib
 
-# Built binaries
+# Built binaries (`go build ./cmd/...` without -o drops them at the root; #5993)
 /bin/
 /dist/
+/memora-core
+/memora-cli
 
 # Test binary, built with `go test -c`
 *.test

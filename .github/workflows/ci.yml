@@ -120,6 +120,9 @@ jobs:
           go-version: '1.25.x'
           cache: true
 
+      - name: No tracked binaries
+        run: test/ci/no-tracked-binaries.sh
+
       # golangci-lint must be built with a Go at least as new as go.mod's
       # (1.25); v1.62.2 was built with 1.23 and refused to load (#5980).
       - name: golangci-lint
