@@ -451,3 +451,33 @@ func TestUICookieSecure_ValidateAndEnv(t *testing.T) {
 		t.Errorf("MEMORA_UI_COOKIE_SECURE not applied: %q", env.Server.UICookieSecure)
 	}
 }
+
+// The configuration guide's worked example is copied by operators and tells
+// them to run check-config on it, so it has to validate (#6035).
+func TestDocsWorkedExampleValidates(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/user-docs/configuration.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(doc)
+	i := strings.Index(s, "## A Worked Example")
+	if i < 0 {
+		t.Fatal(`configuration.md has no "## A Worked Example" section`)
+	}
+	m := regexp.MustCompile("(?s)```toml\n(.*?)```").FindStringSubmatch(s[i:])
+	if m == nil {
+		t.Fatal("worked example has no toml block")
+	}
+	path := filepath.Join(t.TempDir(), "example.toml")
+	if err := os.WriteFile(path, []byte(m[1]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MEMORA_CONFIG", "")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(worked example): %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("worked example in configuration.md does not validate: %v", err)
+	}
+}

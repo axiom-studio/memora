@@ -19,7 +19,7 @@ Three of the seams are required. The other two behave differently when absent, a
 - **Without a ContentStore**, the server stores metadata only. This is the default, and it is a working configuration rather than a degraded one.
 - **Without a GraphStore**, every graph operation returns `501 capability_unavailable` — link, unlink, neighbours, traverse, and stats — and auto-linking cannot run. Recall silently skips graph expansion rather than reporting an error, so a recall request asking for expansion returns seed hits only and looks successful.
 
-> **Only SQLite provides a GraphStore.** `sqlite_graph` is the sole registered graph driver, so a deployment that moves metadata, vectors, and the ledger to Postgres still needs a SQLite file for the graph. Plan for that file's durability alongside the Postgres backups.
+> **Only SQLite provides a GraphStore.** `sqlite_graph` is the sole registered graph driver, and it stores edges in the SQLite metadata database, so it works only with `metadata_driver = "sqlite"`. A deployment that moves metadata to Postgres runs without the graph: set `graph_driver = "none"`, because `check-config`, `serve` and `mcp` reject `sqlite_graph` alongside any other metadata driver.
 
 Each LedgerStore driver declares its own capabilities, and querying and redaction are both optional. A ledger that cannot answer queries returns `501 capability_unavailable` from the audit endpoint while still accepting writes, so the audit trail stays intact even when it cannot be read back through the API.
 

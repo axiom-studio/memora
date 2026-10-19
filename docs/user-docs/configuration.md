@@ -182,7 +182,7 @@ There is no `--graph-driver` or `--content-driver` here; both seams take their c
 
 ## A Worked Example
 
-A configuration moving metadata and the ledger to Postgres, keeping the graph on SQLite, enabling a file content store, and reading the API key from disk:
+A configuration moving metadata, vectors and the ledger to Postgres, running without the context graph, enabling a file content store, and reading the API key from disk:
 
 ```toml
 [server]
@@ -201,7 +201,7 @@ metadata_driver = "postgres"
 metadata_dsn = "postgres://memora@db:5432/memora?sslmode=require"
 vector_driver = "pgvector"
 vector_dsn = "postgres://memora@db:5432/memora?sslmode=require"
-graph_driver = "sqlite_graph"
+graph_driver = "none"
 ledger_driver = "postgres"
 ledger_dsn = "postgres://memora@db:5432/memora?sslmode=require"
 content_driver = "file"
@@ -215,7 +215,7 @@ log_level = "info"
 log_format = "json"
 ```
 
-`graph_driver` stays on SQLite deliberately: `sqlite_graph` is the only registered graph driver, so a Postgres-backed deployment still keeps a SQLite file for the graph. Validate the file before deploying it:
+`graph_driver` is `"none"` because `sqlite_graph`, the only registered graph driver, keeps its edges in the SQLite metadata database and so needs `metadata_driver = "sqlite"`. On Postgres metadata the context graph is therefore unavailable: graph operations report that the graph store is not configured and imprints are not auto-linked. Validate the file before deploying it:
 
 ```bash
 memora-core check-config --config /etc/memora/config.toml
