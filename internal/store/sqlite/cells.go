@@ -78,6 +78,50 @@ ORDER BY seq`, memoryID, memoryID, workspaceID)
 	return out, rows.Err()
 }
 
+// DeleteCellsFrom removes a Memory's cells with seq >= fromSeq and returns
+// their cell_ids. Scoped through the parent memory like GetCells.
+func (s *Store) DeleteCellsFrom(ctx context.Context, workspaceID, memoryID string, fromSeq int) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM memora_memories WHERE id = ? AND workspace_id = ?`, memoryID, workspaceID).Scan(&n); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, types.ErrNotFound
+	}
+	rows, err := tx.QueryContext(ctx,
+		`SELECT cell_id FROM memora_cells WHERE memory_id = ? AND seq >= ? ORDER BY seq`, memoryID, fromSeq)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM memora_cells WHERE memory_id = ? AND seq >= ?`, memoryID, fromSeq); err != nil {
+		return nil, err
+	}
+	return ids, tx.Commit()
+}
+
 // UpdateCellVectorKey records the vector backend's reference after embedding.
 func (s *Store) UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error {
 	res, err := s.db.ExecContext(ctx, `

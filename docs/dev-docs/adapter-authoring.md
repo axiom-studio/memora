@@ -95,6 +95,12 @@ workspace must look exactly like a missing row: return `types.ErrNotFound`,
 never `ErrCAS`, so a foreign ID cannot be confirmed or have its watermark
 read.
 
+`DeleteCellsFrom(ctx, workspaceID, memoryID, fromSeq)` removes a Memory's
+cells with `seq >= fromSeq` and returns their `cell_id`s in seq order. The
+service calls it when an edit re-chunks to fewer cells, then drops those
+cells' vectors and content, so an adapter that skips it keeps serving text
+the user removed. `compliance.DeleteCellsFromContract` checks it.
+
 ## Closed edge_type enum
 
 Edge types are a closed enum (`pkg/types/edge.go`). Don't accept

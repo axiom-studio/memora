@@ -14,6 +14,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Edits that re-chunk a Memory to fewer cells now delete the removed cells,
+  their vectors and their content blobs (#6037). Before, the cell rows and
+  content stayed, so `GET /v1/workspaces/{ws}/memories/{id}`, the console
+  and the content store kept serving text that had been edited out, and
+  changed cells left their old-text vector behind (it could surface in
+  vector recall). Leftover cell rows, their content and stale vectors are
+  removed the next time such a Memory is edited; content blobs that earlier
+  versions wrote under never-stored cell IDs are not found by that cleanup.
 - Console session cookie is `Secure` behind TLS-terminating proxies (#6033).
   New `server.ui_cookie_secure` (`MEMORA_UI_COOKIE_SECURE`): `always`,
   `never` or `auto`. **Default is `always` on a non-loopback bind** and
@@ -33,6 +41,9 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- **BREAKING (adapter API)**: `MetadataStore` gains
+  `DeleteCellsFrom(ctx, workspaceID, memoryID, fromSeq)` (#6037); see
+  `pkg/adapter/compliance.DeleteCellsFromContract`.
 - **BREAKING (adapter API)**: `MetadataStore.UpdateMemory`, `AppendMemory`,
   `PatchMemory`, `GetCells`, `DeletePin` and `GraphStore.Unlink`,
   `CascadeForget` take `workspaceID` immediately after `ctx`, matching

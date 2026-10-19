@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -803,6 +804,55 @@ ORDER BY seq`, memoryID, workspaceID)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// DeleteCellsFrom removes a Memory's cells with seq >= fromSeq and returns
+// their cell_ids. Scoped through the parent memory like GetCells.
+func (s *MetadataStore) DeleteCellsFrom(ctx context.Context, workspaceID, memoryID string, fromSeq int) ([]string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $2)`, memoryID, workspaceID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, types.ErrNotFound
+	}
+	rows, err := tx.Query(ctx,
+		`DELETE FROM memora_cells WHERE memory_id = $1 AND seq >= $2 RETURNING cell_id, seq`, memoryID, fromSeq)
+	if err != nil {
+		return nil, err
+	}
+	type deleted struct {
+		id  string
+		seq int
+	}
+	var out []deleted
+	for rows.Next() {
+		var d deleted
+		if err := rows.Scan(&d.id, &d.seq); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
+	ids := make([]string, len(out))
+	for i, d := range out {
+		ids[i] = d.id
+	}
+	if len(ids) == 0 {
+		ids = nil
+	}
+	return ids, tx.Commit(ctx)
 }
 
 func (s *MetadataStore) UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error {

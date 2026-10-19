@@ -78,6 +78,11 @@ type MetadataStore interface {
 
 	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
 	GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error)
+	// DeleteCellsFrom removes the Memory's cells with seq >= fromSeq, which an
+	// edit that re-chunks to fewer cells no longer produces, and returns their
+	// cell_ids so the caller can drop their vectors and content. A Memory in
+	// another workspace returns ErrNotFound and deletes nothing.
+	DeleteCellsFrom(ctx context.Context, workspaceID, memoryID string, fromSeq int) (cellIDs []string, err error)
 	UpdateCellVectorKey(ctx context.Context, cellID, vectorKey, embeddingModel string) error
 	FlipRecallReadyIfAllEmbedded(ctx context.Context, memoryID string) (flipped bool, err error)
 

@@ -19,6 +19,7 @@ package compliance
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -99,6 +100,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		}
 	})
 
+	t.Run("delete_cells_from", func(t *testing.T) {
+		DeleteCellsFromContract(t, factory(t))
+	})
+
 	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
 		s := factory(t)
 		ctx := context.Background()
@@ -175,4 +180,58 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 			t.Fatal("flipped a memory with zero cells")
 		}
 	})
+}
+
+// DeleteCellsFromContract checks MetadataStore.DeleteCellsFrom (#6037): it
+// removes exactly the cells at seq >= fromSeq, reports their ids in seq
+// order, deletes nothing past the end, and treats another workspace's
+// Memory as not found without touching its cells.
+func DeleteCellsFromContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	ws := &types.Workspace{Name: "delete-cells-" + types.NewID("t")}
+	other := &types.Workspace{Name: "delete-cells-other-" + types.NewID("t")}
+	for _, w := range []*types.Workspace{ws, other} {
+		if err := s.CreateWorkspace(ctx, w); err != nil {
+			t.Fatalf("create workspace: %v", err)
+		}
+	}
+	mem := &types.Memory{WorkspaceID: ws.ID, Content: "a b c", WrittenByAgentID: "agent_opaque_c"}
+	if _, err := s.ImprintMemory(ctx, mem); err != nil {
+		t.Fatalf("imprint: %v", err)
+	}
+	var cells []types.Cell
+	for i, txt := range []string{"a", "b", "c"} {
+		cells = append(cells, types.Cell{Seq: i, Text: txt, TextMD5: types.MD5Hex(txt), WrittenByAgentID: "agent_opaque_c"})
+	}
+	if err := s.UpsertCells(ctx, mem.ID, cells); err != nil {
+		t.Fatalf("upsert cells: %v", err)
+	}
+	stored, _ := s.GetCells(ctx, ws.ID, mem.ID)
+	if len(stored) != 3 {
+		t.Fatalf("stored %d cells, want 3", len(stored))
+	}
+
+	if ids, err := s.DeleteCellsFrom(ctx, other.ID, mem.ID, 0); !errors.Is(err, types.ErrNotFound) || len(ids) != 0 {
+		t.Fatalf("foreign workspace: ids=%v err=%v, want none and ErrNotFound", ids, err)
+	}
+	if after, _ := s.GetCells(ctx, ws.ID, mem.ID); len(after) != 3 {
+		t.Fatalf("foreign-workspace call deleted cells: %d left", len(after))
+	}
+
+	ids, err := s.DeleteCellsFrom(ctx, ws.ID, mem.ID, 1)
+	if err != nil {
+		t.Fatalf("DeleteCellsFrom: %v", err)
+	}
+	if len(ids) != 2 || ids[0] != stored[1].CellID || ids[1] != stored[2].CellID {
+		t.Fatalf("deleted ids = %v, want [%s %s]", ids, stored[1].CellID, stored[2].CellID)
+	}
+	after, _ := s.GetCells(ctx, ws.ID, mem.ID)
+	if len(after) != 1 || after[0].CellID != stored[0].CellID {
+		t.Fatalf("cells after delete = %+v, want only seq 0", after)
+	}
+
+	if ids, err := s.DeleteCellsFrom(ctx, ws.ID, mem.ID, 5); err != nil || len(ids) != 0 {
+		t.Fatalf("delete past the end: ids=%v err=%v, want none", ids, err)
+	}
 }

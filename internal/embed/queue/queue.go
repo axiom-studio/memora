@@ -375,8 +375,8 @@ func (p *Pool) logEmbedFailed(j Job, cause error) {
 // write paths: a new cell whose text_md5 matches the old cell with the
 // same cell_id (or, failing that, the same seq) and which already has a
 // vector inherits that cell's id, vector_key and embedding_model and is
-// skipped. Every other cell needs an embed and is given a cell_id if it
-// has none. newCells is updated in place; reembed holds indexes into it.
+// skipped. Every other cell needs an embed: a matched cell keeps the old
+// cell's id, and an unmatched one gets a new id if it has none. newCells is updated in place; reembed holds indexes into it.
 func ClassifyCells(oldCells, newCells []types.Cell) (reembed []int, skipped []string) {
 	oldByCellID := map[string]types.Cell{}
 	oldBySeq := map[int]types.Cell{}
@@ -401,7 +401,13 @@ func ClassifyCells(oldCells, newCells []types.Cell) (reembed []int, skipped []st
 			skipped = append(skipped, nc.CellID)
 			continue
 		}
-		if nc.CellID == "" {
+		switch {
+		case matched:
+			// Same slot, new text: keep the stored row's cell_id. UpsertCells
+			// keeps it on a seq conflict anyway, so the fresh vector must be
+			// written under it or the old vector is orphaned (#6037).
+			nc.CellID = match.CellID
+		case nc.CellID == "":
 			nc.CellID = types.NewID(types.CellIDPrefix)
 		}
 		reembed = append(reembed, i)

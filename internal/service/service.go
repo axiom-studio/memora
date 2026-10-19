@@ -304,18 +304,13 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 	}
 	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.reconcileCells(ctx, workspaceID, memoryID, oldCells, newCells)
 	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(req.Content), req.Content)
 		for _, cell := range newCells {
 			_ = s.Content.PutCellContent(ctx, workspaceID, memoryID, cell.CellID, cell.TextMD5, cell.Text)
-		}
-	}
-	// Drop cells beyond the new count.
-	if len(oldCells) > len(newCells) {
-		for _, c := range oldCells[len(newCells):] {
-			_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{{WorkspaceID: workspaceID, CellID: c.CellID}})
 		}
 	}
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
@@ -372,17 +367,13 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 	}
 	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.reconcileCells(ctx, workspaceID, memoryID, oldCells, newCells)
 	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
 		_ = s.Content.PutMemoryContent(ctx, workspaceID, memoryID, types.MD5Hex(newContent), newContent)
 		for _, cell := range newCells {
 			_ = s.Content.PutCellContent(ctx, workspaceID, memoryID, cell.CellID, cell.TextMD5, cell.Text)
-		}
-	}
-	if len(oldCells) > len(newCells) {
-		for _, c := range oldCells[len(newCells):] {
-			_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{{WorkspaceID: workspaceID, CellID: c.CellID}})
 		}
 	}
 	ledgerID := s.appendLedger(ctx, api.LedgerEntry{
@@ -442,6 +433,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 	}
 	embedRes, _ := s.embedCells(ctx, workspaceID, existing.CollectionID, memoryID, oldCells, newCells)
 	_ = s.Metadata.UpsertCells(ctx, memoryID, newCells)
+	s.reconcileCells(ctx, workspaceID, memoryID, oldCells, newCells)
 	s.submitPendingEmbeds(ctx, workspaceID, existing.CollectionID, memoryID)
 	s.markRecallReady(ctx, memoryID)
 	if s.Content != nil {
@@ -595,6 +587,50 @@ func (s *Service) embedCells(ctx context.Context, workspaceID, collectionID, mem
 		res.Reembed = append(res.Reembed, newCells[i].CellID)
 	}
 	return res, nil
+}
+
+// reconcileCells removes what an edit leaves behind once the new cells are
+// stored (#6037): the stored cells beyond the new count, with their content,
+// and every vector no current cell references, which covers a removed cell's
+// vector and pre-#6037 orphans left under an old cell_id. It runs before
+// submitPendingEmbeds, so the pool never re-embeds a removed cell and cannot
+// have its fresh vector deleted. Best-effort: failures are logged.
+func (s *Service) reconcileCells(ctx context.Context, workspaceID, memoryID string, oldCells, newCells []types.Cell) {
+	removed, err := s.Metadata.DeleteCellsFrom(ctx, workspaceID, memoryID, len(newCells))
+	if err != nil {
+		slog.Default().Warn("delete removed cells failed", "memory_id", memoryID, "err", err)
+	}
+	if s.Content != nil {
+		for _, id := range removed {
+			if err := s.Content.DeleteCellContent(ctx, workspaceID, memoryID, id); err != nil && !errors.Is(err, types.ErrNotFound) {
+				slog.Default().Warn("delete removed cell content failed", "memory_id", memoryID, "cell_id", id, "err", err)
+			}
+		}
+	}
+	if s.Vector == nil {
+		return
+	}
+	live := make(map[string]bool, len(newCells))
+	for _, c := range newCells {
+		if c.VectorKey != "" {
+			live[c.VectorKey] = true
+		}
+	}
+	var stale []adapter.VectorKey
+	seen := map[string]bool{}
+	for _, c := range oldCells {
+		for _, k := range []string{c.CellID, c.VectorKey} {
+			if k != "" && !live[k] && !seen[k] {
+				seen[k] = true
+				stale = append(stale, adapter.VectorKey{WorkspaceID: workspaceID, CellID: k})
+			}
+		}
+	}
+	if len(stale) > 0 {
+		if err := s.Vector.DeleteVectors(ctx, stale); err != nil {
+			slog.Default().Warn("delete stale vectors failed", "memory_id", memoryID, "err", err)
+		}
+	}
 }
 
 // submitPendingEmbeds queues every stored cell of memoryID that has no
