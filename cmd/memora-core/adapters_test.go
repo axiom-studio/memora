@@ -153,7 +153,8 @@ func freshPostgresDB(t *testing.T) string {
 	ctx := context.Background()
 	admin, err := pgx.Connect(ctx, base)
 	if err != nil {
-		t.Fatalf("connect %s: %v", base, err)
+		// Never print the DSN itself: on a public repo's CI logs it is a secret (#6034).
+		t.Fatalf("connect %s: %v", redactDSN(base), err)
 	}
 	name := fmt.Sprintf("memora_test_%d", time.Now().UnixNano())
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
@@ -209,6 +210,16 @@ func TestRedactDSN(t *testing.T) {
 		{"/data/content", "/data/content"},
 		{"./data/memora.db?_pragma=foreign_keys(ON)", "./data/memora.db?_pragma=foreign_keys(ON)"},
 		{"", ""},
+		// #6034: a password in the query string, with and without a user.
+		{"postgres://memora@db:5432/m?password=S3cret", "postgres://memora@db:5432/m?password=xxxxx"},
+		{"postgres://db/m?password=S3cret&sslmode=require", "postgres://db/m?password=xxxxx&sslmode=require"},
+		{"postgres://memora:a@db/m?sslmode=require&sslpassword=k3y", "postgres://memora:xxxxx@db/m?sslmode=require&sslpassword=xxxxx"},
+		{"postgres://db/m?PassWord=S3cret", "postgres://db/m?PassWord=xxxxx"},
+		// #6034: quoted libpq values, which may contain spaces and escapes.
+		{"host=db user=memora password='my S3cret' dbname=m", "host=db user=memora password=xxxxx dbname=m"},
+		{`host=db password='it\'s S3cret' dbname=m`, "host=db password=xxxxx dbname=m"},
+		{"host=db password = S3cret sslpassword='k 3y' dbname=m", "host=db password = xxxxx sslpassword=xxxxx dbname=m"},
+		{"file:/data/memora.db?mode=ro", "file:/data/memora.db?mode=ro"},
 	}
 	for _, c := range cases {
 		if got := redactDSN(c.in); got != c.want {

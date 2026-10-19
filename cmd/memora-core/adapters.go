@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/axiom-studio/memora/internal/config"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
@@ -154,13 +155,38 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 	return svc, closeOpened, nil
 }
 
-var libpqPassword = regexp.MustCompile(`(?i)(password=)\S+`)
+// libpqPassword matches a password or sslpassword keyword in a libpq keyword
+// DSN, including a single-quoted value with spaces or escapes ('a b', 'it\'s').
+var libpqPassword = regexp.MustCompile(`(?i)\b((?:ssl)?password\s*=\s*)('(?:[^'\\]|\\.)*'|\S+)`)
 
-// redactDSN masks a password in a URL DSN (postgres://user:pw@host/db) or a
-// libpq keyword DSN (password=pw) so it can be logged; paths pass through
-// unchanged (#5985).
+// redactedQueryParams are URL query parameters that carry a secret; pgx and
+// libpq accept a password there as well as in the userinfo (#6034).
+var redactedQueryParams = map[string]bool{"password": true, "sslpassword": true}
+
+// redactDSN masks the passwords in a URL DSN (postgres://user:pw@host/db,
+// ?password=pw) or a libpq keyword DSN (password=pw, password='p w') so it
+// can be logged. Anything without a password, such as a path, is returned
+// unchanged (#5985, #6034).
 func redactDSN(dsn string) string {
-	if u, err := url.Parse(dsn); err == nil && u.User != nil {
+	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" && u.Opaque == "" {
+		changed := false
+		if _, ok := u.User.Password(); ok {
+			changed = true
+		}
+		if u.RawQuery != "" {
+			parts := strings.Split(u.RawQuery, "&")
+			for i, kv := range parts {
+				k, _, _ := strings.Cut(kv, "=")
+				if name, err := url.QueryUnescape(k); err == nil && redactedQueryParams[strings.ToLower(name)] {
+					parts[i] = k + "=xxxxx"
+					changed = true
+				}
+			}
+			u.RawQuery = strings.Join(parts, "&")
+		}
+		if !changed {
+			return dsn
+		}
 		return u.Redacted()
 	}
 	return libpqPassword.ReplaceAllString(dsn, "${1}xxxxx")
