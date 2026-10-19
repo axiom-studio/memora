@@ -9,7 +9,6 @@ versioned memory with vector + graph recall, callable from any MCP-aware agent.
 
 ![Memora Logo](public/images/memora-2.png)
 ![Memora Description](public/images/memora-1.png)
-![Donate](https://buy.stripe.com/dRmbJ37ai4BOfQGg4u0gw00)
 
 ## What's inside
 
