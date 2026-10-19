@@ -1,7 +1,7 @@
 [server]
 addr = ":7777"
 mode = "single-tenant"
-api_key = "memora-fed-key-2"
+# api_key comes from MEMORA_API_KEY (set per node in docker-compose.yml).
 
 [storage]
 data_dir = "/data"
@@ -21,9 +21,7 @@ federation_id = "fed_demo_cluster"
 [[federation.peers]]
 name = "node1"
 url = "http://memora-node1:7777"
-api_key = "memora-fed-key-1"
 
 [[federation.peers]]
 name = "node3"
 url = "http://memora-node3:7777"
-api_key = "memora-fed-key-3"

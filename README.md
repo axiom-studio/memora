@@ -77,11 +77,16 @@ Three docker-compose configurations are available for development and testing:
 | **Federation** (3-node) | `deploy/federation/` | SQLite + sqlite-vec | 7771-7773 |
 | **Federation Prod** (3-node) | `deploy/federation-prod/` | Postgres + pgvector | 7771-7773 |
 
+The dev and federation stacks publish their ports on `127.0.0.1` only and
+need an API key; no key is committed, so each needs a `.env` first.
+
 ```bash
-# Start dev:
+# Start dev (key in ./.env):
+cp .env.example .env    # then set MEMORA_API_KEY, e.g. openssl rand -hex 24
 docker compose up -d
 
-# Start federation (SQLite):
+# Start federation (SQLite; keys in deploy/federation/.env):
+cp deploy/federation/.env.example deploy/federation/.env   # then fill it in
 docker compose -f deploy/federation/docker-compose.yml up -d
 
 # Start federation-prod (Postgres) — needs secrets first, see deploy/federation-prod/README.md:
@@ -98,7 +103,8 @@ CLI-based integration tests against a running docker-compose setup:
 # Build the CLI first:
 CGO_ENABLED=0 go build -o memora-cli ./cmd/memora-cli/
 
-# Source the env file for your target setup:
+# Load the keys from the stack's .env, then source the env file for your target:
+set -a; . ./.env; set +a                  # (or deploy/federation*/.env)
 source test/fixtures/env.dev              # single dev node
 source test/fixtures/env.federation       # 3-node SQLite federation
 source test/fixtures/env.federation-prod  # 3-node Postgres federation

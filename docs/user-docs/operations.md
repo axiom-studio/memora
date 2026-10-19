@@ -30,7 +30,7 @@ The API key is required, not optional. The image binds `:7777`, which is reachab
 
 Mount a volume at `/data`, as above. Without one, the SQLite database holding every Memory, vector, edge, and ledger entry lives in the container's writable layer and is discarded when the container is removed.
 
-A single-node development configuration ships as `docker-compose.yml` in the repository: one node on SQLite and sqlite-vec, listening on port 7777.
+A single-node development configuration ships as `docker-compose.yml` in the repository: one node on SQLite and sqlite-vec, published on `127.0.0.1:7777` only. It reads `MEMORA_API_KEY` from a `.env` file next to it and will not start without one; copy `.env.example` to `.env` and set a key first.
 
 ## Authentication
 

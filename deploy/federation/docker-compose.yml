@@ -1,13 +1,17 @@
+# Federation demo stack: published on loopback only, and each node's API key
+# is required, never defaulted. Copy .env.example to .env in this directory
+# and fill it in (#6032).
 services:
   memora-node1:
     build:
       context: ../..
       dockerfile: Dockerfile
     ports:
-      - "7771:7777"
+      - "127.0.0.1:7771:7777"
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      MEMORA_API_KEY: "${MEMORA_NODE1_API_KEY:?set MEMORA_NODE1_API_KEY in deploy/federation/.env}"
     volumes:
       - node1-data:/data
       - ./node1.toml:/etc/memora/config.toml:ro
@@ -24,10 +28,11 @@ services:
       context: ../..
       dockerfile: Dockerfile
     ports:
-      - "7772:7777"
+      - "127.0.0.1:7772:7777"
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      MEMORA_API_KEY: "${MEMORA_NODE2_API_KEY:?set MEMORA_NODE2_API_KEY in deploy/federation/.env}"
     volumes:
       - node2-data:/data
       - ./node2.toml:/etc/memora/config.toml:ro
@@ -44,10 +49,11 @@ services:
       context: ../..
       dockerfile: Dockerfile
     ports:
-      - "7773:7777"
+      - "127.0.0.1:7773:7777"
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      MEMORA_API_KEY: "${MEMORA_NODE3_API_KEY:?set MEMORA_NODE3_API_KEY in deploy/federation/.env}"
     volumes:
       - node3-data:/data
       - ./node3.toml:/etc/memora/config.toml:ro

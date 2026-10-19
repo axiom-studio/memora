@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -177,8 +178,8 @@ func TestLoad_ShippedDeployConfigsValidate(t *testing.T) {
 }
 
 // Shipped deploy configs are copied verbatim by operators, and this repo is
-// public, so they must not carry credentials (#5988): no password in a DSN,
-// no inline API key.
+// public, so they must not carry credentials (#5988, #6032): no password in a
+// DSN, no inline API key.
 func TestShippedDeployConfigs_ContainNoCredentials(t *testing.T) {
 	paths, err := filepath.Glob("../../deploy/*/*.toml")
 	if err != nil || len(paths) == 0 {
@@ -186,9 +187,6 @@ func TestShippedDeployConfigs_ContainNoCredentials(t *testing.T) {
 	}
 	dsnWithPassword := regexp.MustCompile(`://[^/@\s:]+:[^/@\s]+@`)
 	for _, p := range paths {
-		if !strings.Contains(p, "federation-prod") {
-			continue // deploy/federation keeps fixed dev keys the CLI fixtures rely on; out of #5988 scope
-		}
 		cfg, err := Load(p)
 		if err != nil {
 			t.Fatalf("Load(%s): %v", p, err)
@@ -208,6 +206,60 @@ func TestShippedDeployConfigs_ContainNoCredentials(t *testing.T) {
 		for i, peer := range cfg.Federation.Peers {
 			if peer.APIKey != "" {
 				t.Errorf("%s: federation.peers[%d].api_key is inline", p, i)
+			}
+		}
+	}
+}
+
+// The compose files are run as-is from the README, and this repo is public
+// (#6032): no secret may be inline or have a literal fallback, no DSN may
+// embed a literal password, and the dev topologies publish on loopback only,
+// so a stack started on a shared network is not reachable from it.
+func TestShippedComposeFiles_NoCommittedSecretsAndDevLoopback(t *testing.T) {
+	paths, err := filepath.Glob("../../deploy/*/docker-compose.yml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("glob deploy compose files: %v (found %d)", err, len(paths))
+	}
+	paths = append(paths, "../../docker-compose.yml")
+	devTopology := map[string]bool{"../../docker-compose.yml": true, "../../deploy/federation/docker-compose.yml": true}
+
+	const secretName = `\w*(?:KEY|PASSWORD|SECRET|TOKEN)\w*`
+	defaulted := regexp.MustCompile(`\$\{` + secretName + `:?-`)
+	inline := regexp.MustCompile(`^\s*` + secretName + `:\s*"?([^"\s]+)`)
+	dsnPassword := regexp.MustCompile(`://[^/@\s:]+:([^/@\s]+)@`)
+	portLine := regexp.MustCompile(`^\s*-\s*"?([^"\s]+)"?\s*$`)
+
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		inPorts := false
+		for i, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			where := fmt.Sprintf("%s:%d", p, i+1)
+			if defaulted.MatchString(line) {
+				t.Errorf("%s: secret has a literal fallback; use ${VAR:?message}: %s", where, strings.TrimSpace(line))
+			}
+			if m := inline.FindStringSubmatch(line); m != nil && !strings.HasPrefix(m[1], "${") {
+				t.Errorf("%s: secret is inline: %s", where, strings.TrimSpace(line))
+			}
+			if m := dsnPassword.FindStringSubmatch(line); m != nil && !strings.HasPrefix(m[1], "${") {
+				t.Errorf("%s: DSN embeds a literal password", where)
+			}
+			if strings.TrimSpace(line) == "ports:" {
+				inPorts = true
+				continue
+			}
+			m := portLine.FindStringSubmatch(line)
+			if !inPorts || m == nil {
+				inPorts = false
+				continue
+			}
+			if devTopology[p] && !strings.HasPrefix(m[1], "127.0.0.1:") {
+				t.Errorf("%s: dev topology publishes %q on every interface; bind it to 127.0.0.1", where, m[1])
 			}
 		}
 	}

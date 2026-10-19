@@ -1,13 +1,15 @@
+# Dev stack: published on loopback only, and the API key is required, never
+# defaulted. Copy .env.example to .env and set MEMORA_API_KEY (#6032).
 services:
   memora:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "7777:7777"
+      - "127.0.0.1:7777:7777"
     environment:
       MEMORA_ADDR: ":7777"
-      MEMORA_API_KEY: "${MEMORA_API_KEY:-memora-dev-key}"
+      MEMORA_API_KEY: "${MEMORA_API_KEY:?set MEMORA_API_KEY in .env (see .env.example)}"
       MEMORA_DATA_DIR: /data
       MEMORA_METADATA_DRIVER: sqlite
       MEMORA_VECTOR_DRIVER: sqlite-vec
