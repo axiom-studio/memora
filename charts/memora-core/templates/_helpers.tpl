@@ -19,3 +19,13 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "memora-core.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+
+{{- define "memora-core.uiCookieSecure" -}}
+{{- if .Values.uiCookieSecure -}}
+{{- .Values.uiCookieSecure -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.tls -}}
+always
+{{- else -}}
+auto
+{{- end -}}
+{{- end -}}

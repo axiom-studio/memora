@@ -17,6 +17,8 @@ services:
       MEMORA_GRAPH_DRIVER: sqlite_graph
       MEMORA_CONTENT_DRIVER: file
       MEMORA_MCP_ENABLE: "true"
+      # Plain-HTTP console on localhost; behind HTTPS use "always" (#6033).
+      MEMORA_UI_COOKIE_SECURE: auto
     volumes:
       - memora-data:/data
     restart: unless-stopped

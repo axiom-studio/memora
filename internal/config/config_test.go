@@ -429,3 +429,25 @@ func TestEmbeddingAsync_DefaultOffFileAndEnv(t *testing.T) {
 		t.Fatal("MEMORA_EMBEDDING_ASYNC=true not applied")
 	}
 }
+
+func TestUICookieSecure_ValidateAndEnv(t *testing.T) {
+	for _, v := range []string{"", "auto", "always", "never"} {
+		cfg := Defaults()
+		cfg.Server.UICookieSecure = v
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("ui_cookie_secure %q rejected: %v", v, err)
+		}
+	}
+	cfg := Defaults()
+	cfg.Server.UICookieSecure = "true"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui_cookie_secure") {
+		t.Errorf("ui_cookie_secure \"true\" accepted or unclear error: %v", err)
+	}
+
+	t.Setenv("MEMORA_UI_COOKIE_SECURE", "always")
+	env := Defaults()
+	env.ApplyEnv()
+	if env.Server.UICookieSecure != "always" {
+		t.Errorf("MEMORA_UI_COOKIE_SECURE not applied: %q", env.Server.UICookieSecure)
+	}
+}

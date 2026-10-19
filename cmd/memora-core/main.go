@@ -271,12 +271,13 @@ func serve() {
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{
-		Addr:        cfg.Server.Addr,
-		APIKey:      resolvedKey,
-		Service:     svc,
-		Logger:      logger,
-		Mode:        cfg.Server.Mode,
-		AllowNoAuth: cfg.Server.AllowNoAuth,
+		Addr:           cfg.Server.Addr,
+		APIKey:         resolvedKey,
+		Service:        svc,
+		Logger:         logger,
+		Mode:           cfg.Server.Mode,
+		AllowNoAuth:    cfg.Server.AllowNoAuth,
+		UICookieSecure: cfg.Server.UICookieSecure,
 		TLS: httpserver.TLSConfig{
 			Enabled:        cfg.Server.TLS.Enabled,
 			CertFile:       cfg.Server.TLS.CertFile,

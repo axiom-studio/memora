@@ -11,6 +11,8 @@ services:
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      # Plain-HTTP console on localhost; behind HTTPS use "always" (#6033).
+      MEMORA_UI_COOKIE_SECURE: auto
       MEMORA_API_KEY: "${MEMORA_NODE1_API_KEY:?set MEMORA_NODE1_API_KEY in deploy/federation/.env}"
     volumes:
       - node1-data:/data
@@ -32,6 +34,8 @@ services:
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      # Plain-HTTP console on localhost; behind HTTPS use "always" (#6033).
+      MEMORA_UI_COOKIE_SECURE: auto
       MEMORA_API_KEY: "${MEMORA_NODE2_API_KEY:?set MEMORA_NODE2_API_KEY in deploy/federation/.env}"
     volumes:
       - node2-data:/data
@@ -53,6 +57,8 @@ services:
     environment:
       MEMORA_CONFIG: /etc/memora/config.toml
       MEMORA_MCP_ENABLE: "true"
+      # Plain-HTTP console on localhost; behind HTTPS use "always" (#6033).
+      MEMORA_UI_COOKIE_SECURE: auto
       MEMORA_API_KEY: "${MEMORA_NODE3_API_KEY:?set MEMORA_NODE3_API_KEY in deploy/federation/.env}"
     volumes:
       - node3-data:/data

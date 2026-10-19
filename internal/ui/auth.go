@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -15,12 +16,33 @@ import (
 
 const (
 	sessionCookieName = "memora_session"
-	sessionMaxAge     = 24 * time.Hour
+	// secureSessionCookieName is used whenever the cookie is Secure. Browsers
+	// accept a __Host- cookie only if it is Secure, host-only and Path=/, so
+	// a sibling subdomain cannot plant or overwrite it (#6033).
+	secureSessionCookieName = "__Host-memora_session"
+	sessionMaxAge           = 24 * time.Hour
+	hstsHeaderValue         = "max-age=31536000"
+)
+
+// Values for AuthConfig.CookieSecure (server.ui_cookie_secure).
+const (
+	// CookieSecureAuto marks the cookie Secure only when the request itself
+	// arrived over TLS. Behind a TLS-terminating proxy that is never true,
+	// so it suits loopback and plain-HTTP consoles only.
+	CookieSecureAuto = "auto"
+	// CookieSecureAlways marks it Secure on every response; the right
+	// setting whenever users reach the console over HTTPS, including
+	// through a proxy or Ingress.
+	CookieSecureAlways = "always"
+	// CookieSecureNever never marks it Secure.
+	CookieSecureNever = "never"
 )
 
 type AuthConfig struct {
 	APIKey    string
 	SecretKey []byte // HMAC signing key; derived from APIKey if not set
+	// CookieSecure is one of the CookieSecure* values; "" means auto.
+	CookieSecure string
 }
 
 func deriveSecret(apiKey string) []byte {
@@ -33,6 +55,55 @@ func (h *Handler) SetAuth(cfg AuthConfig) {
 	if len(cfg.SecretKey) == 0 {
 		h.authCfg.SecretKey = deriveSecret(cfg.APIKey)
 	}
+}
+
+// secureCookies reports whether this response's session cookie is Secure.
+func (h *Handler) secureCookies(r *http.Request) bool {
+	switch h.authCfg.CookieSecure {
+	case CookieSecureAlways:
+		return true
+	case CookieSecureNever:
+		return false
+	default:
+		return r.TLS != nil
+	}
+}
+
+func (h *Handler) sessionCookieNameFor(r *http.Request) string {
+	if h.secureCookies(r) {
+		return secureSessionCookieName
+	}
+	return sessionCookieName
+}
+
+func (h *Handler) sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	c := &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    value,
+		Path:     "/ui/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if h.secureCookies(r) {
+		c.Name = secureSessionCookieName
+		c.Path = "/" // required by the __Host- prefix
+		c.Secure = true
+	}
+	return c
+}
+
+// hsts wraps every console route. Browsers honour HSTS only on HTTPS
+// responses, so sending it whenever the console is treated as HTTPS is safe,
+// and it stops them from ever making the plaintext request that would leak
+// the session cookie.
+func (h *Handler) hsts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.secureCookies(r) {
+			w.Header().Set("Strict-Transport-Security", hstsHeaderValue)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (h *Handler) authMiddleware(next http.Handler) http.Handler {
@@ -48,7 +119,7 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		cookie, err := r.Cookie(sessionCookieName)
+		cookie, err := r.Cookie(h.sessionCookieNameFor(r))
 		if err != nil || !h.validSession(cookie.Value) {
 			http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
 			return
@@ -128,29 +199,22 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := h.createSession()
-	//nolint:gosec // G124: Secure follows the request scheme so plain-HTTP local consoles still work; HttpOnly and SameSite are always set
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    token,
-		Path:     "/ui/",
-		MaxAge:   int(sessionMaxAge.Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
+	cookie := h.sessionCookie(r, token, int(sessionMaxAge.Seconds()))
+	if cookie.Secure && r.TLS == nil && !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		// Only a hint for operators; the header is never trusted for security.
+		h.plainHTTPWarn.Do(func() {
+			slog.Default().Warn("console session cookie is Secure but this login arrived over plain HTTP; " +
+				"browsers will drop it unless users reach the console over HTTPS. " +
+				"For a plain-HTTP console set server.ui_cookie_secure = \"auto\"")
+		})
+	}
+	//nolint:gosec // G124: Secure is set by server.ui_cookie_secure (default always on non-loopback binds, #6033); HttpOnly and SameSite are always set
+	http.SetCookie(w, cookie)
 	http.Redirect(w, r, "/ui/", http.StatusSeeOther)
 }
 
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // G124: same attributes as the login cookie; this one only expires the session
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    "",
-		Path:     "/ui/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
+	http.SetCookie(w, h.sessionCookie(r, "", -1))
 	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
 }

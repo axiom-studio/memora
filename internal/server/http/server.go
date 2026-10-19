@@ -48,6 +48,9 @@ type Config struct {
 	MaxBodyBytes   int64    // request body size limit (0 = 8 MiB default)
 	AllowNoAuth    bool     // explicit opt-in for empty MEMORA_API_KEY
 	AllowedOrigins []string // CORS: origins that may call the API; empty = no CORS headers
+	// UICookieSecure is the console cookie's Secure mode (ui.CookieSecure*);
+	// "" resolves to always on a non-loopback Addr and auto on loopback.
+	UICookieSecure string
 	TLS            TLSConfig
 	UISettings     *ui.SettingsInfo   // optional; nil = settings page shows empty state
 	UIFederation   *ui.FederationInfo // optional; nil = federation page shows disabled
@@ -87,6 +90,15 @@ func New(cfg Config) *Server {
 			cfg.Logger.Warn("serving with no API key", "addr", cfg.Addr)
 		}
 	}
+	if cfg.UICookieSecure == "" {
+		// A non-loopback bind is reached through something: assume it is
+		// HTTPS (directly or via a TLS-terminating proxy), where a cookie
+		// without Secure can leak over a plaintext request (#6033).
+		cfg.UICookieSecure = ui.CookieSecureAuto
+		if !bindsToLoopback(cfg.Addr) {
+			cfg.UICookieSecure = ui.CookieSecureAlways
+		}
+	}
 	if len(cfg.AllowedOrigins) > 0 {
 		cfg.allowedOriginSet = make(map[string]bool, len(cfg.AllowedOrigins))
 		for _, o := range cfg.AllowedOrigins {
@@ -107,7 +119,8 @@ func New(cfg Config) *Server {
 	if err != nil {
 		cfg.Logger.Error("UI handler init failed", "err", err)
 	} else {
-		uiHandler.SetAuth(ui.AuthConfig{APIKey: cfg.APIKey})
+		uiHandler.SetAuth(ui.AuthConfig{APIKey: cfg.APIKey, CookieSecure: cfg.UICookieSecure})
+		cfg.Logger.Info("console session cookie", "secure", cfg.UICookieSecure)
 		if cfg.Service != nil {
 			ds := &ui.ServiceDataSource{
 				Metadata:    cfg.Service.Metadata,

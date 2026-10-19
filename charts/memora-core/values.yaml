@@ -48,6 +48,12 @@ apiKey: ""
 # for trusted networks / local-dev clusters.
 allowNoAuth: false
 
+# Secure flag of the web console's session cookie (MEMORA_UI_COOKIE_SECURE):
+# always | never | auto. Empty picks `always` when ingress.tls is set (the
+# Ingress terminates TLS, so the pod only sees plain HTTP) and `auto`
+# otherwise, e.g. for port-forward or a plain-HTTP Ingress.
+uiCookieSecure: ""
+
 resources:
   requests:
     cpu: 100m

@@ -134,7 +134,9 @@ The endpoint filters by `since`, `until`, `actor`, `agent_id`, `memory_id`, `edg
 
 The console covers workspace and collection management, imprint and file upload, patch and append, recall with a saved-query bar, graph link and unlink with a neighbours and traversal browser, agent registration and deactivation, the bulk operations below, and audit browsing with export.
 
-Console sign-in is separate from the API. Logging in exchanges the server API key for a `memora_session` cookie, set `HttpOnly` with `SameSite=Lax` and valid for 24 hours. The bearer check is skipped for `/ui` paths, so the console's authentication is the cookie alone.
+Console sign-in is separate from the API. Logging in exchanges the server API key for a session cookie, set `HttpOnly` with `SameSite=Lax` and valid for 24 hours. The bearer check is skipped for `/ui` paths, so the console's authentication is the cookie alone.
+
+On a non-loopback address the cookie is `Secure` by default: it is named `__Host-memora_session`, and the console sends `Strict-Transport-Security`. This is what keeps the session safe behind a TLS-terminating proxy or Ingress, where the server itself only sees plain HTTP. On loopback, or with `server.ui_cookie_secure = "auto"`, the cookie is `memora_session` and is `Secure` only on a direct TLS connection. The Helm chart sets `always` when its Ingress has TLS and `auto` otherwise (`uiCookieSecure` overrides it). See [Configuration](configuration.md).
 
 > **The console's session is as strong as the API key.** Anyone who can sign in to the console holds the API key, because the key is the login credential. There are no per-user console accounts and no roles.
 

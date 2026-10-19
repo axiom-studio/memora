@@ -27,13 +27,18 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Addr        string    `toml:"addr"`
-	Mode        string    `toml:"mode"`
-	APIKey      string    `toml:"api_key"`
-	APIKeyFile  string    `toml:"api_key_file"`
-	AllowNoAuth bool      `toml:"allow_no_auth"`
-	MCPEnable   bool      `toml:"mcp_enable"`
-	TLS         TLSConfig `toml:"tls"`
+	Addr        string `toml:"addr"`
+	Mode        string `toml:"mode"`
+	APIKey      string `toml:"api_key"`
+	APIKeyFile  string `toml:"api_key_file"`
+	AllowNoAuth bool   `toml:"allow_no_auth"`
+	MCPEnable   bool   `toml:"mcp_enable"`
+	// UICookieSecure sets the console session cookie's Secure flag:
+	// "always", "never", or "auto" (Secure only for requests that arrived
+	// over TLS, which is never true behind a TLS-terminating proxy).
+	// Empty means "always" on a non-loopback addr and "auto" on loopback (#6033).
+	UICookieSecure string    `toml:"ui_cookie_secure"`
+	TLS            TLSConfig `toml:"tls"`
 }
 
 type TLSConfig struct {
@@ -202,6 +207,12 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("server.api_key and server.api_key_file are mutually exclusive"))
 	}
 
+	switch c.Server.UICookieSecure {
+	case "", "auto", "always", "never":
+	default:
+		errs = append(errs, fmt.Errorf("server.ui_cookie_secure: unknown %q (want auto, always or never)", c.Server.UICookieSecure))
+	}
+
 	switch c.Server.Mode {
 	case "single-tenant", "multi-tenant":
 	default:
@@ -286,6 +297,7 @@ func (c *Config) ApplyEnv() {
 	setIfEnv(&c.Storage.GraphDSN, "MEMORA_GRAPH_DSN")
 	setIfEnv(&c.Storage.ContentDSN, "MEMORA_CONTENT_DSN")
 	setIfEnv(&c.Embedding.Model, "MEMORA_EMBEDDING_MODEL")
+	setIfEnv(&c.Server.UICookieSecure, "MEMORA_UI_COOKIE_SECURE")
 	if os.Getenv("MEMORA_EMBEDDING_ASYNC") == "true" {
 		c.Embedding.Async = true
 	}

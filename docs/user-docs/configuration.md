@@ -39,12 +39,15 @@ TOML table `[server]`.
 | `server.api_key_file` | string | *(empty)* |
 | `server.allow_no_auth` | bool | `false` |
 | `server.mcp_enable` | bool | `false` |
+| `server.ui_cookie_secure` | string | *(empty — `always` on a non-loopback `addr`, `auto` on loopback)* |
 
 `server.mode` accepts `single-tenant` or `multi-tenant`; any other value fails validation. In single-tenant mode the workspace comes from the request path. In multi-tenant mode the `X-Memora-Workspace` header resolves it per request.
 
 `server.api_key` and `server.api_key_file` are mutually exclusive, and setting both fails validation. The file form is the safer one for deployments that mount secrets, and Memora refuses to read a key file that is world-readable, reporting the offending mode — so the file must be `0600` or `0640`.
 
 `server.mcp_enable` mounts an MCP WebSocket endpoint at `/mcp` on the HTTP server, in addition to the stdio transport that `memora-core mcp` provides.
+
+`server.ui_cookie_secure` sets whether the console's session cookie is marked `Secure`: `always`, `never`, or `auto`, which marks it `Secure` only when the request itself arrived over TLS. Behind a TLS-terminating reverse proxy or Ingress the server only ever sees plain HTTP, so `auto` would never mark it `Secure` there; that is why the default on a non-loopback address is `always`. A `Secure` cookie is named `__Host-memora_session` and the console also sends `Strict-Transport-Security`. If users reach the console over plain HTTP on a non-loopback address, browsers drop a `Secure` cookie and login loops back to the login page; set `auto` for that setup, and the server logs a warning the first time it happens.
 
 > **`allow_no_auth` is an override, not a convenience.** With no API key configured, the server starts on a loopback bind and refuses to start on any other address. Setting `allow_no_auth` suppresses that refusal, leaving the API unauthenticated on a reachable address. See [Operations](operations.md) before using it.
 
@@ -135,6 +138,7 @@ Each variable overrides its file counterpart when set and non-empty.
 | `MEMORA_EMBEDDING_MODEL` | string | `noop:default` |
 | `MEMORA_EMBEDDING_ASYNC` | bool | `false` — set to the literal `true` to enable |
 | `MEMORA_MCP_ENABLE` | bool | `false` — set to the literal `true` to enable |
+| `MEMORA_UI_COOKIE_SECURE` | string | *(empty)* — `auto`, `always` or `never` |
 
 `MEMORA_EMBEDDING_ASYNC` and `MEMORA_MCP_ENABLE` are the only booleans in this layer, and each is matched against the exact string `true`; any other value leaves the file setting alone. There are no environment variables for the TLS keys, the API key file, `allow_no_auth`, or telemetry.
 

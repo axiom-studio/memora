@@ -53,6 +53,10 @@ spec:
                   name: {{ include "memora-core.fullname" . }}-secret
                   key: api_key
             {{- end }}
+            # Behind a TLS-terminating Ingress the pod sees plain HTTP, so the
+            # console cookie's Secure flag cannot follow the request (#6033).
+            - name: MEMORA_UI_COOKIE_SECURE
+              value: {{ include "memora-core.uiCookieSecure" . | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

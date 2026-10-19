@@ -14,6 +14,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Console session cookie is `Secure` behind TLS-terminating proxies (#6033).
+  New `server.ui_cookie_secure` (`MEMORA_UI_COOKIE_SECURE`): `always`,
+  `never` or `auto`. **Default is `always` on a non-loopback bind** and
+  `auto` (previous behaviour) on loopback. A `Secure` cookie is named
+  `__Host-memora_session` and the console sends HSTS. The Helm chart sets
+  `always` when `ingress.tls` is set (`uiCookieSecure` overrides). If you
+  serve the console over plain HTTP on a non-loopback address, set
+  `ui_cookie_secure = "auto"`, or login will loop; existing sessions must
+  sign in again.
+- The dev and federation docker-compose stacks publish on `127.0.0.1` only
+  and require API keys from a `.env` (#6032); no keys are committed.
 - Cross-tenant access closed on every ID-addressed primitive (#4373, after
   #4228/#4229): Update/Patch/Append, cell reads, pin deletes, edge unlink,
   edge cascade-forget, MCP `memora_lookup` and Recall lookup mode now

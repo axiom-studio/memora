@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -58,6 +59,8 @@ type Handler struct {
 	data       DataSource
 	settings   *SettingsInfo
 	federation *FederationInfo
+
+	plainHTTPWarn sync.Once // logs the Secure-cookie-over-HTTP hint once
 }
 
 func (h *Handler) SetDataSource(ds DataSource)     { h.data = ds }
@@ -110,9 +113,9 @@ func NewHandler() (*Handler, error) {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/ui/login", h.handleLogin)
-	mux.HandleFunc("/ui/logout", h.handleLogout)
-	mux.Handle("/ui/static/", noCacheStatic(h.staticFS))
+	mux.Handle("/ui/login", h.hsts(http.HandlerFunc(h.handleLogin)))
+	mux.Handle("/ui/logout", h.hsts(http.HandlerFunc(h.handleLogout)))
+	mux.Handle("/ui/static/", h.hsts(noCacheStatic(h.staticFS)))
 
 	protected := http.NewServeMux()
 	protected.HandleFunc("/ui/", h.handlePage)
@@ -199,10 +202,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/bulk/replay", h.handleBulkReplay)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
-	mux.Handle("/ui/partials/", h.authMiddleware(protected))
-	mux.Handle("/ui/", h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/ui/partials/", h.hsts(h.authMiddleware(protected)))
+	mux.Handle("/ui/", h.hsts(h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		protected.ServeHTTP(w, r)
-	})))
+	}))))
 }
 
 func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
