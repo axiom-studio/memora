@@ -31,7 +31,10 @@ The workflow runs goreleaser, which:
    keys; ephemeral certificates witnessed by Rekor).
 5. Builds and pushes `ghcr.io/axiom-studio/memora-core:<version>`
    (and `:latest`) as a multi-arch image (`linux/amd64` +
-   `linux/arm64`) with full OCI labels.
+   `linux/arm64`) with full OCI labels. The image is built from
+   `Dockerfile.goreleaser`, which copies the binaries goreleaser has
+   already built (`memora-core` and `memora-cli`); the root `Dockerfile`
+   builds from source and is for local and docker-compose use only.
 6. Creates the GitHub Release with the auto-generated changelog and
    uploads every artifact.
 
@@ -71,6 +74,10 @@ goreleaser release --snapshot --clean --skip=publish,sign
 
 # The built artifacts land under ./dist/ and can be smoke-tested.
 ```
+
+The `Release check` workflow (`.github/workflows/release-check.yml`) runs
+this same snapshot in CI whenever `.goreleaser.yaml`, either Dockerfile or
+the release workflow changes, then boots both architecture images.
 
 `--skip=sign` is necessary in local runs because cosign keyless
 requires the CI's OIDC token; running locally would prompt for an

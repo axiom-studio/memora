@@ -9,7 +9,8 @@
 #   - SBOMs (SPDX) for each archive via syft (configured at the workflow level).
 #   - Cosign keyless signatures for binaries + checksums + SBOMs via the
 #     Sigstore Fulcio root (no maintained private key — works in CI via OIDC).
-#   - Multi-arch Docker images for memora-core (linux/amd64 + linux/arm64),
+#   - Multi-arch Docker images carrying memora-core + memora-cli (linux/amd64 +
+#     linux/arm64, built from Dockerfile.goreleaser),
 #     pushed to GHCR with both `:vX.Y.Z` and `:latest` tags + a manifest list.
 #   - Homebrew tap formula auto-PR'd to axiom-studio/homebrew-tap (when
 #     HOMEBREW_TAP_TOKEN is configured).
@@ -145,6 +146,13 @@ dockers:
     use: buildx
     goos: linux
     goarch: amd64
+    # The root Dockerfile builds from source and cannot run in goreleaser's
+    # binaries-only context (#6036). The image ships both binaries: the Helm
+    # chart's probes exec memora-cli.
+    dockerfile: Dockerfile.goreleaser
+    ids:
+      - memora-core
+      - memora-cli
     image_templates:
       - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-amd64"
     build_flag_templates:
@@ -166,6 +174,13 @@ dockers:
     use: buildx
     goos: linux
     goarch: arm64
+    # The root Dockerfile builds from source and cannot run in goreleaser's
+    # binaries-only context (#6036). The image ships both binaries: the Helm
+    # chart's probes exec memora-cli.
+    dockerfile: Dockerfile.goreleaser
+    ids:
+      - memora-core
+      - memora-cli
     image_templates:
       - "ghcr.io/axiom-studio/memora-core:{{ .Version }}-arm64"
     build_flag_templates:
@@ -214,7 +229,7 @@ brews:
       name: memora-release-bot
       email: release@axiomstudio.ai
     test: |
-      system "#{bin}/memora-cli", "--version"
+      system "#{bin}/memora-cli", "version"
     install: |
       bin.install "memora-core"
       bin.install "memora-cli"

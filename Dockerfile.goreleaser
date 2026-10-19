@@ -1,0 +1,24 @@
+# Release image, built by goreleaser (`dockers:` in .goreleaser.yaml, #6036).
+#
+# goreleaser builds images in a context that holds only the binaries it has
+# already cross-compiled plus `extra_files`, so this copies them instead of
+# compiling. The root Dockerfile stays the from-source build for local and
+# docker-compose use; keep the two final stages in step.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY memora-core /usr/local/bin/memora-core
+COPY memora-cli /usr/local/bin/memora-cli
+COPY LICENSE NOTICE /usr/share/doc/memora/
+
+# distroless has no shell to mkdir with; its empty, nonroot-owned home
+# directory gives /data the ownership the server needs to create its files.
+COPY --from=gcr.io/distroless/static-debian12:nonroot --chown=nonroot:nonroot /home/nonroot /data
+
+# Default data directory; mount /data as a volume in production.
+ENV MEMORA_DATA_DIR=/data
+ENV MEMORA_ADDR=:7777
+EXPOSE 7777
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/memora-core"]
+CMD ["serve"]

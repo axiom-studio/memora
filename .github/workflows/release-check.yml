@@ -1,0 +1,90 @@
+name: Release check
+
+# Runs goreleaser in snapshot mode whenever the release configuration or the
+# image definitions change, so a broken release (e.g. #6036: the image build
+# could not run in goreleaser's binaries-only context) fails here and not on
+# the first tag push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - Dockerfile.goreleaser
+      - .github/workflows/release.yml
+      - .github/workflows/release-check.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - Dockerfile.goreleaser
+      - .github/workflows/release.yml
+      - .github/workflows/release-check.yml
+
+concurrency:
+  group: release-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: goreleaser snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Set up QEMU (arm64 image)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install syft (SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0
+        with:
+          syft-version: 'v1.18.0'
+
+      # Same goreleaser as release.yml; nothing is published or signed.
+      - name: Run goreleaser (snapshot)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean --skip=publish,sign
+        env:
+          # The brew/scoop templates read these; they are empty in a snapshot.
+          HOMEBREW_TAP_TOKEN: ''
+          SCOOP_BUCKET_TOKEN: ''
+
+      - name: Images carry both binaries, run as nonroot and boot
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            img=$(docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/axiom-studio/memora-core | grep -- "-$arch\$" | head -1)
+            test -n "$img" || { echo "no $arch image built"; exit 1; }
+            echo "== $img"
+            test "$(docker image inspect -f '{{.Config.User}}' "$img")" = "nonroot:nonroot"
+            docker run --rm --platform "linux/$arch" --entrypoint /usr/local/bin/memora-cli "$img" version
+            key=$(openssl rand -hex 16)
+            cid=$(docker run -d --platform "linux/$arch" -e MEMORA_API_KEY="$key" -p 127.0.0.1:7777:7777 "$img")
+            for i in $(seq 1 60); do curl -fs -o /dev/null -H "Authorization: Bearer $key" http://127.0.0.1:7777/healthz && break; sleep 1; done
+            curl -fsS -H "Authorization: Bearer $key" http://127.0.0.1:7777/healthz
+            docker exec -e MEMORA_API_KEY="$key" "$cid" /usr/local/bin/memora-cli health
+            docker rm -f "$cid"
+          done
