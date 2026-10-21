@@ -60,3 +60,6 @@ dist/
 
 # Local agent state (vibeflow sessions; never commit)
 .vibeflow-session-*
+
+# Federation secret that seals stored peer keys (F-7); never commit.
+federation.key

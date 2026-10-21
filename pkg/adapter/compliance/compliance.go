@@ -133,6 +133,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		ListChronologicalContract(t, factory(t))
 	})
 
+	t.Run("peer_store", func(t *testing.T) {
+		PeerStoreContract(t, factory(t))
+	})
+
 	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
 		s := factory(t)
 		ctx := context.Background()
@@ -781,5 +785,92 @@ func ListChronologicalContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if _, _, err := s.ListWorkspaces(ctx, "bm90LWEtY3Vyc29y", 3); !errors.Is(err, types.ErrInvalidInput) {
 		t.Fatalf("bad workspace cursor: err = %v, want ErrInvalidInput", err)
+	}
+}
+
+// PeerStoreContract checks the federation peer registry (F-7): upsert
+// and list round-trip every field, sealed bytes included; a seed never
+// overwrites a row, live or deleted; deletion is a tombstone that an
+// upsert revives; deleting an absent peer is ErrNotFound.
+func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	find := func(id string) *adapter.PeerRecord {
+		t.Helper()
+		peers, err := s.ListPeers(ctx)
+		if err != nil {
+			t.Fatalf("ListPeers: %v", err)
+		}
+		for i := range peers {
+			if peers[i].NodeID == id {
+				return &peers[i]
+			}
+		}
+		return nil
+	}
+	p := adapter.PeerRecord{
+		NodeID: types.NewID(), Name: "peer", URL: "https://peer.example.com",
+		InboundKeySHA256: "ab", SealedAPIKey: []byte{0, 1, 2, 255}, ClientCertSHA256: "cd",
+		TimeoutMS: 1500, RateLimitQPS: 2.5, Revoked: true,
+	}
+	if err := s.UpsertPeer(ctx, p); err != nil {
+		t.Fatalf("UpsertPeer: %v", err)
+	}
+	got := find(p.NodeID)
+	if got == nil || got.Name != "peer" || got.URL != p.URL || got.InboundKeySHA256 != "ab" ||
+		string(got.SealedAPIKey) != string(p.SealedAPIKey) || got.ClientCertSHA256 != "cd" ||
+		got.TimeoutMS != 1500 || got.RateLimitQPS != 2.5 || !got.Revoked || got.CreatedAt.IsZero() {
+		t.Fatalf("round trip = %+v, want %+v", got, p)
+	}
+	created := got.CreatedAt
+
+	seeded := p
+	seeded.Name, seeded.URL = "from-config", "https://config.example.com"
+	if ok, err := s.SeedPeer(ctx, seeded); err != nil || ok {
+		t.Fatalf("SeedPeer over a live row = %v, %v; want false", ok, err)
+	}
+	if got := find(p.NodeID); got.Name != "peer" {
+		t.Fatalf("seed overwrote the peer: %+v", got)
+	}
+
+	p.Name, p.Revoked = "renamed", false
+	if err := s.UpsertPeer(ctx, p); err != nil {
+		t.Fatalf("UpsertPeer: %v", err)
+	}
+	if got := find(p.NodeID); got.Name != "renamed" || got.Revoked || !got.CreatedAt.Equal(created) {
+		t.Fatalf("update = %+v, want renamed, not revoked, created_at kept", got)
+	}
+
+	if err := s.DeletePeer(ctx, p.NodeID); err != nil {
+		t.Fatalf("DeletePeer: %v", err)
+	}
+	if got := find(p.NodeID); got != nil {
+		t.Fatalf("deleted peer still listed: %+v", got)
+	}
+	if err := s.DeletePeer(ctx, p.NodeID); !errors.Is(err, types.ErrNotFound) {
+		t.Fatalf("second DeletePeer = %v, want ErrNotFound", err)
+	}
+	if ok, err := s.SeedPeer(ctx, seeded); err != nil || ok {
+		t.Fatalf("SeedPeer over a tombstone = %v, %v; want false", ok, err)
+	}
+	if got := find(p.NodeID); got != nil {
+		t.Fatalf("seed revived a deleted peer: %+v", got)
+	}
+	if err := s.UpsertPeer(ctx, p); err != nil {
+		t.Fatalf("UpsertPeer after delete: %v", err)
+	}
+	if got := find(p.NodeID); got == nil || got.Name != "renamed" {
+		t.Fatalf("upsert did not revive the peer: %+v", got)
+	}
+
+	fresh := adapter.PeerRecord{NodeID: types.NewID(), Name: "seed", URL: "https://s.example.com"}
+	if ok, err := s.SeedPeer(ctx, fresh); err != nil || !ok {
+		t.Fatalf("SeedPeer of a new peer = %v, %v; want true", ok, err)
+	}
+	if got := find(fresh.NodeID); got == nil || got.SealedAPIKey != nil && len(got.SealedAPIKey) != 0 {
+		t.Fatalf("seeded peer = %+v", got)
+	}
+	if err := s.UpsertPeer(ctx, adapter.PeerRecord{NodeID: "peer_1", Name: "x", URL: "https://x"}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("UpsertPeer with a bad node_id = %v, want ErrInvalidInput", err)
 	}
 }

@@ -3,6 +3,7 @@ package federation
 import (
 	"testing"
 
+	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
 )
 
@@ -36,12 +37,16 @@ func TestNewRegistry_PeerNeedsNodeID(t *testing.T) {
 }
 
 func TestNewRegistry_ValidPeers(t *testing.T) {
+	ca, err := certgen.Generate(certgen.Opts{Host: "eu.memora.internal", OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.FederationConfig{
 		Enabled:      true,
 		FederationID: "fed_self",
 		Peers: []config.PeerConfig{
 			{NodeID: nid("us-west"), Name: "us-west", URL: "https://west.memora.internal:7777", APIKey: "key1"},
-			{NodeID: nid("eu-central"), Name: "eu-central", URL: "https://eu.memora.internal:7777", TLSCert: "/path/cert"},
+			{NodeID: nid("eu-central"), Name: "eu-central", URL: "https://eu.memora.internal:7777", TLSCert: ca.CertPath},
 		},
 	}
 	r, err := NewRegistry(cfg, nid("fed_self"))
@@ -51,11 +56,14 @@ func TestNewRegistry_ValidPeers(t *testing.T) {
 	if len(r.Peers()) != 2 {
 		t.Fatalf("expected 2 peers, got %d", len(r.Peers()))
 	}
-	if r.Peers()[0].TrustMode != TrustAPIKey {
-		t.Errorf("expected api_key trust, got %s", r.Peers()[0].TrustMode)
+	if p := r.Peer(nid("us-west")); p == nil || p.TrustMode != TrustAPIKey {
+		t.Errorf("us-west = %+v, want api_key trust", p)
 	}
-	if r.Peers()[1].TrustMode != TrustMTLS {
-		t.Errorf("expected mtls trust, got %s", r.Peers()[1].TrustMode)
+	if p := r.Peer(nid("eu-central")); p == nil || p.TrustMode != TrustMTLS {
+		t.Errorf("eu-central = %+v, want mtls trust", p)
+	}
+	if bad := (config.PeerConfig{NodeID: nid("x"), Name: "x", URL: "https://x", TLSCert: "/nonexistent/ca.pem"}); r.Validate([]config.PeerConfig{bad}) == nil {
+		t.Error("a missing CA file validated")
 	}
 }
 
@@ -102,52 +110,6 @@ func TestNewRegistry_InvalidURL(t *testing.T) {
 	}
 }
 
-func TestPeersForWorkspace_AllWorkspaces(t *testing.T) {
-	cfg := config.FederationConfig{
-		Enabled:      true,
-		FederationID: "fed_self",
-		Peers: []config.PeerConfig{
-			{NodeID: nid("peer1"), Name: "peer1", URL: "https://a.internal:7777"},
-		},
-	}
-	r, _ := NewRegistry(cfg, nid("fed_self"))
-	peers := r.PeersForWorkspace("ws_any")
-	if len(peers) != 1 {
-		t.Fatalf("expected 1 peer (no allowlist = all), got %d", len(peers))
-	}
-}
-
-func TestIsAuthorizedPeer_Known(t *testing.T) {
-	cfg := config.FederationConfig{
-		Enabled:      true,
-		FederationID: "fed_self",
-		Peers: []config.PeerConfig{
-			{NodeID: nid("peer1"), Name: "peer1", URL: "https://a.internal:7777"},
-		},
-	}
-	r, _ := NewRegistry(cfg, nid("fed_self"))
-	if !r.IsAuthorizedPeer(nid("peer1"), "ws_any") {
-		t.Error("expected peer1 to be authorized")
-	}
-	if r.IsAuthorizedPeer(nid("unknown"), "ws_any") {
-		t.Error("expected unknown peer to be unauthorized")
-	}
-}
-
-func TestIsAuthorizedPeer_NilRegistry(t *testing.T) {
-	var r *Registry
-	if r.IsAuthorizedPeer(nid("peer1"), "ws") {
-		t.Error("nil registry should always return false")
-	}
-}
-
-func TestPeersForWorkspace_NilRegistry(t *testing.T) {
-	var r *Registry
-	if len(r.PeersForWorkspace("ws")) != 0 {
-		t.Error("nil registry should return empty")
-	}
-}
-
 func TestPeerLookup(t *testing.T) {
 	cfg := config.FederationConfig{
 		Enabled:      true,
@@ -177,5 +139,33 @@ func TestDefaultRequestTimeout(t *testing.T) {
 	p2 := Peer{}
 	if p2.DefaultRequestTimeout().Milliseconds() != 5000 {
 		t.Errorf("expected default 5000ms, got %v", p2.DefaultRequestTimeout())
+	}
+}
+
+// TestRegistry_ReplaceIsAtomic: Replace swaps the whole peer set, and a
+// rejected set leaves the registry as it was.
+func TestRegistry_ReplaceIsAtomic(t *testing.T) {
+	r, err := NewRegistry(config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{
+		{NodeID: nid("p1"), Name: "p1", URL: "https://p1.example.com", APIKey: "k"},
+	}}, nid("self"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Replace([]config.PeerConfig{
+		{NodeID: nid("p2"), Name: "p2", URL: "https://p2.example.com", APIKey: "k"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if r.Peer(nid("p1")) != nil || r.Client(nid("p1")) != nil || r.Peer(nid("p2")) == nil || r.Client(nid("p2")) == nil {
+		t.Fatalf("after Replace: peers %v", r.Peers())
+	}
+	if err := r.Replace([]config.PeerConfig{
+		{NodeID: nid("p3"), Name: "p3", URL: "https://p3.example.com"},
+		{NodeID: nid("p3"), Name: "dup", URL: "https://p3.example.com"},
+	}); err == nil {
+		t.Fatal("a duplicate peer set was accepted")
+	}
+	if len(r.Peers()) != 1 || r.Peer(nid("p2")) == nil {
+		t.Fatalf("a rejected Replace changed the registry: %v", r.Peers())
 	}
 }

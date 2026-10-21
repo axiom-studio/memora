@@ -128,6 +128,18 @@ A peer that fails, times out or is over this node's outbound limit for it does n
 
 In `multi-tenant` mode the `X-Memora-Workspace` header is required, only that workspace's memories are returned, and `node` cannot name a peer (`403 federation_multi_tenant`). The SDK's `FetchMemory` and the MCP `memora_fetch` tool do the same.
 
+### Managing Peers
+
+The peer registry can be edited while the node runs. These routes take the API key; peers cannot call them. An edit takes effect on the next request: a new peer is searched, and a removed peer is no longer searched and its calls get `401`. A revoked peer stays listed, is not searched, and its calls get `403`.
+
+| Field | Value |
+|---|---|
+| `GET /federation/peers` | List peers: `node_id`, `name`, `url`, `trust_mode`, `has_inbound_key`, `has_api_key`, `client_cert_sha256`, `timeout_ms`, `rate_limit_qps`, `revoked`, `created_at`, `updated_at`. Keys are never returned. |
+| `POST /federation/peers` | Create or replace the peer with `node_id`. Body: `node_id`, `name`, `url`; optional `inbound_key` (the key the peer will present, stored only as its SHA-256) or `inbound_key_sha256`; `api_key` (the key this node presents to the peer, stored sealed); `client_cert_sha256` (needs `server.tls`); `timeout_ms`; `rate_limit_qps`; `revoked`. A key left out keeps the stored one. TLS file paths are set only in the config file. Answers with the peer as `GET` shows it. |
+| `DELETE /federation/peers/{node_id}` | Remove a peer. `404` if it is not registered. |
+
+Without federation these answer `404 federation_disabled`. The console's Federation page uses the same registry.
+
 ### Federation
 
 Other nodes call these routes. They take peer credentials, not the API key; see [Peer Credentials](configuration.md#peer-credentials).

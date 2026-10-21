@@ -25,6 +25,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/v1/search", s.handleSearch)
 	s.mux.HandleFunc("/v1/federation/search", s.handleFederationSearch)
 	s.mux.HandleFunc("/v1/federation/memories/", s.handleFederationMemory)
+	s.mux.HandleFunc("/v1/federation/peers", s.handlePeers)
+	s.mux.HandleFunc("/v1/federation/peers/", s.handlePeers)
 	s.mux.HandleFunc("/v1/memories/", s.handleNodeMemory)
 	s.mux.HandleFunc("/v1/workspaces", s.handleWorkspaces)
 	s.mux.HandleFunc("/v1/workspaces/", s.handleWorkspacePath)
@@ -1038,4 +1040,42 @@ func (s *Server) handleFederationMemory(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.writeJSON(w, 200, env)
+}
+
+// handlePeers serves the runtime peer registry (F-7), behind the API key:
+// GET /v1/federation/peers lists peers without keys; POST creates or
+// replaces one; DELETE /v1/federation/peers/{node_id} removes one.
+func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
+	m := s.cfg.FederationPeers
+	if m == nil {
+		s.writeError(w, 404, "federation_disabled", "federation is not enabled on this node", nil)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		peers, err := m.List(r.Context())
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, map[string]any{"peers": peers})
+	case http.MethodPost:
+		var req api.PeerRequest
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		v, err := m.Upsert(r.Context(), req)
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, v)
+	case http.MethodDelete:
+		if err := m.Delete(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/federation/peers/")); err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		w.WriteHeader(204)
+	}
 }

@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -33,6 +34,7 @@ import (
 func baseBodies(memID, mem2ID string) map[string]map[string]any {
 	return map[string]map[string]any{
 		"POST /v1/search":                                                {"query": "x"},
+		"POST /v1/federation/peers":                                      {"name": "x", "url": "https://x.example.com"},
 		"POST /v1/workspaces":                                            {"name": "x"},
 		"PUT /v1/workspaces/{workspace_id}":                              {"name": "x"},
 		"POST /v1/workspaces/{workspace_id}/collections":                 {"name": "x"},
@@ -178,7 +180,20 @@ func routeTestServer(t *testing.T) (*httptest.Server, string, string, string) {
 		}
 		mems = append(mems, m.ID)
 	}
-	srv := New(Config{Service: svc, Logger: testLogger(), MaxBodyBytes: DefaultMaxBodyBytes, Federation: reg})
+	secret := make([]byte, 32)
+	_, _ = rand.Read(secret)
+	sealer, err := federation.NewSealer(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peers := federation.NewManager(reg, meta, sealer)
+	if _, err := peers.Seed(ctx, []config.PeerConfig{{NodeID: routeTestPeer, Name: "peer", URL: "http://127.0.0.1:1", InboundKeySHA256: hex.EncodeToString(sum[:])}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := peers.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Config{Service: svc, Logger: testLogger(), MaxBodyBytes: DefaultMaxBodyBytes, Federation: reg, FederationPeers: peers})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, ws.ID, mems[0], mems[1]

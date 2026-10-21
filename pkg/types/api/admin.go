@@ -88,3 +88,38 @@ type ErrorEnvelope struct {
 	Message   string         `json:"message"`
 	Details   map[string]any `json:"details,omitempty"`
 }
+
+// PeerRequest is POST /v1/federation/peers: create or replace the peer
+// with NodeID. Keys are write-only: an empty InboundKey/InboundKeySHA256
+// or APIKey keeps the stored one. InboundKey is the key the peer will
+// present (stored only as its SHA-256); APIKey is the key this node
+// presents to the peer (stored sealed). TLS file paths are config-only.
+type PeerRequest struct {
+	NodeID           string  `json:"node_id"`
+	Name             string  `json:"name"`
+	URL              string  `json:"url"`
+	InboundKey       string  `json:"inbound_key,omitempty"`
+	InboundKeySHA256 string  `json:"inbound_key_sha256,omitempty"`
+	APIKey           string  `json:"api_key,omitempty"`
+	ClientCertSHA256 string  `json:"client_cert_sha256,omitempty"`
+	TimeoutMS        int     `json:"timeout_ms,omitempty"`
+	RateLimitQPS     float64 `json:"rate_limit_qps,omitempty"`
+	Revoked          bool    `json:"revoked,omitempty"`
+}
+
+// PeerView is a federation peer as the API shows it: never a key, only
+// whether one is set.
+type PeerView struct {
+	NodeID           string    `json:"node_id"`
+	Name             string    `json:"name"`
+	URL              string    `json:"url"`
+	TrustMode        string    `json:"trust_mode"`
+	HasInboundKey    bool      `json:"has_inbound_key"`
+	HasAPIKey        bool      `json:"has_api_key"`
+	ClientCertSHA256 string    `json:"client_cert_sha256,omitempty"`
+	TimeoutMS        int       `json:"timeout_ms,omitempty"`
+	RateLimitQPS     float64   `json:"rate_limit_qps,omitempty"`
+	Revoked          bool      `json:"revoked"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}

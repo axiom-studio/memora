@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/axiom-studio/memora/internal/config"
@@ -31,7 +33,7 @@ type Peer struct {
 	TLSCert          string // CA for the peer's server certificate
 	ClientCertFile   string // our client certificate for outbound mTLS
 	ClientKeyFile    string
-	Workspaces       []string // empty = all workspaces
+	ClientCertSHA256 string // hex pin of the peer's client certificate
 	RateLimitQPS     float64
 	RequestTimeoutMS int
 	// Revoked peers stay known but their inbound calls get 403.
@@ -44,30 +46,48 @@ type Peer struct {
 	// clientCertHash pins the peer's TLS client certificate when set.
 	clientCertHash [32]byte
 	hasClientCert  bool
+}
 
-	workspaceSet map[string]bool
+// InboundKeySHA256 returns the hex hash of the peer's inbound key, or ""
+// when it has none.
+func (p *Peer) InboundKeySHA256() string {
+	if !p.hasInboundKey {
+		return ""
+	}
+	return hex.EncodeToString(p.inboundKeyHash[:])
 }
 
 // AcceptsInbound reports whether the peer has an inbound credential and
 // so can call this node's peer routes.
 func (p *Peer) AcceptsInbound() bool { return p.hasInboundKey }
 
-// Registry holds the set of validated federation peers and provides
-// lookup methods used by the fanout engine and inbound auth.
+// Registry holds this node's federation peers and a client for each.
+// Its contents are an immutable snapshot swapped atomically by Replace,
+// so peers can be added, changed, revoked or removed while the node
+// runs: every lookup sees one consistent set, and the next request after
+// a Replace sees the new one.
 type Registry struct {
 	// NodeID is this node's [node] id: sent as X-Memora-Local-Instance-ID
 	// and appended to loop-guard paths.
 	NodeID string
 	// FederationID is the optional cluster label from config.
 	FederationID string
-	peers        []Peer
-	byID         map[string]*Peer // keyed by peer node ID
+
+	defaults config.FederationConfig // peer timeout and QPS defaults
+	snap     atomic.Pointer[registrySnapshot]
+}
+
+type registrySnapshot struct {
+	peers   []Peer                 // ordered by node ID
+	byID    map[string]*Peer       // keyed by peer node ID
+	clients map[string]*PeerClient // keyed by peer node ID
 }
 
 // NewRegistry parses and validates the federation config into a ready
 // Registry, keyed by each peer's node ID. Returns nil when federation is
 // disabled. selfNodeID is this node's ID; a peer listing it is rejected
-// as a self-reference.
+// as a self-reference. cfg's peer timeout and QPS defaults also apply to
+// peers given later to Replace.
 func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, error) {
 	if !cfg.Enabled {
 		return nil, nil
@@ -75,28 +95,72 @@ func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, err
 	if _, err := types.ParseID("node id", selfNodeID); err != nil {
 		return nil, fmt.Errorf("federation: %w", err)
 	}
-
-	r := &Registry{
-		NodeID:       selfNodeID,
-		FederationID: cfg.FederationID,
-		byID:         make(map[string]*Peer, len(cfg.Peers)),
+	r := &Registry{NodeID: selfNodeID, FederationID: cfg.FederationID, defaults: cfg}
+	r.defaults.Peers = nil
+	if err := r.Replace(cfg.Peers); err != nil {
+		return nil, err
 	}
+	return r, nil
+}
 
+// Replace validates peers, builds a client for each, and swaps them in
+// as the registry's peers. On any error the registry is unchanged.
+func (r *Registry) Replace(peers []config.PeerConfig) error {
+	next, err := r.build(peers)
+	if err != nil {
+		return err
+	}
+	r.snap.Store(next)
+	return nil
+}
+
+// Validate reports whether peers would be accepted by Replace, building
+// their clients (TLS files included) without swapping them in.
+func (r *Registry) Validate(peers []config.PeerConfig) error {
+	_, err := r.build(peers)
+	return err
+}
+
+func (r *Registry) build(peers []config.PeerConfig) (*registrySnapshot, error) {
+	next := &registrySnapshot{
+		byID:    make(map[string]*Peer, len(peers)),
+		clients: make(map[string]*PeerClient, len(peers)),
+	}
 	var errs []error
-	for i, pc := range cfg.Peers {
-		p, err := parsePeer(pc, i, selfNodeID, cfg)
+	for i, pc := range peers {
+		p, err := parsePeer(pc, i, r.NodeID, r.defaults)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if _, dup := r.byID[p.ID]; dup {
+		if _, dup := next.byID[p.ID]; dup {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: duplicate peer id %q", i, p.ID))
 			continue
 		}
-		r.peers = append(r.peers, p)
-		r.byID[p.ID] = &r.peers[len(r.peers)-1]
+		next.peers = append(next.peers, p)
+		next.byID[p.ID] = nil
 	}
-	return r, errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	sort.Slice(next.peers, func(i, j int) bool { return next.peers[i].ID < next.peers[j].ID })
+	for i := range next.peers {
+		p := &next.peers[i]
+		c, err := newPeerClient(*p, r.FederationID, r.NodeID)
+		if err != nil {
+			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
+		}
+		next.byID[p.ID] = p
+		next.clients[p.ID] = c
+	}
+	return next, nil
+}
+
+func (r *Registry) current() *registrySnapshot {
+	if r == nil {
+		return nil
+	}
+	return r.snap.Load()
 }
 
 // Defaults for a peer's outbound limits when neither the peer nor the
@@ -131,6 +195,7 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.Feder
 	}
 
 	p := Peer{
+		ClientCertSHA256: pc.ClientCertSHA256,
 		ID:               id,
 		Name:             pc.Name,
 		Endpoint:         pc.URL,
@@ -173,63 +238,44 @@ func decodeSHA256(s string) ([32]byte, error) {
 // RequiresClientCerts reports whether any peer pins a TLS client
 // certificate, so the server must ask clients for one.
 func (r *Registry) RequiresClientCerts() bool {
-	if r == nil {
+	snap := r.current()
+	if snap == nil {
 		return false
 	}
-	for i := range r.peers {
-		if r.peers[i].hasClientCert {
+	for i := range snap.peers {
+		if snap.peers[i].hasClientCert {
 			return true
 		}
 	}
 	return false
 }
 
-// Peers returns all registered peers.
+// Peers returns the registered peers, ordered by node ID. The slice is
+// the current snapshot's and must not be modified.
 func (r *Registry) Peers() []Peer {
-	if r == nil {
+	snap := r.current()
+	if snap == nil {
 		return nil
 	}
-	return r.peers
-}
-
-// PeersForWorkspace returns peers authorized to receive queries for
-// wsID. Peers with an empty workspace allowlist are authorized for all
-// workspaces.
-func (r *Registry) PeersForWorkspace(wsID string) []Peer {
-	if r == nil {
-		return nil
-	}
-	var result []Peer
-	for _, p := range r.peers {
-		if len(p.Workspaces) == 0 || p.workspaceSet[wsID] {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
-// IsAuthorizedPeer checks whether an inbound request from peerID is
-// allowed to query wsID.
-func (r *Registry) IsAuthorizedPeer(peerID, wsID string) bool {
-	if r == nil {
-		return false
-	}
-	p, ok := r.byID[peerID]
-	if !ok {
-		return false
-	}
-	if len(p.Workspaces) == 0 {
-		return true
-	}
-	return p.workspaceSet[wsID]
+	return snap.peers
 }
 
 // Peer returns a specific peer by ID, or nil if not found.
 func (r *Registry) Peer(id string) *Peer {
-	if r == nil {
+	snap := r.current()
+	if snap == nil {
 		return nil
 	}
-	return r.byID[id]
+	return snap.byID[id]
+}
+
+// Client returns the client for the peer with this node ID, or nil.
+func (r *Registry) Client(id string) *PeerClient {
+	snap := r.current()
+	if snap == nil {
+		return nil
+	}
+	return snap.clients[id]
 }
 
 // DefaultRequestTimeout returns the peer's configured request timeout.

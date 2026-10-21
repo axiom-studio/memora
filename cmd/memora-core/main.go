@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -254,15 +255,37 @@ func serve() {
 		logger.Info("orphan content GC started")
 	}
 
+	// The registry validates the config peers (TLS files included) and
+	// then holds the runtime set: config peers seed the metadata store
+	// once, and the store is the source of truth from then on (F-7).
 	fedReg, err := federation.NewRegistry(cfg.Federation, svc.NodeID)
 	if err != nil {
 		bootLog.Fatalf("federation: %v", err)
 	}
+	var fedPeers *federation.Manager
+	if fedReg != nil {
+		keyFile := cfg.Federation.SecretKeyFile
+		if keyFile == "" {
+			keyFile = filepath.Join(cfg.Storage.DataDir, "federation.key")
+		}
+		sealer, err := federation.LoadSealer(keyFile)
+		if err != nil {
+			bootLog.Fatalf("federation: %v", err)
+		}
+		fedPeers = federation.NewManager(fedReg, svc.Metadata, sealer)
+		fedPeers.AllowClientCertPins = cfg.Server.TLS.Enabled
+		n, err := fedPeers.Seed(ctx, cfg.Federation.Peers)
+		if err != nil {
+			bootLog.Fatalf("federation: seed peers: %v", err)
+		}
+		if err := fedPeers.Reload(ctx); err != nil {
+			bootLog.Fatalf("federation: load peers: %v", err)
+		}
+		logger.Info("federation peers loaded", "peers", len(fedReg.Peers()), "seeded_from_config", n)
+	}
 	if fedReg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
 		bootLog.Fatalf("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
 	}
-	// Builds a client per peer, so bad peer TLS files (CA, client cert
-	// or key) fail at boot.
 	if svc.Federation, err = federation.NewSearcher(fedReg); err != nil {
 		bootLog.Fatalf("federation: %v", err)
 	}
@@ -275,22 +298,7 @@ func serve() {
 
 	var uiFederation *ui.FederationInfo
 	if cfg.Federation.Enabled {
-		uiFederation = &ui.FederationInfo{
-			FederationID: cfg.Federation.FederationID,
-			Peers:        make([]ui.PeerInfo, len(cfg.Federation.Peers)),
-		}
-		for i, p := range cfg.Federation.Peers {
-			trust := "api_key"
-			if p.TLSCert != "" {
-				trust = "mtls"
-			}
-			uiFederation.Peers[i] = ui.PeerInfo{
-				ID:        fmt.Sprintf("peer-%d", i),
-				Name:      p.Name,
-				Endpoint:  p.URL,
-				TrustMode: trust,
-			}
-		}
+		uiFederation = &ui.FederationInfo{FederationID: cfg.Federation.FederationID}
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{
@@ -328,8 +336,9 @@ func serve() {
 			TelemetryLogLevel:  cfg.Telemetry.LogLevel,
 			TelemetryLogFormat: cfg.Telemetry.LogFormat,
 		},
-		UIFederation: uiFederation,
-		Federation:   fedReg,
+		UIFederation:    uiFederation,
+		Federation:      fedReg,
+		FederationPeers: fedPeers,
 
 		FederationInboundQPS: cfg.Federation.InboundQPS,
 	})

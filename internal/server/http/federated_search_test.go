@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -37,6 +38,7 @@ type meshNode struct {
 	mu     sync.Mutex
 	paths  []string // X-Memora-Federation-Path values received
 	feders []config.PeerConfig
+	peers  *federation.Manager // the node's runtime peer registry
 }
 
 func (n *meshNode) receivedPaths() []string {
@@ -95,8 +97,22 @@ func newMesh(t *testing.T, names []string, timeouts map[string]int) []*meshNode 
 			Identity: map[string]adapter.IdentityProvider{string(types.IdentityProviderOpaque): identity.Opaque{}},
 			NodeID:   n.id, NodeName: n.name,
 		}
-		reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true, Peers: n.feders}, n.id)
+		// As at boot: config peers seed the store, which feeds the registry.
+		reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, n.id)
 		if err != nil {
+			t.Fatal(err)
+		}
+		secret := make([]byte, 32)
+		_, _ = rand.Read(secret)
+		sealer, err := federation.NewSealer(secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.peers = federation.NewManager(reg, meta, sealer)
+		if _, err := n.peers.Seed(ctx, n.feders); err != nil {
+			t.Fatal(err)
+		}
+		if err := n.peers.Reload(ctx); err != nil {
 			t.Fatal(err)
 		}
 		if n.svc.Federation, err = federation.NewSearcher(reg); err != nil {
@@ -104,7 +120,7 @@ func newMesh(t *testing.T, names []string, timeouts map[string]int) []*meshNode 
 		}
 		h := httpserver.New(httpserver.Config{
 			Service: n.svc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-			MaxBodyBytes: httpserver.DefaultMaxBodyBytes, Federation: reg,
+			MaxBodyBytes: httpserver.DefaultMaxBodyBytes, Federation: reg, FederationPeers: n.peers,
 		}).Handler()
 		node := n
 		n.ts.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

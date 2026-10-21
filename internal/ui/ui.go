@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -59,6 +60,7 @@ type Handler struct {
 	data       DataSource
 	settings   *SettingsInfo
 	federation *FederationInfo
+	peers      PeerManager
 
 	plainHTTPWarn sync.Once // logs the Secure-cookie-over-HTTP hint once
 }
@@ -299,8 +301,8 @@ func (h *Handler) partialDashboardCards(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	fedLabel := "—"
-	if h.federation != nil && len(h.federation.Peers) > 0 {
-		fedLabel = fmt.Sprintf("%d", len(h.federation.Peers))
+	if n := len(h.listPeers(r.Context())); h.federation != nil && n > 0 {
+		fedLabel = fmt.Sprintf("%d", n)
 	}
 	healthBadge := `<span class="badge badge-ok">Ready</span>`
 	if h.data != nil {
@@ -323,8 +325,8 @@ func (h *Handler) renderFallbackCards(w http.ResponseWriter) {
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Recall Ready</p><p class="card-value">—</p></div>`)
 	fmt.Fprint(w, `<div class="card"><p class="card-title">Embed Queue</p><p class="card-value">—</p></div>`)
 	fedLabel := "—"
-	if h.federation != nil && len(h.federation.Peers) > 0 {
-		fedLabel = fmt.Sprintf("%d", len(h.federation.Peers))
+	if n := len(h.listPeers(context.Background())); h.federation != nil && n > 0 {
+		fedLabel = fmt.Sprintf("%d", n)
 	}
 	fmt.Fprintf(w, `<a class="card" href="/ui/federation" style="text-decoration:none;color:inherit"><p class="card-title">Federation Peers</p><p class="card-value">%s</p></a>`, template.HTMLEscapeString(fedLabel))
 }

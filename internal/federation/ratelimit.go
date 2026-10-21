@@ -61,3 +61,19 @@ func (p *RateLimiterPool) Allow(peerID string) bool {
 	p.mu.Unlock()
 	return lim.Allow()
 }
+
+// AllowRate is Allow at the given QPS: a peer whose rate changed (a
+// runtime registry edit) gets a fresh limiter at the new rate.
+func (p *RateLimiterPool) AllowRate(peerID string, qps float64) bool {
+	if qps <= 0 {
+		qps = p.fallback
+	}
+	p.mu.Lock()
+	lim, ok := p.limiters[peerID]
+	if !ok || lim.Limit() != rate.Limit(qps) {
+		lim = rate.NewLimiter(rate.Limit(qps), max(1, int(qps)))
+		p.limiters[peerID] = lim
+	}
+	p.mu.Unlock()
+	return lim.Allow()
+}

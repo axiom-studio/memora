@@ -231,18 +231,3 @@ func TestNewRegistry_BadInboundHash(t *testing.T) {
 		t.Fatalf("err = %v, want an inbound_key_sha256 error", err)
 	}
 }
-
-func TestAuthorizeFederatedWorkspace_Allowed(t *testing.T) {
-	reg := testRegistry(t)
-	if err := AuthorizeFederatedWorkspace(reg, nid("peer-a"), "any_ws"); err != nil {
-		t.Errorf("expected allowed (wildcard), got %v", err)
-	}
-}
-
-func TestAuthorizeFederatedWorkspace_Denied(t *testing.T) {
-	reg := testRegistry(t)
-	err := AuthorizeFederatedWorkspace(reg, nid("nonexistent"), "ws_test")
-	if !errors.Is(err, types.ErrFederationAuth) {
-		t.Errorf("expected ErrFederationAuth, got %v", err)
-	}
-}

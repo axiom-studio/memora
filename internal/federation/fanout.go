@@ -121,7 +121,7 @@ func FanoutSearch(
 		wg.Add(1)
 		go func(c *PeerClient) {
 			defer wg.Done()
-			if limiter != nil && !limiter.Allow(c.PeerID()) {
+			if limiter != nil && !limiter.AllowRate(c.PeerID(), c.peer.RateLimitQPS) {
 				resultCh <- PeerResult{PeerID: c.PeerID(), PeerName: c.PeerName(), Err: ErrOutboundRateLimited}
 				return
 			}

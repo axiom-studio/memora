@@ -271,10 +271,10 @@ func TestMigrationSplit_NewObjects(t *testing.T) {
 		versions = append(versions, v)
 	}
 	_ = rows.Close()
-	if len(versions) != 10 {
-		t.Fatalf("expected 10 migrations, got %v", versions)
+	if len(versions) != 11 {
+		t.Fatalf("expected 11 migrations, got %v", versions)
 	}
-	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" || versions[3] != "0004_pins.sql" || versions[4] != "0005_pins_rebuild.sql" || versions[5] != "0006_agent_identities.sql" || versions[6] != "0007_synthetic_edge_ids.sql" || versions[7] != "0008_node.sql" || versions[8] != "0009_agents_per_workspace.sql" || versions[9] != "0010_list_order.sql" {
+	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" || versions[3] != "0004_pins.sql" || versions[4] != "0005_pins_rebuild.sql" || versions[5] != "0006_agent_identities.sql" || versions[6] != "0007_synthetic_edge_ids.sql" || versions[7] != "0008_node.sql" || versions[8] != "0009_agents_per_workspace.sql" || versions[9] != "0010_list_order.sql" || versions[10] != "0011_federation_peers.sql" {
 		t.Fatalf("unexpected migration versions: %v", versions)
 	}
 }

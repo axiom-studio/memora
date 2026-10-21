@@ -13,7 +13,7 @@ import (
 )
 
 // TestIntegration_RegistryToPeers verifies the full path from config →
-// registry → client pool → fanout.
+// registry → peer client → search.
 func TestIntegration_RegistryToPeers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(api.RecallResponse{
@@ -35,18 +35,10 @@ func TestIntegration_RegistryToPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pool, err := NewClientPool(reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c := pool.Client(nid("peer1"))
+	c := reg.Client(nid("peer1"))
 	if c == nil {
 		t.Fatal("expected client for peer1")
 	}
-
-	// Override the http client to use the test server's client (handles TLS)
-	c.httpClient = srv.Client()
 
 	resp, err := c.Search(context.Background(), api.FederationSearchRequest{Query: "test"}, "fed_main")
 	if err != nil {

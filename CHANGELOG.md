@@ -214,6 +214,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Runtime federation peer registry (F-7, #4367).
+  - Peers live in the metadata store (SQLite and Postgres migrations)
+    and are edited with `GET`/`POST /v1/federation/peers` and
+    `DELETE /v1/federation/peers/{node_id}` (API key) or the console's
+    Federation page. Edits apply to the next request, with no restart.
+  - Keys are write-only: inbound keys are stored as SHA-256 and
+    outbound keys sealed with AES-256-GCM under a node secret
+    (`MEMORA_FEDERATION_SECRET` or `federation.secret_key_file`, default
+    `<data_dir>/federation.key`).
+  - Config-file peers are a one-time seed and never overwrite runtime
+    edits or bring back removed peers.
+  - The per-peer workspace allowlist (`Peer.Workspaces`,
+    `IsAuthorizedPeer`) is removed, as the PRD drops it.
 - Fetching a memory from its owning node (F-6, #4366):
   - `GET /v1/memories/{id}` reads a full memory with its cells across
     this node's workspaces.

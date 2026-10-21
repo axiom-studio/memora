@@ -13,25 +13,21 @@ import (
 // MaxFederatedTimeout caps a request's timeout_ms.
 const MaxFederatedTimeout = 60 * time.Second
 
-// Searcher fans a node-wide search out to this node's peers (F-4). It
-// owns one client and one outbound limiter per peer.
+// Searcher fans a node-wide search out to this node's peers (F-4),
+// reading the registry's current peers and clients on every call, with
+// one outbound limiter per peer at that peer's rate_limit_qps.
 type Searcher struct {
 	reg      *Registry
-	pool     *ClientPool
 	outbound *RateLimiterPool
 }
 
-// NewSearcher builds the peer clients for reg. It returns nil for a nil
-// registry (federation off).
+// NewSearcher returns a Searcher over reg, or nil for a nil registry
+// (federation off).
 func NewSearcher(reg *Registry) (*Searcher, error) {
 	if reg == nil {
 		return nil, nil
 	}
-	pool, err := NewClientPool(reg)
-	if err != nil {
-		return nil, err
-	}
-	return &Searcher{reg: reg, pool: pool, outbound: NewOutboundPool(reg.Peers())}, nil
+	return &Searcher{reg: reg, outbound: NewInboundPool(DefaultOutboundQPS)}, nil
 }
 
 // NodeID is this node's ID.
@@ -60,12 +56,16 @@ func (s *Searcher) Fanout(ctx context.Context, localResult *api.RecallResponse, 
 	return FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound)
 }
 
+// selectPeers resolves the fan-out targets against one registry
+// snapshot, so a concurrent Replace cannot leave a peer without its
+// client.
 func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
+	snap := s.reg.current()
 	var out []*PeerClient
 	if len(ids) == 0 {
-		for _, p := range s.reg.Peers() {
+		for _, p := range snap.peers {
 			if p.Searchable() {
-				out = append(out, s.pool.Client(p.ID))
+				out = append(out, snap.clients[p.ID])
 			}
 		}
 		return out, nil
@@ -75,7 +75,7 @@ func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
 		if _, err := types.ParseID("peers", id); err != nil {
 			return nil, err
 		}
-		p := s.reg.Peer(id)
+		p := snap.byID[id]
 		if p == nil {
 			return nil, fmt.Errorf("%w: peers: %s is not a peer of this node", types.ErrInvalidInput, id)
 		}
@@ -84,7 +84,7 @@ func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
 		}
 		if !seen[id] {
 			seen[id] = true
-			out = append(out, s.pool.Client(id))
+			out = append(out, snap.clients[id])
 		}
 	}
 	return out, nil
@@ -100,14 +100,15 @@ var ErrUnknownNode = errors.New("federation: unknown node")
 // hold is types.ErrNotFound; other failures are returned for
 // PeerErrorCode to classify.
 func (s *Searcher) Fetch(ctx context.Context, nodeID, memoryID string) (*api.MemoryEnvelope, error) {
-	p := s.reg.Peer(nodeID)
+	snap := s.reg.current()
+	p := snap.byID[nodeID]
 	if p == nil || !p.Searchable() {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNode, nodeID)
 	}
-	if !s.outbound.Allow(nodeID) {
+	c := snap.clients[nodeID]
+	if !s.outbound.AllowRate(nodeID, p.RateLimitQPS) {
 		return nil, ErrOutboundRateLimited
 	}
-	c := s.pool.Client(nodeID)
 	ctx, cancel := context.WithTimeout(ctx, c.RequestTimeout())
 	defer cancel()
 	env, err := c.FetchMemory(ctx, memoryID, AppendToPath("", s.reg.NodeID))

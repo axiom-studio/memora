@@ -92,10 +92,3 @@ func AuthenticatePeer(r *http.Request, reg *Registry) (*InboundAuthResult, error
 func IsPeerRoute(path string) bool {
 	return path == "/v1/federation/search" || strings.HasPrefix(path, "/v1/federation/memories/")
 }
-
-func AuthorizeFederatedWorkspace(reg *Registry, peerID, wsID string) error {
-	if !reg.IsAuthorizedPeer(peerID, wsID) {
-		return fmt.Errorf("%w: peer %q not authorized for workspace %q", types.ErrFederationAuth, peerID, wsID)
-	}
-	return nil
-}

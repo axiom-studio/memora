@@ -38,6 +38,10 @@ type MetadataStore interface {
 	Ping(ctx context.Context) error
 	Capabilities() MetadataCapabilities
 
+	// --- Federation peers (F-7) ---
+
+	PeerStore
+
 	// --- Workspace CRUD ---
 
 	CreateWorkspace(ctx context.Context, w *types.Workspace) error

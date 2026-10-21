@@ -59,6 +59,9 @@ type Config struct {
 	// Federation authenticates the routes peers call (federation.IsPeerRoute),
 	// which take peer credentials instead of APIKey. nil = federation off.
 	Federation *federation.Registry
+	// FederationPeers edits the runtime peer registry behind
+	// /v1/federation/peers. nil = those routes answer federation_disabled.
+	FederationPeers *federation.Manager
 	// FederationInboundQPS caps each peer's calls to the peer routes
 	// (0 = federation.DefaultInboundQPS).
 	FederationInboundQPS float64
@@ -153,6 +156,9 @@ func New(cfg Config) *Server {
 		if cfg.UIFederation != nil {
 			uiHandler.SetFederation(cfg.UIFederation)
 		}
+		if cfg.FederationPeers != nil {
+			uiHandler.SetPeers(cfg.FederationPeers)
+		}
 		uiHandler.Register(mux)
 	}
 	s.srv = &http.Server{
@@ -162,10 +168,11 @@ func New(cfg Config) *Server {
 		ReadTimeout:       cfg.Timeout,
 		WriteTimeout:      cfg.Timeout + 5*time.Second,
 	}
-	if cfg.TLS.Enabled && cfg.Federation.RequiresClientCerts() {
+	if cfg.TLS.Enabled && cfg.Federation != nil {
 		// Ask for, but do not chain-verify, client certificates: a peer's
 		// certificate is pinned by fingerprint in AuthenticatePeer, and
 		// clients without one (API callers, the console) still connect.
+		// Always on with federation, since pins can be added at runtime.
 		s.srv.TLSConfig = &tls.Config{ClientAuth: tls.RequestClientCert}
 	}
 	return s

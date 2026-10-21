@@ -32,33 +32,6 @@ type PeerClient struct {
 	instanceID   string
 }
 
-// ClientPool holds a PeerClient per registered peer.
-type ClientPool struct {
-	clients      map[string]*PeerClient
-	federationID string
-	instanceID   string
-}
-
-// NewClientPool creates a PeerClient for each peer in the registry.
-func NewClientPool(reg *Registry) (*ClientPool, error) {
-	if reg == nil {
-		return nil, nil
-	}
-	pool := &ClientPool{
-		clients:      make(map[string]*PeerClient, len(reg.peers)),
-		federationID: reg.FederationID,
-		instanceID:   reg.NodeID,
-	}
-	for _, p := range reg.peers {
-		c, err := newPeerClient(p, reg.FederationID, reg.NodeID)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
-		}
-		pool.clients[p.ID] = c
-	}
-	return pool, nil
-}
-
 func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if p.TrustMode == TrustMTLS {
@@ -201,14 +174,6 @@ func (c *PeerClient) FetchMemory(ctx context.Context, memoryID, federationPath s
 		return nil, fmt.Errorf("peer %s fetch: answered with a different memory", c.peer.Name)
 	}
 	return &envelope, nil
-}
-
-// Client returns the PeerClient for a given peer ID, or nil.
-func (p *ClientPool) Client(peerID string) *PeerClient {
-	if p == nil {
-		return nil
-	}
-	return p.clients[peerID]
 }
 
 // PeerName returns the human-readable name of the peer.

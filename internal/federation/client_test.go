@@ -87,23 +87,6 @@ func TestPeerClient_Search_Error(t *testing.T) {
 	}
 }
 
-func TestClientPool_NilSafe(t *testing.T) {
-	var pool *ClientPool
-	if pool.Client(nid("x")) != nil {
-		t.Error("nil pool should return nil client")
-	}
-}
-
-func TestNewClientPool_NilRegistry(t *testing.T) {
-	pool, err := NewClientPool(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pool != nil {
-		t.Error("expected nil pool for nil registry")
-	}
-}
-
 // TestPeerClient_KeyAuthenticatesAtPeer round-trips a peer key: the
 // calling node's client presents its api_key for the peer, and the peer
 // authenticates it against the inbound_key_sha256 it holds. The key is
@@ -202,11 +185,7 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := NewClientPool(callerReg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pc := pool.clients[callee]
+	pc := callerReg.Client(callee)
 	if _, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "q", K: 1}, ""); err != nil {
 		t.Fatalf("with client cert: %v", err)
 	}
@@ -222,16 +201,13 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 	}
 }
 
-func TestNewClientPool_BadClientCert(t *testing.T) {
-	reg, err := NewRegistry(config.FederationConfig{
+func TestNewRegistry_BadClientCert(t *testing.T) {
+	_, err := NewRegistry(config.FederationConfig{
 		Enabled: true,
 		Peers: []config.PeerConfig{{NodeID: nid("p"), Name: "p", URL: "https://p.example.com",
 			ClientCertFile: "/nonexistent/cert.pem", ClientKeyFile: "/nonexistent/key.pem"}},
 	}, nid("self"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewClientPool(reg); err == nil || !strings.Contains(err.Error(), "client cert") {
+	if err == nil || !strings.Contains(err.Error(), "client cert") {
 		t.Fatalf("err = %v, want a client cert load error", err)
 	}
 }

@@ -93,7 +93,11 @@ type FederationConfig struct {
 	InboundQPS float64 `toml:"inbound_qps"`
 	// PeerTimeoutMS and OutboundQPS are the defaults for each peer's
 	// timeout_ms and rate_limit_qps (5000 ms and 50 when unset).
-	PeerTimeoutMS int          `toml:"peer_timeout_ms"`
+	PeerTimeoutMS int `toml:"peer_timeout_ms"`
+	// SecretKeyFile holds the 32-byte key that seals peer api_keys in
+	// the metadata store (default <data_dir>/federation.key, created on
+	// first start). $MEMORA_FEDERATION_SECRET overrides it.
+	SecretKeyFile string       `toml:"secret_key_file"`
 	OutboundQPS   float64      `toml:"outbound_qps"`
 	Peers         []PeerConfig `toml:"peers"`
 }
@@ -225,6 +229,7 @@ func (c *Config) expandPaths() {
 	c.Server.TLS.CertFile = expandTilde(c.Server.TLS.CertFile)
 	c.Server.TLS.KeyFile = expandTilde(c.Server.TLS.KeyFile)
 	c.Server.APIKeyFile = expandTilde(c.Server.APIKeyFile)
+	c.Federation.SecretKeyFile = expandTilde(c.Federation.SecretKeyFile)
 	for i := range c.Federation.Peers {
 		p := &c.Federation.Peers[i]
 		p.TLSCert = expandTilde(p.TLSCert)

@@ -2,14 +2,20 @@ package ui
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
+	storesqlite "github.com/axiom-studio/memora/internal/store/sqlite"
+	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -565,11 +571,8 @@ func (m *mockDataSource) UnlinkEdge(_ context.Context, _, _ string) error {
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return m.watermarks, m.err
 }
-func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error     { return m.err }
-func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error        { return m.err }
-func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error              { return m.err }
-func (m *mockDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error { return m.err }
-func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error             { return m.err }
+func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error { return m.err }
+func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error    { return m.err }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -602,10 +605,8 @@ func TestDashboardCards_WithData(t *testing.T) {
 			EmbedQueueDepth: 7,
 		},
 	})
-	h.SetFederation(&FederationInfo{
-		FederationID: "test-fed",
-		Peers:        []PeerInfo{{ID: "p1", Name: "node2"}, {ID: "p2", Name: "node3"}},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "test-fed"})
+	h.SetPeers(realPeers(t, "node2", "node3"))
 
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -1288,13 +1289,9 @@ func TestSettingsDetail_Nil(t *testing.T) {
 func TestFederationStatus(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed-test-123",
-		Peers: []PeerInfo{
-			{ID: "peer-0", Name: "us-east", Endpoint: "https://east.example.com", TrustMode: "mtls"},
-			{ID: "peer-1", Name: "eu-west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws-1", "ws-2"}},
-		},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "fed-test-123"})
+	pm := realPeers(t, "us-east", "eu-west")
+	h.SetPeers(pm)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -1305,10 +1302,14 @@ func TestFederationStatus(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	for _, want := range []string{"fed-test-123", "us-east", "eu-west", "mtls", "api_key", "east.example.com"} {
+	peers, _ := pm.List(context.Background())
+	for _, want := range []string{"fed-test-123", "us-east", "eu-west", "api_key", "us-east.example.com", peers[0].NodeID, "inbound, outbound"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in federation status", want)
 		}
+	}
+	if strings.Contains(body, "key-us-east") || strings.Contains(body, "key-eu-west") {
+		t.Error("federation status shows a peer key")
 	}
 }
 
@@ -2878,72 +2879,128 @@ func TestMemoryListHasBulkOpsButton(t *testing.T) {
 	}
 }
 
+// realPeers returns a federation.Manager on a real SQLite store with one
+// peer per name (node IDs minted, keys "key-<name>").
+func realPeers(t *testing.T, names ...string) *federation.Manager {
+	t.Helper()
+	ctx := context.Background()
+	meta := &storesqlite.Store{}
+	if err := meta.Open(ctx, adapter.MetadataConfig{DSN: filepath.Join(t.TempDir(), "peers.db")}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, types.NewID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	sealer, err := federation.NewSealer(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := federation.NewManager(reg, meta, sealer)
+	for _, n := range names {
+		if _, err := m.Upsert(ctx, api.PeerRequest{
+			NodeID: types.NewID(), Name: n, URL: "https://" + n + ".example.com",
+			InboundKey: "key-" + n, APIKey: "key-" + n,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return m
+}
+
+func postForm(h func(http.ResponseWriter, *http.Request), path, form string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", path, strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h(w, r)
+	return w
+}
+
 func TestPeerAddForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{
-		workspaces: []WorkspaceSummary{{ID: "ws_1", Name: "test-ws"}},
-	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-add-form", nil)
-	h.partialPeerAddForm(w, r)
+	h.partialPeerAddForm(w, httptest.NewRequest("GET", "/ui/partials/peer-add-form", nil))
 	body := w.Body.String()
-	for _, want := range []string{"Add Federation Peer", "trust_mode", "mtls", "api_key", "test-ws"} {
+	for _, want := range []string{"Add Federation Peer", `name="node_id"`, `name="inbound_key"`, `name="api_key"`, `type="password"`, `name="timeout_ms"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peer add form missing %q", want)
 		}
 	}
 }
 
-func TestPeerAdd(t *testing.T) {
+// TestPeerAdd_ReachesRegistry: the console's add form creates the peer in
+// the runtime registry, keys write-only.
+func TestPeerAdd_ReachesRegistry(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("name=west-peer&endpoint=https://peer.example.com&trust_mode=mtls"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerAdd(w, r)
+	pm := realPeers(t)
+	h.SetPeers(pm)
+	id := types.NewID()
+	w := postForm(h.handlePeerAdd, "/ui/api/peers/add",
+		"node_id="+id+"&name=west-peer&endpoint=https://peer.example.com&inbound_key=in-secret&api_key=out-secret&timeout_ms=2500")
 	if w.Header().Get("HX-Redirect") != "/ui/federation" {
-		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+		t.Fatalf("add: %q %s", w.Header().Get("HX-Redirect"), w.Body.String())
+	}
+	peers, _ := pm.List(context.Background())
+	if len(peers) != 1 || peers[0].NodeID != id || peers[0].Name != "west-peer" || !peers[0].HasInboundKey || !peers[0].HasAPIKey || peers[0].TimeoutMS != 2500 {
+		t.Fatalf("registry = %+v", peers)
 	}
 }
 
-func TestPeerAdd_MissingName(t *testing.T) {
+func TestPeerAdd_Validation(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("endpoint=https://peer.example.com"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerAdd(w, r)
-	if !strings.Contains(w.Body.String(), "Name and endpoint are required") {
-		t.Error("expected validation error for missing name")
+	h.SetPeers(realPeers(t))
+	if w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "endpoint=https://peer.example.com"); !strings.Contains(w.Body.String(), "Node ID, name and endpoint are required") {
+		t.Errorf("missing fields: %s", w.Body.String())
+	}
+	if w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "node_id=peer_1&name=x&endpoint=https://x"); !strings.Contains(w.Body.String(), "node_id must be a UUID") {
+		t.Errorf("bad node id: %s", w.Body.String())
 	}
 }
 
 func TestPeerEditForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers: []PeerInfo{
-			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws_1"}},
-		},
-	})
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=peer_1", nil)
-	h.partialPeerEditForm(w, r)
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+peers[0].NodeID, nil))
 	body := w.Body.String()
-	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", "api_key"} {
+	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", peers[0].NodeID, "blank keeps the stored key"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peer edit form missing %q", want)
 		}
+	}
+	if strings.Contains(body, "key-west") {
+		t.Error("edit form shows a stored key")
+	}
+}
+
+// TestPeerUpdate_KeepsKeys: editing without retyping keys keeps them and
+// can revoke the peer.
+func TestPeerUpdate_KeepsKeys(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	id := peers[0].NodeID
+	w := postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com&revoked=true")
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("update: %s", w.Body.String())
+	}
+	peers, _ = pm.List(context.Background())
+	if p := peers[0]; p.Name != "west-2" || p.URL != "https://west2.example.com" || !p.Revoked || !p.HasInboundKey || !p.HasAPIKey {
+		t.Fatalf("after update = %+v, want renamed, revoked, keys kept", p)
 	}
 }
 
 func TestPeerEditForm_NotFound(t *testing.T) {
 	h := mustHandler(t)
-	h.SetFederation(&FederationInfo{FederationID: "fed_1"})
+	h.SetPeers(realPeers(t))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=nonexistent", nil)
-	h.partialPeerEditForm(w, r)
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+types.NewID(), nil))
 	if !strings.Contains(w.Body.String(), "Peer not found") {
 		t.Error("expected peer not found error")
 	}
@@ -2951,78 +3008,50 @@ func TestPeerEditForm_NotFound(t *testing.T) {
 
 func TestPeerRemoveForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-remove-form?id=peer_1", nil)
-	h.partialPeerRemoveForm(w, r)
+	h.partialPeerRemoveForm(w, httptest.NewRequest("GET", "/ui/partials/peer-remove-form?id="+peers[0].NodeID, nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "Remove Peer") {
-		t.Error("missing Remove Peer heading")
-	}
-	if !strings.Contains(body, "west") {
-		t.Error("missing peer name in confirm")
+	if !strings.Contains(body, "Remove Peer") || !strings.Contains(body, "west") || !strings.Contains(body, peers[0].NodeID) {
+		t.Errorf("remove form = %s", body)
 	}
 }
 
-func TestPeerRemove_WrongConfirm(t *testing.T) {
+func TestPeerRemove(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=wrong"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerRemove(w, r)
-	if !strings.Contains(w.Body.String(), "Type") {
-		t.Error("expected confirmation error")
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	id := peers[0].NodeID
+	if w := postForm(h.handlePeerRemove, "/ui/api/peers/remove", "id="+id+"&confirm=wrong"); !strings.Contains(w.Body.String(), "Type") {
+		t.Errorf("wrong confirm: %s", w.Body.String())
 	}
-}
-
-func TestPeerRemove_Correct(t *testing.T) {
-	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=west"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerRemove(w, r)
+	if peers, _ := pm.List(context.Background()); len(peers) != 1 {
+		t.Fatal("a wrong confirmation removed the peer")
+	}
+	w := postForm(h.handlePeerRemove, "/ui/api/peers/remove", "id="+id+"&confirm=west")
 	if w.Header().Get("HX-Redirect") != "/ui/federation" {
-		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+		t.Fatalf("remove: %s", w.Body.String())
+	}
+	if peers, _ := pm.List(context.Background()); len(peers) != 0 {
+		t.Fatalf("after remove: %+v", peers)
 	}
 }
 
 func TestFederationStatusHasCRUDButtons(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers: []PeerInfo{
-			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "mtls"},
-		},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "fed_1"})
+	h.SetPeers(realPeers(t, "west"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/federation-status", nil)
-	h.partialFederationStatus(w, r)
+	h.partialFederationStatus(w, httptest.NewRequest("GET", "/ui/partials/federation-status", nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "Add Peer") {
-		t.Error("missing Add Peer button")
-	}
-	if !strings.Contains(body, "Edit") {
-		t.Error("missing Edit button on peer row")
-	}
-	if !strings.Contains(body, "Remove") {
-		t.Error("missing Remove button on peer row")
-	}
-	if !strings.Contains(body, "fed-modal-container") {
-		t.Error("missing modal container")
+	for _, want := range []string{"Add Peer", "Edit", "Remove", "fed-modal-container", "active"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("federation status missing %q", want)
+		}
 	}
 }
 
