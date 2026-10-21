@@ -9,6 +9,7 @@ import (
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/adapter/compliance"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -307,4 +308,54 @@ func TestCapabilities(t *testing.T) {
 
 func TestQuery_CursorPagination_TiedTimestamps(t *testing.T) {
 	compliance.LedgerCursorContract(t, openLedger(t))
+}
+
+// TestQuery_SubSecondOrderAndRange (#6155): entries 100 ms and 120 ms
+// into the same second come back newest first, and a since boundary
+// between them is exact. RFC3339Nano text ("…05.1Z" vs "…05.12Z")
+// ordered these backwards.
+func TestQuery_SubSecondOrderAndRange(t *testing.T) {
+	s := openLedger(t)
+	ctx := context.Background()
+	ws := types.NewID()
+	base := time.Date(2026, 10, 21, 12, 0, 5, 0, time.UTC)
+	early := api.LedgerEntry{LedgerID: types.NewID(), WorkspaceID: ws, Op: "a", AgentID: "x", Timestamp: base.Add(100 * time.Millisecond)}
+	late := api.LedgerEntry{LedgerID: types.NewID(), WorkspaceID: ws, Op: "b", AgentID: "x", Timestamp: base.Add(120 * time.Millisecond)}
+	if err := s.AppendBatch(ctx, []api.LedgerEntry{early, late}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Limit: 10})
+	if err != nil || len(got) != 2 || got[0].LedgerID != late.LedgerID {
+		t.Fatalf("order = %v (%v), want the 120ms entry first", got, err)
+	}
+	since := base.Add(110 * time.Millisecond)
+	got, _, _ = s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Since: &since, Limit: 10})
+	if len(got) != 1 || got[0].LedgerID != late.LedgerID {
+		t.Fatalf("since 110ms = %v, want only the 120ms entry", got)
+	}
+}
+
+// TestOpen_NormalizesOldTimestamps: rows written in the old
+// variable-width format are rewritten on Open and then order correctly.
+func TestOpen_NormalizesOldTimestamps(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "ledger.db")
+	s := openLedgerAt(t, dsn)
+	ws := types.NewID()
+	for id, ts := range map[string]string{"old-a": "2026-10-21T12:00:05.1Z", "old-b": "2026-10-21T12:00:05.12Z"} {
+		if _, err := s.db.Exec(`INSERT INTO memora_ledger (ledger_id, workspace_id, op, agent_id, ts) VALUES (?, ?, 'op', 'x', ?)`, id, ws, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = s.Close()
+
+	s = openLedgerAt(t, dsn)
+	got, _, err := s.Query(context.Background(), adapter.LedgerQuery{WorkspaceID: ws, Limit: 10})
+	if err != nil || len(got) != 2 || got[0].LedgerID != "old-b" {
+		t.Fatalf("order after normalization = %v (%v), want old-b (.12s) first", got, err)
+	}
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM memora_ledger WHERE length(ts) != 30`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d rows still have variable-width ts", n)
+	}
 }

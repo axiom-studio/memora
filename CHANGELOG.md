@@ -50,6 +50,10 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The SQLite ledger stores `ts` in a fixed-width UTC layout, so audit
+  order and `since`/`until` filters are chronological within a second
+  (#6155). Before, `RFC3339Nano` text put `…05.1Z` after `…05.12Z`.
+  Existing rows are rewritten once when the ledger opens.
 - The default chunker (also used by `markdown` and `code-go`) produced
   cumulative cells on long paragraphs: each cell repeated everything
   before it, so the last cell was the whole document. That stored and
