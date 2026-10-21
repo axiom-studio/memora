@@ -432,8 +432,8 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 }
 
 // /v1/search — node-wide search. In multi-tenant mode the request is
-// pinned to the X-Memora-Workspace tenant: node-wide must never mean
-// cross-tenant.
+// pinned to the X-Memora-Workspace tenant and refused without one:
+// node-wide must never mean cross-tenant, so the pin fails closed.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -445,8 +445,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, 400, "invalid_input", err.Error(), nil)
 		return
 	}
-	if tenant, _ := r.Context().Value(ctxKeyWorkspace).(string); tenant != "" {
+	tenant, _ := r.Context().Value(ctxKeyWorkspace).(string)
+	switch {
+	case tenant != "":
 		req.WorkspaceIDs = []string{tenant}
+	case s.cfg.Mode == "multi-tenant":
+		s.writeError(w, 400, "missing_workspace", "X-Memora-Workspace is required in multi-tenant mode", nil)
+		return
 	}
 	resp, err := s.cfg.Service.Search(r.Context(), req)
 	if err != nil {

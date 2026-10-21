@@ -309,7 +309,7 @@ func serve() {
 	})
 
 	if cfg.Server.MCPEnable {
-		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: resolvedKey})
+		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: resolvedKey, MultiTenant: cfg.Server.Mode == "multi-tenant"})
 		logger.Info("MCP WebSocket endpoint enabled", "path", "/mcp")
 	}
 
@@ -478,7 +478,7 @@ func runMCP() {
 	}
 	defer closeAdapters()
 
-	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey})
+	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey, MultiTenant: cfg.Server.Mode == "multi-tenant"})
 	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, svc.Embedder.ModelID())
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
 		bootLog.Fatalf("mcp serve: %v", err)

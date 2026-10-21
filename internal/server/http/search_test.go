@@ -100,3 +100,28 @@ func TestSearch_E2E_Client(t *testing.T) {
 		t.Fatalf("Client.Search results = %+v, want one hit in %s (not %s)", resp.Results, wsB, wsA)
 	}
 }
+
+// TestSearch_E2E_MultiTenantFailsClosed (#6159): in multi-tenant mode a
+// search without the tenant header is refused rather than widened to
+// every tenant, and a non-UUID tenant header is invalid input.
+func TestSearch_E2E_MultiTenantFailsClosed(t *testing.T) {
+	srv := httpserver.New(httpserver.Config{
+		Service:      newTestService(t),
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		MaxBodyBytes: httpserver.DefaultMaxBodyBytes,
+		Mode:         "multi-tenant",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	seedTwoWorkspaces(t, ts, "tenant data")
+
+	status, body := doJSON(t, ts.Client(), jsonReq(t, "POST", ts.URL+"/v1/search", map[string]any{"query": "tenant data"}, nil))
+	if status != 400 || body["error_code"] != "missing_workspace" {
+		t.Fatalf("no tenant header: status=%d body=%v, want 400 missing_workspace", status, body)
+	}
+	status, body = doJSON(t, ts.Client(), jsonReq(t, "POST", ts.URL+"/v1/search", map[string]any{"query": "tenant data"},
+		map[string]string{"X-Memora-Workspace": "tenant-a"}))
+	if status != 400 || body["error_code"] != "invalid_input" {
+		t.Fatalf("non-UUID tenant header: status=%d body=%v, want 400 invalid_input", status, body)
+	}
+}

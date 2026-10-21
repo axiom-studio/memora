@@ -172,6 +172,10 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
+		if s.multiTenant && len(in.WorkspaceIDs) == 0 {
+			// Fail closed: node-wide must never mean cross-tenant.
+			return nil, fmt.Errorf("%w: workspace_ids is required in multi-tenant mode", types.ErrInvalidInput)
+		}
 		return s.svc.Search(ctx, in)
 	case "memora_pin":
 		var in struct {

@@ -308,6 +308,10 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		// Multi-tenant: resolve workspace from header when in multi-tenant mode.
 		if s.cfg.Mode == "multi-tenant" {
 			if ws := r.Header.Get("X-Memora-Workspace"); ws != "" {
+				if _, err := types.ParseID("X-Memora-Workspace", ws); err != nil {
+					s.writeErrorFromService(w, err)
+					return
+				}
 				ctx = context.WithValue(ctx, ctxKeyWorkspace, ws)
 			}
 		}

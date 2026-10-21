@@ -209,3 +209,17 @@ func TestDispatch_Search_NodeWide(t *testing.T) {
 		t.Fatalf("memora_search workspaces = %v, want %v", got, wsIDs)
 	}
 }
+
+// TestDispatch_Search_MultiTenantNeedsWorkspaceIDs (#6159): MCP has no
+// tenant header, so in multi-tenant mode memora_search refuses node-wide
+// scope and searches only the workspace_ids given.
+func TestDispatch_Search_MultiTenantNeedsWorkspaceIDs(t *testing.T) {
+	s := NewServerWithConfig(newTestService(t), testLogger(), Config{MultiTenant: true})
+	ws := createWorkspace(t, s, map[string]any{"name": "tenant"})
+	if _, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "x"}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("node-wide search in multi-tenant mode: err = %v, want ErrInvalidInput", err)
+	}
+	if _, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "x", "workspace_ids": []string{ws}}); err != nil {
+		t.Fatalf("scoped search in multi-tenant mode: %v", err)
+	}
+}

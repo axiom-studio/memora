@@ -155,8 +155,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 - Node-wide search: `POST /v1/search`, MCP tool `memora_search` and
   `memora-cli search` query every workspace on the node, or those in
   `workspace_ids`, in keyword, vector or hybrid mode. Hits carry
-  `workspace_id`. In `multi-tenant` mode a search stays inside the
-  `X-Memora-Workspace` tenant. `adapter.VectorQuery` gains `WorkspaceIDs`
+  `workspace_id`. In `multi-tenant` mode `/v1/search` requires the
+  `X-Memora-Workspace` header (400 `missing_workspace` without it; the
+  header must be a UUID) and stays inside that workspace. `memora_search`
+  requires `workspace_ids` (#6159). This is a scoping aid, not tenant
+  isolation: holders of the shared API key can read every workspace.
+  `adapter.VectorQuery` gains `WorkspaceIDs`
   and `AllWorkspaces`; a query with no scope is now invalid input
   rather than matching nothing.
 - Opt-in async embedding (`embedding.async`, `MEMORA_EMBEDDING_ASYNC`,

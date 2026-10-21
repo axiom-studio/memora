@@ -269,11 +269,12 @@ func TestMultiTenantWorkspaceHeader(t *testing.T) {
 	h := s.middleware(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	req.Header.Set("X-Memora-Workspace", "ws_tenant42")
+	tenant := types.NewID()
+	req.Header.Set("X-Memora-Workspace", tenant)
 	gotWS = ""
 	h.ServeHTTP(httptest.NewRecorder(), req)
-	if gotWS != "ws_tenant42" {
-		t.Errorf("workspace = %q, want ws_tenant42", gotWS)
+	if gotWS != tenant {
+		t.Errorf("workspace = %q, want %s", gotWS, tenant)
 	}
 }
 

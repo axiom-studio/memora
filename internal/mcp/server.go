@@ -27,6 +27,10 @@ type Config struct {
 	// local-dev mode. Operators who run memora-core mcp in any other
 	// context MUST set MEMORA_API_KEY.
 	APIKey string
+	// MultiTenant mirrors the server's multi-tenant mode: memora_search
+	// then refuses node-wide scope and requires workspace_ids, since MCP
+	// carries no X-Memora-Workspace tenant header.
+	MultiTenant bool
 }
 
 // Server hosts the MCP request handlers and the tool dispatch table.
@@ -37,6 +41,7 @@ type Server struct {
 	mu          sync.Mutex  // serializes writes to a single transport
 	initialized atomic.Bool // flipped by a successful initialize handshake
 	pinnedAgent string      // set once at initialize when auth verifies identity; read-only thereafter
+	multiTenant bool
 }
 
 // NewServer returns a ready Server with auth disabled. Equivalent to
@@ -52,7 +57,7 @@ func NewServerWithConfig(svc *service.Service, logger *stdlog.Logger, cfg Config
 	if logger == nil {
 		logger = stdlog.Default()
 	}
-	return &Server{svc: svc, logger: logger, apiKey: cfg.APIKey}
+	return &Server{svc: svc, logger: logger, apiKey: cfg.APIKey, multiTenant: cfg.MultiTenant}
 }
 
 func (s *Server) requireAuth() bool { return s.apiKey != "" }

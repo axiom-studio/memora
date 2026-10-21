@@ -92,6 +92,8 @@ Two reserved identities are used internally. Edges created by auto-linking are a
 | `single-tenant` | The workspace comes from the request path. The default. |
 | `multi-tenant` | The `X-Memora-Workspace` header resolves the workspace for the request. |
 
+> **Multi-tenant mode is not an isolation boundary.** The workspace comes from a header the client chooses, and every client holds the same API key, which can read every workspace through the workspace routes. The mode scopes requests for cooperating clients. Node-wide search fails closed: `/v1/search` without the header returns `400 missing_workspace`, and MCP `memora_search` requires `workspace_ids`. Isolating tenants that do not trust each other needs per-tenant credentials, which Memora does not provide.
+
 Requests are capped at 8 MiB and each runs under the configured timeout, 30 seconds by default. Cross-origin requests receive CORS headers only for origins on the configured allow-list; with no allow-list configured, no CORS headers are sent at all.
 
 ## Observability
