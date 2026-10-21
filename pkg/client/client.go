@@ -117,14 +117,35 @@ func errorsAs(err error, target any) bool { return errors.As(err, target) }
 
 // ---- Workspaces ----
 
+// ListWorkspaces returns the first page of workspaces, newest first.
 func (c *Client) ListWorkspaces(ctx context.Context) ([]types.Workspace, error) {
+	ws, _, err := c.ListWorkspacesPage(ctx, "", 0)
+	return ws, err
+}
+
+// ListWorkspacesPage returns one page of workspaces, newest first. Pass
+// "" for the first page and the returned next cursor for the following
+// ones; next is "" on the last page. limit 0 uses the server default.
+func (c *Client) ListWorkspacesPage(ctx context.Context, cursor string, limit int) (ws []types.Workspace, next string, err error) {
+	u := "/v1/workspaces"
+	q := url.Values{}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if e := q.Encode(); e != "" {
+		u += "?" + e
+	}
 	var resp struct {
 		Workspaces []types.Workspace `json:"workspaces"`
+		NextCursor string            `json:"next_cursor"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/v1/workspaces", nil, &resp, ""); err != nil {
-		return nil, err
+	if err := c.do(ctx, http.MethodGet, u, nil, &resp, ""); err != nil {
+		return nil, "", err
 	}
-	return resp.Workspaces, nil
+	return resp.Workspaces, resp.NextCursor, nil
 }
 
 func (c *Client) CreateWorkspace(ctx context.Context, req api.CreateWorkspaceRequest) (*types.Workspace, error) {
@@ -217,11 +238,23 @@ func (c *Client) Forget(ctx context.Context, ws, memID string) (*api.ForgetRespo
 	return &out, nil
 }
 
+// ListMemories returns the first page of a workspace's memories, newest
+// first.
 func (c *Client) ListMemories(ctx context.Context, ws, collectionID string, limit int) ([]types.Memory, error) {
+	mems, _, err := c.ListMemoriesPage(ctx, ws, collectionID, "", limit)
+	return mems, err
+}
+
+// ListMemoriesPage returns one page of memories, newest first, with
+// cursors as in ListWorkspacesPage.
+func (c *Client) ListMemoriesPage(ctx context.Context, ws, collectionID, cursor string, limit int) (mems []types.Memory, next string, err error) {
 	u := "/v1/workspaces/" + ws + "/memories"
 	q := url.Values{}
 	if collectionID != "" {
 		q.Set("collection_id", collectionID)
+	}
+	if cursor != "" {
+		q.Set("cursor", cursor)
 	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
@@ -230,12 +263,13 @@ func (c *Client) ListMemories(ctx context.Context, ws, collectionID string, limi
 		u += "?" + e
 	}
 	var resp struct {
-		Memories []types.Memory `json:"memories"`
+		Memories   []types.Memory `json:"memories"`
+		NextCursor string         `json:"next_cursor"`
 	}
 	if err := c.do(ctx, http.MethodGet, u, nil, &resp, ""); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return resp.Memories, nil
+	return resp.Memories, resp.NextCursor, nil
 }
 
 // ---- Recall ----

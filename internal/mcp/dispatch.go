@@ -216,7 +216,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		return map[string]any{"pin_id": in.PinID, "unpinned": true}, nil
 	case "memora_list_workspaces":
-		return s.svc.Metadata.ListWorkspaces(ctx, 100)
+		ws, _, err := s.svc.Metadata.ListWorkspaces(ctx, "", 100)
+		return ws, err
 	case "memora_create_workspace":
 		var in api.CreateWorkspaceRequest
 		if err := json.Unmarshal(args, &in); err != nil {
@@ -308,7 +309,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Metadata.ListMemories(ctx, in.WorkspaceID, in.CollectionID, in.Limit)
+		mems, _, err := s.svc.Metadata.ListMemories(ctx, in.WorkspaceID, in.CollectionID, "", in.Limit)
+		return mems, err
 	case "memora_get_watermark_history":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`

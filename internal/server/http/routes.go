@@ -91,15 +91,13 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		if limit <= 0 || limit > 200 {
 			limit = 100
 		}
-		ws, err := s.cfg.Service.Metadata.ListWorkspaces(r.Context(), limit+1)
+		ws, nextCursor, err := s.cfg.Service.Metadata.ListWorkspaces(r.Context(), r.URL.Query().Get("cursor"), limit)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
-		var nextCursor string
-		if len(ws) > limit {
-			nextCursor = ws[limit-1].ID
-			ws = ws[:limit]
+		if ws == nil {
+			ws = []types.Workspace{}
 		}
 		resp := map[string]any{"workspaces": ws}
 		if nextCursor != "" {
@@ -319,12 +317,22 @@ func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request, wsID
 	if limit <= 0 {
 		limit = 50
 	}
-	mems, err := s.cfg.Service.Metadata.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), limit)
+	if limit > 1000 {
+		limit = 1000
+	}
+	mems, next, err := s.cfg.Service.Metadata.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), r.URL.Query().Get("cursor"), limit)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
 	}
-	s.writeJSON(w, 200, map[string]any{"memories": mems})
+	if mems == nil {
+		mems = []types.Memory{}
+	}
+	resp := map[string]any{"memories": mems}
+	if next != "" {
+		resp["next_cursor"] = next
+	}
+	s.writeJSON(w, 200, resp)
 }
 
 func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request, wsID, id string) {

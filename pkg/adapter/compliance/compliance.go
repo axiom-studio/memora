@@ -20,6 +20,8 @@ package compliance
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -125,6 +127,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 
 	t.Run("ensure_node_id", func(t *testing.T) {
 		EnsureNodeIDContract(t, factory(t))
+	})
+
+	t.Run("list_chronological", func(t *testing.T) {
+		ListChronologicalContract(t, factory(t))
 	})
 
 	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
@@ -634,5 +640,146 @@ func AgentsPerWorkspaceContract(t *testing.T, s adapter.MetadataStore) {
 		if !found {
 			t.Errorf("agent %s registered in %s is not listed there", shared, ws)
 		}
+	}
+}
+
+// ListChronologicalContract checks ListMemories and ListWorkspaces (ID-6):
+// newest first by (created_at, id), stable across pages, whatever zone
+// created_at was given in, with ties broken by id and a bad cursor
+// refused as ErrInvalidInput.
+func ListChronologicalContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	// Later than anything an earlier run left in a shared database, so
+	// this run's workspaces are the newest. Microseconds, which every
+	// store keeps.
+	base := time.Now().UTC().AddDate(900, 0, 0).Truncate(time.Second)
+	ist := time.FixedZone("IST", 5*3600+30*60)
+	pst := time.FixedZone("PST", -8*3600)
+	at := []time.Time{
+		base,
+		base.Add(30 * time.Minute).In(ist), // later, but "…+05:30" wall clock reads later still
+		base.Add(time.Hour).In(pst),        // later, wall clock reads earlier
+		base.Add(2 * time.Hour),            // two-way tie
+		base.Add(2 * time.Hour),
+		base.Add(3*time.Hour + 100*time.Millisecond),
+		base.Add(3*time.Hour + 120*time.Millisecond),
+		base.Add(3*time.Hour + 500*time.Millisecond),
+	}
+	type row struct {
+		t  time.Time
+		id string
+	}
+	newestFirst := func(rows []row) []string {
+		sort.Slice(rows, func(i, j int) bool {
+			if !rows[i].t.Equal(rows[j].t) {
+				return rows[i].t.After(rows[j].t)
+			}
+			return rows[i].id > rows[j].id
+		})
+		ids := make([]string, len(rows))
+		for i, r := range rows {
+			ids[i] = r.id
+		}
+		return ids
+	}
+
+	ws := &types.Workspace{Name: "list-" + types.NewID()}
+	other := &types.Workspace{Name: "list-other-" + types.NewID()}
+	for _, w := range []*types.Workspace{ws, other} {
+		if err := s.CreateWorkspace(ctx, w); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+	}
+	agent := types.NewID()
+	var rows []row
+	for _, ts := range at {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "list", WrittenByAgentID: agent, CreatedAt: ts}
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatalf("ImprintMemory: %v", err)
+		}
+		rows = append(rows, row{ts, m.ID})
+	}
+	gone := &types.Memory{WorkspaceID: ws.ID, Content: "forgotten", WrittenByAgentID: agent, CreatedAt: base.Add(4 * time.Hour)}
+	foreign := &types.Memory{WorkspaceID: other.ID, Content: "other", WrittenByAgentID: agent, CreatedAt: base.Add(4 * time.Hour)}
+	for _, m := range []*types.Memory{gone, foreign} {
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatalf("ImprintMemory: %v", err)
+		}
+	}
+	if err := s.ForgetMemory(ctx, ws.ID, gone.ID); err != nil {
+		t.Fatalf("ForgetMemory: %v", err)
+	}
+	want := newestFirst(rows)
+
+	var got []string
+	cursor, pages := "", 0
+	for {
+		page, next, err := s.ListMemories(ctx, ws.ID, "", cursor, 3)
+		if err != nil {
+			t.Fatalf("ListMemories(cursor %q): %v", cursor, err)
+		}
+		pages++
+		for _, m := range page {
+			got = append(got, m.ID)
+		}
+		if next == "" {
+			break
+		}
+		if pages > len(want) {
+			t.Fatal("ListMemories: cursor never ends")
+		}
+		cursor = next
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("ListMemories pages = %v\nwant newest first  %v", got, want)
+	}
+	if pages != 3 {
+		t.Fatalf("ListMemories took %d pages of 3 for %d rows, want 3", pages, len(want))
+	}
+	if all, next, err := s.ListMemories(ctx, ws.ID, "", "", 100); err != nil || next != "" || len(all) != len(want) {
+		t.Fatalf("one page = %d rows, next %q, err %v; want %d rows and no next", len(all), next, err, len(want))
+	}
+	if _, _, err := s.ListMemories(ctx, ws.ID, "", "not-a-cursor", 3); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("bad cursor: err = %v, want ErrInvalidInput", err)
+	}
+
+	var wrows []row
+	for i, ts := range []time.Time{at[1], at[2], at[3], at[4]} {
+		w := &types.Workspace{Name: fmt.Sprintf("chrono-%d-%s", i, types.NewID()), CreatedAt: ts.Add(24 * time.Hour)}
+		if err := s.CreateWorkspace(ctx, w); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+		wrows = append(wrows, row{ts.Add(24 * time.Hour), w.ID})
+	}
+	wantWS := newestFirst(wrows)
+	// A shared database may hold workspaces from other runs, so compare
+	// the order this run's workspaces come back in, across pages of 3.
+	mine := map[string]bool{}
+	for _, r := range wrows {
+		mine[r.id] = true
+	}
+	var gotWS []string
+	cursor = ""
+	for len(gotWS) < len(wantWS) {
+		page, next, err := s.ListWorkspaces(ctx, cursor, 3)
+		if err != nil {
+			t.Fatalf("ListWorkspaces: %v", err)
+		}
+		for _, w := range page {
+			if mine[w.ID] {
+				gotWS = append(gotWS, w.ID)
+			}
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	if fmt.Sprint(gotWS) != fmt.Sprint(wantWS) {
+		t.Fatalf("ListWorkspaces newest = %v\nwant              %v", gotWS, wantWS)
+	}
+	if _, _, err := s.ListWorkspaces(ctx, "bm90LWEtY3Vyc29y", 3); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("bad workspace cursor: err = %v, want ErrInvalidInput", err)
 	}
 }

@@ -158,28 +158,50 @@ FROM memora_workspaces WHERE id = $1`, id).Scan(
 	return w, nil
 }
 
-func (s *MetadataStore) ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error) {
+// ListWorkspaces lists workspaces newest first by (created_at, id); see
+// adapter.MetadataStore.
+func (s *MetadataStore) ListWorkspaces(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.pool.Query(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json,
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json,
     auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
     created_at, updated_at
-FROM memora_workspaces ORDER BY created_at DESC LIMIT $1`, limit)
+FROM memora_workspaces`
+	args := []any{}
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += " WHERE (created_at, id) < ($1, $2)"
+		args = append(args, ts, id)
+	}
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit+1)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
 		w, err := scanWorkspacePg(rows)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 func (s *MetadataStore) ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
@@ -497,7 +519,9 @@ func (s *MetadataStore) GetMemoryAtWatermark(ctx context.Context, id, watermark 
 	return nil, fmt.Errorf("%w: at-watermark read for historical wmk %s requires Snapshot (v0.5+)", types.ErrCapability, watermark)
 }
 
-func (s *MetadataStore) ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error) {
+// ListMemories lists live memories newest first by (created_at, id);
+// see adapter.MetadataStore.
+func (s *MetadataStore) ListMemories(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -511,12 +535,21 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		args = append(args, collectionID)
 		argN++
 	}
-	q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", argN)
-	args = append(args, limit)
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", argN, argN+1)
+		args = append(args, ts, id)
+		argN += 2
+	}
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", argN)
+	args = append(args, limit+1)
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Memory
@@ -528,7 +561,7 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		if err := rows.Scan(&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5,
 			&m.HeadWatermark, &m.CreatedWatermark, &m.WrittenByAgentID, &m.LastModifiedByAgentID,
 			&tagsJSON, &m.RecallReady, &m.CreatedAt, &m.UpdatedAt, &deletedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if coll != nil {
 			m.CollectionID = *coll
@@ -539,7 +572,16 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 func (s *MetadataStore) ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {

@@ -42,7 +42,11 @@ type MetadataStore interface {
 
 	CreateWorkspace(ctx context.Context, w *types.Workspace) error
 	GetWorkspace(ctx context.Context, id string) (*types.Workspace, error)
-	ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error)
+	// ListWorkspaces lists newest first, ordered by (created_at, id)
+	// descending. cursor is "" for the first page or a next cursor from
+	// a previous call (EncodeListCursor); next is "" on the last page.
+	ListWorkspaces(ctx context.Context, cursor string, limit int) (ws []types.Workspace, next string, err error)
+	// ListWorkspacesPaged scans in id order for internal sweeps.
 	ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error)
 	UpdateWorkspace(ctx context.Context, w *types.Workspace) error
 	DeleteWorkspace(ctx context.Context, id string) error
@@ -64,7 +68,10 @@ type MetadataStore interface {
 	ImprintMemory(ctx context.Context, m *types.Memory) (watermark string, err error)
 	GetMemory(ctx context.Context, id string) (*types.Memory, error)
 	GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error)
-	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
+	// ListMemories lists live memories newest first, ordered by
+	// (created_at, id) descending, with cursors as in ListWorkspaces.
+	ListMemories(ctx context.Context, workspaceID, collectionID, cursor string, limit int) (mems []types.Memory, next string, err error)
+	// ListMemoriesPaged scans in id order for internal sweeps.
 	ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error)
 	UpdateMemory(ctx context.Context, workspaceID, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
 	AppendMemory(ctx context.Context, workspaceID, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)

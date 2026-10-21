@@ -1,11 +1,21 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"time"
 )
+
+// tsLayout is the fixed-width UTC layout created_at is written in for
+// memories and workspaces, so text order in ORDER BY and the listing
+// cursor is chronological. The driver's default rendering trims trailing
+// fractional zeros, and "…05.1 +0000" sorts after "…05.12 +0000".
+const tsLayout = "2006-01-02T15:04:05.000000000Z"
+
+// formatTS renders t for a created_at column.
+func formatTS(t time.Time) string { return t.UTC().Format(tsLayout) }
 
 // sqliteTime is a time.Time wrapper that scans correctly out of
 // modernc.org/sqlite which round-trips timestamps as ISO-ish strings.
@@ -76,4 +86,37 @@ func nullableTime(ns sql.NullString) *time.Time {
 	}
 	tt := t.Time
 	return &tt
+}
+
+// normalizeCreatedAt rewrites memory and workspace created_at values
+// written before tsLayout. Every tsLayout value is 30 bytes, so only
+// older rows are touched; idempotent, O(old rows), once.
+func (s *Store) normalizeCreatedAt(ctx context.Context) error {
+	for _, table := range []string{"memora_memories", "memora_workspaces"} {
+		rows, err := s.db.QueryContext(ctx, `SELECT id, created_at FROM `+table+` WHERE length(created_at) != 30`)
+		if err != nil {
+			return err
+		}
+		fixed := map[string]string{}
+		for rows.Next() {
+			var id, raw string
+			if err := rows.Scan(&id, &raw); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			var t sqliteTime
+			if err := t.parseString(raw); err == nil { // unparseable: leave as is
+				fixed[id] = formatTS(t.Time)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for id, ts := range fixed {
+			if _, err := s.db.ExecContext(ctx, `UPDATE `+table+` SET created_at = ? WHERE id = ?`, ts, id); err != nil {
+				return fmt.Errorf("%s %s: %w", table, id, err)
+			}
+		}
+	}
+	return nil
 }

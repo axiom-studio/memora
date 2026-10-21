@@ -65,6 +65,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Workspace and memory listings are ordered newest first by
+  `(created_at, id)` and page with an opaque `cursor`/`next_cursor`
+  (ID-6, #4350). `GET /v1/workspaces` used to return a `next_cursor` it
+  then ignored, and memory listing could not page at all. SQLite now
+  writes `created_at` fixed-width in UTC. The driver's zone-dependent
+  text did not sort by instant once a `created_at` arrived in another
+  zone. Existing rows are rewritten once at startup. The
+  `MetadataStore.ListWorkspaces` and `ListMemories` signatures take a
+  cursor and return the next one (adapter authors: see the new
+  `list_chronological` compliance check). The SDK gains
+  `ListWorkspacesPage` and `ListMemoriesPage`.
 - The `noop` embedding model (the default) no longer feeds vector
   search with byte-histogram noise. Vector recall and search return
   `501 capability_unavailable`, and hybrid uses keywords only with

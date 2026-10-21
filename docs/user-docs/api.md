@@ -40,7 +40,7 @@ All paths are relative to `/v1`.
 | Field | Value |
 |---|---|
 | `POST /workspaces` | Create a workspace. |
-| `GET /workspaces` | List workspaces. Cursor-paginated; `limit` defaults to 100 and is capped at 200. |
+| `GET /workspaces` | List workspaces, newest first. `limit` defaults to 100 and is capped at 200. Pass the response's `next_cursor` as `cursor` for the next page; the last page has no `next_cursor`. |
 | `GET /workspaces/{ws}` | Read a workspace. |
 | `PUT /workspaces/{ws}` | Replace a workspace. |
 | `DELETE /workspaces/{ws}` | Delete a workspace. |
@@ -54,7 +54,7 @@ All paths are relative to `/v1`.
 | Field | Value |
 |---|---|
 | `POST /workspaces/{ws}/memories` | Imprint. Accepts an optional per-request chunker and chunker config. |
-| `GET /workspaces/{ws}/memories` | List memories, optionally filtered by `collection_id`. `limit` defaults to 50. |
+| `GET /workspaces/{ws}/memories` | List memories newest first, optionally filtered by `collection_id`. `limit` defaults to 50 and is capped at 1000. Pages with `cursor` and `next_cursor` like `GET /workspaces`. |
 | `GET /workspaces/{ws}/memories/{id}` | Look up a Memory with its Cells. |
 | `PUT /workspaces/{ws}/memories/{id}` | Replace content. Requires a watermark. |
 | `PATCH /workspaces/{ws}/memories/{id}` | Apply diff operations. Requires a watermark. |
@@ -93,6 +93,8 @@ All paths are relative to `/v1`.
 | `GET /workspaces/{ws}/agents/{id}` | Read an agent. |
 | `DELETE /workspaces/{ws}/agents/{id}` | Deactivate an agent. |
 | `GET /workspaces/{ws}/ledger` | Query the audit ledger. Returns `501` if the configured ledger cannot query. |
+
+Listings are ordered by creation time, newest first, with the ID breaking ties, so pages stay stable while new records arrive: a new record appears on the first page and never shifts later pages. Cursors are opaque; a malformed one returns `400 invalid_input`. The SDK's `ListWorkspacesPage` and `ListMemoriesPage` return the next cursor; `ListWorkspaces` and `ListMemories` return the first page. The MCP list tools return the first page only.
 
 Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_id`, `op` (comma-separated), `limit`, and `since_ledger_id` for cursor paging.
 

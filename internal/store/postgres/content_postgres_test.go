@@ -103,7 +103,7 @@ func TestMetadataStore_WorkspaceCRUD(t *testing.T) {
 		t.Fatalf("workspace mismatch: %+v", got)
 	}
 
-	all, err := ms.ListWorkspaces(ctx, 100)
+	all, _, err := ms.ListWorkspaces(ctx, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}

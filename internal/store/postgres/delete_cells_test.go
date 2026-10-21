@@ -61,6 +61,16 @@ func TestBatchLoad_Postgres(t *testing.T) {
 	compliance.BatchLoadContract(t, ms)
 }
 
+func TestListChronological_Postgres(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	ms := &MetadataStore{}
+	if err := ms.Open(context.Background(), adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	compliance.ListChronologicalContract(t, ms)
+}
+
 func TestAgentsPerWorkspace_Postgres(t *testing.T) {
 	dsn := skipWithoutPostgres(t)
 	ms := &MetadataStore{}

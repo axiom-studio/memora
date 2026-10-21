@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestMetadataStore_WorkspaceRoundtrip(t *testing.T) {
 		t.Fatalf("name = %q, want %q", got.Name, "meta-test")
 	}
 
-	list, err := ms.ListWorkspaces(ctx, 100)
+	list, _, err := ms.ListWorkspaces(ctx, "", 100)
 	if err != nil {
 		t.Fatalf("ListWorkspaces: %v", err)
 	}
@@ -181,5 +182,71 @@ func TestMetadataStore_Capabilities(t *testing.T) {
 	}
 	if !caps.SupportsTransactions {
 		t.Fatal("SupportsTransactions should be true")
+	}
+}
+
+// TestOpen_NormalizesLegacyCreatedAt: rows written before the fixed-width
+// layout, in the driver's zone-dependent form, are rewritten at Open, and
+// listing then orders them by instant rather than by text.
+func TestOpen_NormalizesLegacyCreatedAt(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "memora.db")
+	ctx := context.Background()
+	s := &Store{}
+	if err := s.Open(ctx, adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	ws := &types.Workspace{Name: "legacy"}
+	if err := s.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	// The instants are 10:00, 10:00:00.25 and 11:00:00.5 UTC, but as text
+	// the second ("15:30… +0530") sorts newest.
+	legacy := []string{
+		"2026-01-02 10:00:00 +0000 UTC",
+		"2026-01-02 15:30:00.25 +0530 IST",
+		"2026-01-02 11:00:00.5 +0000 UTC",
+	}
+	agent := types.NewID()
+	var ids []string
+	for _, raw := range legacy {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "legacy", WrittenByAgentID: agent}
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE memora_memories SET created_at = ? WHERE id = ?`, raw, m.ID); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.ID)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE memora_workspaces SET created_at = ? WHERE id = ?`, legacy[1], ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+
+	s = &Store{}
+	if err := s.Open(ctx, adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var bad int
+	if err := s.db.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM memora_memories WHERE length(created_at) != 30) +
+		(SELECT count(*) FROM memora_workspaces WHERE length(created_at) != 30)`).Scan(&bad); err != nil {
+		t.Fatal(err)
+	}
+	if bad != 0 {
+		t.Fatalf("%d rows still in a legacy created_at form", bad)
+	}
+	mems, _, err := s.ListMemories(ctx, ws.ID, "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{ids[2], ids[1], ids[0]}
+	var got []string
+	for _, m := range mems {
+		got = append(got, m.ID)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("order = %v, want %v", got, want)
 	}
 }

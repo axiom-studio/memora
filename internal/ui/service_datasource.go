@@ -29,7 +29,7 @@ type ServiceDataSource struct {
 func (s *ServiceDataSource) DashboardStats(ctx context.Context) (DashboardStats, error) {
 	stats := DashboardStats{}
 
-	ws, err := s.Metadata.ListWorkspaces(ctx, 1000)
+	ws, _, err := s.Metadata.ListWorkspaces(ctx, "", 1000)
 	if err != nil {
 		return stats, err
 	}
@@ -37,7 +37,7 @@ func (s *ServiceDataSource) DashboardStats(ctx context.Context) (DashboardStats,
 
 	var totalMem, readyMem int
 	for _, w := range ws {
-		mems, err := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+		mems, _, err := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 		if err != nil {
 			continue
 		}
@@ -81,14 +81,14 @@ func (s *ServiceDataSource) LedgerEntriesSince(ctx context.Context, since time.T
 }
 
 func (s *ServiceDataSource) ListWorkspaces(ctx context.Context) ([]WorkspaceSummary, error) {
-	ws, err := s.Metadata.ListWorkspaces(ctx, 1000)
+	ws, _, err := s.Metadata.ListWorkspaces(ctx, "", 1000)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]WorkspaceSummary, len(ws))
 	for i, w := range ws {
 		agents, _ := s.Metadata.ListAgents(ctx, w.ID, 0)
-		mems, _ := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+		mems, _, _ := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 		out[i] = WorkspaceSummary{
 			ID:             w.ID,
 			Name:           w.Name,
@@ -107,7 +107,7 @@ func (s *ServiceDataSource) GetWorkspace(ctx context.Context, id string) (*Works
 		return nil, err
 	}
 	agents, _ := s.Metadata.ListAgents(ctx, w.ID, 0)
-	mems, _ := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+	mems, _, _ := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 	return &WorkspaceDetail{
 		WorkspaceSummary: WorkspaceSummary{
 			ID:             w.ID,
@@ -203,7 +203,7 @@ func (s *ServiceDataSource) ListCollections(ctx context.Context, wsID string) ([
 	}
 	out := make([]CollectionSummary, len(colls))
 	for i, c := range colls {
-		mems, _ := s.Metadata.ListMemories(ctx, wsID, c.ID, 10000)
+		mems, _, _ := s.Metadata.ListMemories(ctx, wsID, c.ID, "", 10000)
 		out[i] = CollectionSummary{
 			ID:          c.ID,
 			Name:        c.Name,
@@ -265,7 +265,7 @@ func (s *ServiceDataSource) ForgetMemory(ctx context.Context, wsID, memID string
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {
-	mems, err := s.Metadata.ListMemories(ctx, wsID, "", limit)
+	mems, _, err := s.Metadata.ListMemories(ctx, wsID, "", "", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +427,7 @@ func (s *ServiceDataSource) GraphData(ctx context.Context, wsID string, seedMemI
 		}, nil
 	}
 
-	mems, err := s.Metadata.ListMemories(ctx, wsID, "", 200)
+	mems, _, err := s.Metadata.ListMemories(ctx, wsID, "", "", 200)
 	if err != nil {
 		return nil, err
 	}

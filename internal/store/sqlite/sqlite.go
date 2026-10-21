@@ -61,6 +61,10 @@ func (s *Store) Open(ctx context.Context, cfg adapter.MetadataConfig) error {
 		_ = db.Close()
 		return fmt.Errorf("sqlite: migrate: %w", err)
 	}
+	if err := s.normalizeCreatedAt(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("sqlite: normalize created_at: %w", err)
+	}
 	if err := s.ensureLegacyAgent(ctx); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("sqlite: ensure legacy agent: %w", err)
