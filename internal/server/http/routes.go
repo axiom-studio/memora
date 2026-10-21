@@ -812,6 +812,10 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 		!s.validOptionalID(w, "since_ledger_id", r.URL.Query().Get("since_ledger_id")) {
 		return
 	}
+	if s.cfg.Service.Ledger == nil {
+		s.writeError(w, 501, "capability_unavailable", "no LedgerStore is configured", nil)
+		return
+	}
 	caps := s.cfg.Service.Ledger.Capabilities()
 	if !caps.SupportsQuery {
 		s.writeError(w, 501, "capability_unavailable", "configured LedgerStore does not support query", nil)
