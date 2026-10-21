@@ -10,10 +10,29 @@ import (
 
 // VectorConfig is the driver-agnostic input to VectorStore.Open.
 type VectorConfig struct {
-	Driver string         `yaml:"driver" json:"driver"`
-	DSN    string         `yaml:"dsn,omitempty" json:"dsn,omitempty"`
-	Dim    int            `yaml:"dim,omitempty" json:"dim,omitempty"`
-	Extra  map[string]any `yaml:"extra,omitempty" json:"extra,omitempty"`
+	Driver string `yaml:"driver" json:"driver"`
+	DSN    string `yaml:"dsn,omitempty" json:"dsn,omitempty"`
+	Dim    int    `yaml:"dim,omitempty" json:"dim,omitempty"`
+	// Model is the active embedder's model ID. Stores record it on every
+	// row and compare queries only against rows of the same model and
+	// dimension, so vectors from another model are never mixed in (S-7).
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	// Rebuild lets a store whose layout is fixed to another dimension
+	// (pgvector's vector(N) column) discard its vectors and resize at
+	// Open instead of refusing to start. Only `memora-core reembed` sets it.
+	Rebuild bool           `yaml:"-" json:"-"`
+	Extra   map[string]any `yaml:"extra,omitempty" json:"extra,omitempty"`
+}
+
+// ModelAwareVectorStore is implemented by vector stores that record the
+// model and dimension of every row (S-7). Re-embedding uses it to find
+// the cells still to do; /readyz reports StaleVectors.
+type ModelAwareVectorStore interface {
+	// StaleVectors counts rows written by another model or dimension.
+	StaleVectors(ctx context.Context) (int, error)
+	// FreshCells reports which of cellIDs have a vector from the active
+	// model and dimension.
+	FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error)
 }
 
 // VectorCapabilities advertises what a VectorStore can do.

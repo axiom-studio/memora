@@ -76,6 +76,11 @@ func main() {
 		runCheckConfig()
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "reembed" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runReembed()
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "node" {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 		runNode()
@@ -100,6 +105,8 @@ Usage:
   memora-core init-cert [flags]   generate self-signed TLS certificate
   memora-core node id [--config f] print this node's ID and name (minted on first use)
   memora-core node peer-key       generate a federation peer key and its SHA-256
+  memora-core reembed [flags]     re-embed cells written by another embedding model
+                                  (--config f, --workspace id, --dry-run, --batch N)
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -242,6 +249,7 @@ func serve() {
 		bootLog.Fatalf("%v", err)
 	}
 	defer closeAdapters()
+	warnStaleVectors(ctx, svc, logger)
 
 	// Reclaims content blobs stranded when a content write succeeds and the
 	// metadata write fails. Deferred after closeAdapters, so it stops (and

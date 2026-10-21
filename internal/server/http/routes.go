@@ -53,6 +53,13 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		} else {
 			resp.Adapter["vector"] = "ok"
 		}
+		// Rows from another embedding model are skipped by search until
+		// `memora-core reembed` (S-7); readiness is unaffected.
+		if mav, ok := s.cfg.Service.Vector.(adapter.ModelAwareVectorStore); ok {
+			if n, err := mav.StaleVectors(r.Context()); err == nil {
+				resp.Adapter["stale_vectors"] = strconv.Itoa(n)
+			}
+		}
 	}
 	if s.cfg.Service.Ledger != nil {
 		if err := s.cfg.Service.Ledger.Ping(r.Context()); err != nil {

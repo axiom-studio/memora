@@ -225,6 +225,18 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Safe embedding-model changes (S-7, #4360).
+  - Every vector row records its model, as well as its dimension.
+    Search compares only rows from the active model and dimension, and
+    the count of others is shown as `stale_vectors` in `/readyz` and at
+    start-up.
+  - New `memora-core reembed [--workspace] [--dry-run] [--batch]`
+    re-embeds just the stale or missing cells. It is resumable and
+    batched.
+  - pgvector refuses to start when its column is sized for another
+    dimension, pointing at `reembed`, which rebuilds the column.
+  - Vectors written before this change are adopted by the model that
+    opens them at their width.
 - Federation acceptance suite (F-10, #4370). `test/federation_e2e` runs
   real in-process nodes with different embedders. Peers are registered
   at runtime over the API. It covers federated search across both

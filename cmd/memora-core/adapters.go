@@ -26,6 +26,17 @@ import (
 // The returned close func releases every opened store; on error, anything
 // already opened is closed before returning.
 func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logger) (svc *service.Service, closeAll func(), err error) {
+	return openCoreAdaptersWith(ctx, cfg, logger, adapterOptions{})
+}
+
+// adapterOptions are open-time switches for maintenance commands.
+type adapterOptions struct {
+	// RebuildVectors lets a vector store sized for another dimension
+	// discard its vectors and resize (memora-core reembed).
+	RebuildVectors bool
+}
+
+func openCoreAdaptersWith(ctx context.Context, cfg config.Config, logger *slog.Logger, opts adapterOptions) (svc *service.Service, closeAll func(), err error) {
 	// Commands also validate up front to exit with EX_CONFIG; checking here
 	// too means no command can open adapters on an invalid config (#4378).
 	if err := cfg.Validate(); err != nil {
@@ -83,7 +94,10 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 
 	// The vector store sizes its column from Dim, so the embedder opens
 	// first and dictates it (Issue #4375).
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN), Dim: embedProvider.Dim()})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{
+		Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN),
+		Dim: embedProvider.Dim(), Model: embedProvider.ModelID(), Rebuild: opts.RebuildVectors,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open vector (driver %q, dim %d): %w", cfg.Storage.VectorDriver, embedProvider.Dim(), err)
 	}

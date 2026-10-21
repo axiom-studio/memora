@@ -175,6 +175,27 @@ Run it in three passes:
 
 Only after a clean verification should `storage.content_driver` be pointed at the new store in the server's configuration. See [Configuration](configuration.md) for the keys, and [CLI Reference](cli.md) for the full flag list.
 
+## Changing the Embedding Model
+
+Every vector records the model and dimension that produced it, and vector search compares a query only with vectors from the active model. After `embedding.model` changes, the old vectors are kept but not searched. Vector recall returns nothing for memories not yet re-embedded, and keyword search is unaffected. `GET /readyz` reports the count as `stale_vectors`, and the server logs it at start-up.
+
+Re-embed with the new model:
+
+```bash
+memora-core reembed --config memora.toml --dry-run   # count the cells to re-embed
+memora-core reembed --config memora.toml             # re-embed them
+```
+
+| Flag | Value |
+|---|---|
+| `--workspace` | Re-embed one workspace instead of all of them. |
+| `--dry-run` | Count only; write nothing. |
+| `--batch` | Memories per batch. Default `100`. |
+
+It re-embeds only cells whose vector is missing or from another model or dimension, and it writes each batch as it goes. An interrupted run picks up where it stopped when started again, and a run with nothing to do is a no-op. It prints the counts as JSON.
+
+With `pgvector`, the vector column has a fixed width. If the new model's dimension differs, the server refuses to start and names `memora-core reembed`. A real `reembed` run drops the old vectors, which the new model cannot use, resizes the column and re-embeds every cell. A `--dry-run` reports the mismatch and changes nothing. Plan for vector search to be empty until the run finishes, or switch back to the old model to undo.
+
 ## Upgrading from Prefixed IDs
 
 Memora identifiers are UUIDv4s, such as `3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90`. Builds before that change used prefixed ULIDs (`ws_01H…`, `mem_01H…`). Those IDs appear in every table, as vector-store keys and in content-store file paths.

@@ -22,9 +22,14 @@ func init() {
 }
 
 type Store struct {
-	pool *pgxpool.Pool
-	dim  int
+	pool  *pgxpool.Pool
+	dim   int
+	model string // active embedder model ID; rows record theirs
 }
+
+// ErrDimensionMismatch is Open refusing a vector column sized for
+// another embedding dimension.
+var ErrDimensionMismatch = errors.New("pgvector: vector column dimension differs from the embedder's")
 
 func (s *Store) Open(ctx context.Context, cfg adapter.VectorConfig) error {
 	if cfg.DSN == "" {
@@ -53,6 +58,12 @@ func (s *Store) Open(ctx context.Context, cfg adapter.VectorConfig) error {
 		return fmt.Errorf("pgvector: create extension: %w", err)
 	}
 
+	s.model = cfg.Model
+	if err := s.checkDimension(ctx, cfg.Rebuild); err != nil {
+		pool.Close()
+		return err
+	}
+
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS memora_cell_vectors (
     workspace_id  TEXT NOT NULL,
@@ -78,7 +89,81 @@ CREATE TABLE IF NOT EXISTS memora_cell_vectors (
 		}
 	}
 
+	// Per-row model (S-7). Rows written before it are adopted as the
+	// active model's: the column's dimension already matches.
+	for _, stmt := range []string{
+		"ALTER TABLE memora_cell_vectors ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''",
+		"CREATE INDEX IF NOT EXISTS idx_cellvec_model ON memora_cell_vectors(model)",
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			pool.Close()
+			return fmt.Errorf("pgvector: migrate model column: %w", err)
+		}
+	}
+	if s.model != "" {
+		if _, err := pool.Exec(ctx, "UPDATE memora_cell_vectors SET model = $1 WHERE model = ''", s.model); err != nil {
+			pool.Close()
+			return fmt.Errorf("pgvector: adopt existing vectors: %w", err)
+		}
+	}
 	return nil
+}
+
+// checkDimension compares an existing vector column's width with the
+// embedder's. A mismatch refuses Open, since every query would fail; in
+// rebuild mode (memora-core reembed) the old vectors, which the new model
+// cannot use, are dropped with the table and re-created at the new width.
+func (s *Store) checkDimension(ctx context.Context, rebuild bool) error {
+	var typmod int
+	err := s.pool.QueryRow(ctx, `SELECT a.atttypmod FROM pg_attribute a
+WHERE a.attrelid = to_regclass('memora_cell_vectors') AND a.attname = 'embedding' AND NOT a.attisdropped`).Scan(&typmod)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // no table yet
+	}
+	if err != nil {
+		return fmt.Errorf("pgvector: read vector column: %w", err)
+	}
+	if typmod <= 0 || typmod == s.dim {
+		return nil
+	}
+	if !rebuild {
+		return fmt.Errorf("%w: memora_cell_vectors.embedding is vector(%d) but the embedding model produces %d dimensions; "+
+			"run `memora-core reembed` to rebuild the vectors for the new model (or switch back to the old model)",
+			ErrDimensionMismatch, typmod, s.dim)
+	}
+	if _, err := s.pool.Exec(ctx, "DROP TABLE memora_cell_vectors"); err != nil {
+		return fmt.Errorf("pgvector: drop vectors for rebuild: %w", err)
+	}
+	return nil
+}
+
+// StaleVectors implements adapter.ModelAwareVectorStore. The column has
+// one width, so a stale row is one from another model.
+func (s *Store) StaleVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, "SELECT count(*) FROM memora_cell_vectors WHERE model != $1", s.model).Scan(&n)
+	return n, err
+}
+
+// FreshCells implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cellIDs))
+	if len(cellIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, "SELECT cell_id FROM memora_cell_vectors WHERE model = $1 AND cell_id = ANY($2)", s.model, cellIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Close() error {
@@ -127,16 +212,17 @@ func (s *Store) PutVectorsBatch(ctx context.Context, puts []adapter.VectorPut) e
 			collID = p.Key.CollectionID
 		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, embedding, metadata_json, created_at)
-VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, embedding, metadata_json, created_at, model)
+VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8)
 ON CONFLICT(cell_id) DO UPDATE SET
     workspace_id=excluded.workspace_id,
     collection_id=excluded.collection_id,
     memory_id=excluded.memory_id,
     embedding=excluded.embedding,
+    model=excluded.model,
     metadata_json=excluded.metadata_json`,
 			p.Key.WorkspaceID, collID, p.Key.MemoryID, p.Key.CellID,
-			vecStr, nullableJSON(mdJSON), now); err != nil {
+			vecStr, nullableJSON(mdJSON), now, s.model); err != nil {
 			return fmt.Errorf("pgvector: put %s: %w", p.Key.CellID, err)
 		}
 	}
@@ -152,9 +238,10 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 	if err != nil {
 		return nil, err
 	}
-	where := []string{"TRUE"}
-	var args []any
-	argN := 1
+	// Only rows from the active model share its vector space (S-7).
+	where := []string{"model = $1"}
+	args := []any{s.model}
+	argN := 2
 	if workspaces != nil {
 		where = append(where, fmt.Sprintf("workspace_id = ANY($%d)", argN))
 		args = append(args, workspaces)
