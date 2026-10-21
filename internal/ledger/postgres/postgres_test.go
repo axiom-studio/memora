@@ -182,3 +182,23 @@ func TestStore_CursorPagination_TiedTimestamps(t *testing.T) {
 	defer s.Close()
 	compliance.LedgerCursorContract(t, s)
 }
+
+// TestStore_RequestIDRoundTrip (#6156): request_id survives the postgres
+// ledger's write and read paths.
+func TestStore_RequestIDRoundTrip(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	ctx := context.Background()
+	s := &Store{}
+	if err := s.Open(ctx, adapter.LedgerConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ws := types.NewID()
+	if err := s.Append(ctx, api.LedgerEntry{WorkspaceID: ws, Op: "imprint", AgentID: types.NewID(), RequestID: "qa-trace-1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws})
+	if err != nil || len(got) != 1 || got[0].RequestID != "qa-trace-1" {
+		t.Fatalf("entries = %+v (%v), want request_id qa-trace-1", got, err)
+	}
+}
