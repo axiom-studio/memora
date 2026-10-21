@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
-	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/mcp"
 	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
@@ -255,38 +253,8 @@ func serve() {
 		logger.Info("orphan content GC started")
 	}
 
-	// The registry validates the config peers (TLS files included) and
-	// then holds the runtime set: config peers seed the metadata store
-	// once, and the store is the source of truth from then on (F-7).
-	fedReg, err := federation.NewRegistry(cfg.Federation, svc.NodeID)
+	fedReg, fedPeers, err := setupFederation(ctx, cfg, svc, logger)
 	if err != nil {
-		bootLog.Fatalf("federation: %v", err)
-	}
-	var fedPeers *federation.Manager
-	if fedReg != nil {
-		keyFile := cfg.Federation.SecretKeyFile
-		if keyFile == "" {
-			keyFile = filepath.Join(cfg.Storage.DataDir, "federation.key")
-		}
-		sealer, err := federation.LoadSealer(keyFile)
-		if err != nil {
-			bootLog.Fatalf("federation: %v", err)
-		}
-		fedPeers = federation.NewManager(fedReg, svc.Metadata, sealer)
-		fedPeers.AllowClientCertPins = cfg.Server.TLS.Enabled
-		n, err := fedPeers.Seed(ctx, cfg.Federation.Peers)
-		if err != nil {
-			bootLog.Fatalf("federation: seed peers: %v", err)
-		}
-		if err := fedPeers.Reload(ctx); err != nil {
-			bootLog.Fatalf("federation: load peers: %v", err)
-		}
-		logger.Info("federation peers loaded", "peers", len(fedReg.Peers()), "seeded_from_config", n)
-	}
-	if fedReg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
-		bootLog.Fatalf("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
-	}
-	if svc.Federation, err = federation.NewSearcher(fedReg); err != nil {
 		bootLog.Fatalf("federation: %v", err)
 	}
 	for _, p := range fedReg.Peers() {
@@ -512,6 +480,11 @@ func runMCP() {
 		bootLog.Fatalf("%v", err)
 	}
 	defer closeAdapters()
+	// memora_search federated:true and memora_fetch with a node_id need
+	// the same peer registry serve has.
+	if _, _, err := setupFederation(ctx, cfg, svc, logger); err != nil {
+		bootLog.Fatalf("federation: %v", err)
+	}
 
 	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey, MultiTenant: cfg.Server.Mode == "multi-tenant"})
 	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, svc.Embedder.ModelID())

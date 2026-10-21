@@ -14,7 +14,7 @@ import (
 
 func (n *meshNode) peersAPI(t *testing.T, method, path string, body any) (int, map[string]any) {
 	t.Helper()
-	return doJSON(t, n.ts.Client(), jsonReq(t, method, n.ts.URL+path, body, nil))
+	return doJSON(t, n.TS.Client(), jsonReq(t, method, n.TS.URL+path, body, nil))
 }
 
 // TestPeers_E2E_RuntimeRegistry (F-7): peers added over the API are
@@ -29,12 +29,12 @@ func TestPeers_E2E_RuntimeRegistry(t *testing.T) {
 
 	const aToB = "runtime-key-a-to-b-0123456789"
 	if status, body := a.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
-		"node_id": b.id, "name": "b", "url": b.ts.URL, "api_key": aToB, "timeout_ms": 2000,
+		"node_id": b.ID, "name": "b", "url": b.TS.URL, "api_key": aToB, "timeout_ms": 2000,
 	}); status != 200 || body["has_api_key"] != true || body["has_inbound_key"] != false {
 		t.Fatalf("add b on a: %d %v", status, body)
 	}
 	if status, body := b.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
-		"node_id": a.id, "name": "a", "url": a.ts.URL, "inbound_key": aToB,
+		"node_id": a.ID, "name": "a", "url": a.TS.URL, "inbound_key": aToB,
 	}); status != 200 || body["has_inbound_key"] != true {
 		t.Fatalf("add a on b: %d %v", status, body)
 	}
@@ -43,7 +43,7 @@ func TestPeers_E2E_RuntimeRegistry(t *testing.T) {
 		_, body := a.search(t, map[string]any{"query": "nebula", "mode": "keyword", "federated": true})
 		return body
 	}
-	if got := hitNodes(search()); got[memB] != b.id {
+	if got := hitNodes(search()); got[memB] != b.ID {
 		t.Fatalf("after adding b: hits %v, want b's memory", got)
 	}
 
@@ -52,16 +52,16 @@ func TestPeers_E2E_RuntimeRegistry(t *testing.T) {
 		_, list := n.peersAPI(t, "GET", "/v1/federation/peers", nil)
 		raw := toJSON(t, list)
 		if strings.Contains(raw, aToB) || strings.Contains(raw, "sealed") {
-			t.Fatalf("%s's peer list exposes a key: %s", n.name, raw)
+			t.Fatalf("%s's peer list exposes a key: %s", n.Name, raw)
 		}
 		if peers, _ := list["peers"].([]any); len(peers) != 1 {
-			t.Fatalf("%s's peer list = %s", n.name, raw)
+			t.Fatalf("%s's peer list = %s", n.Name, raw)
 		}
 	}
 
 	// Revoke a on b: a's next search gets 403 from b, reported as failed.
 	if status, _ := b.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
-		"node_id": a.id, "name": "a", "url": a.ts.URL, "revoked": true,
+		"node_id": a.ID, "name": "a", "url": a.TS.URL, "revoked": true,
 	}); status != 200 {
 		t.Fatalf("revoke: %d", status)
 	}
@@ -71,7 +71,7 @@ func TestPeers_E2E_RuntimeRegistry(t *testing.T) {
 	}
 
 	// Delete a on b: b refuses a's calls with 401 from the next request.
-	if status, _ := b.peersAPI(t, "DELETE", "/v1/federation/peers/"+a.id, nil); status != 204 {
+	if status, _ := b.peersAPI(t, "DELETE", "/v1/federation/peers/"+a.ID, nil); status != 204 {
 		t.Fatalf("delete a on b: %d", status)
 	}
 	if failed, _ := search()["failed_peers"].([]any); len(failed) != 1 || failed[0].(map[string]any)["error_code"] != "federation_unauthorized" {
@@ -79,15 +79,15 @@ func TestPeers_E2E_RuntimeRegistry(t *testing.T) {
 	}
 
 	// Delete b on a: a no longer asks b at all.
-	before := len(b.receivedPaths())
-	if status, _ := a.peersAPI(t, "DELETE", "/v1/federation/peers/"+b.id, nil); status != 204 {
+	before := len(b.ReceivedPaths())
+	if status, _ := a.peersAPI(t, "DELETE", "/v1/federation/peers/"+b.ID, nil); status != 204 {
 		t.Fatalf("delete b on a: %d", status)
 	}
 	body = search()
-	if lat, _ := body["peer_latency_ms"].(map[string]any); lat[b.id] != nil || body["failed_peers"] != nil || len(b.receivedPaths()) != before {
-		t.Fatalf("after deleting b on a: %v; b received %d new calls", body, len(b.receivedPaths())-before)
+	if lat, _ := body["peer_latency_ms"].(map[string]any); lat[b.ID] != nil || body["failed_peers"] != nil || len(b.ReceivedPaths()) != before {
+		t.Fatalf("after deleting b on a: %v; b received %d new calls", body, len(b.ReceivedPaths())-before)
 	}
-	if status, body := a.peersAPI(t, "DELETE", "/v1/federation/peers/"+b.id, nil); status != 404 {
+	if status, body := a.peersAPI(t, "DELETE", "/v1/federation/peers/"+b.ID, nil); status != 404 {
 		t.Fatalf("second delete: %d %v, want 404", status, body)
 	}
 }
@@ -101,7 +101,7 @@ func TestPeers_E2E_Validation(t *testing.T) {
 		{"node_id": types.NewID(), "url": "https://x"},
 		{"node_id": types.NewID(), "name": "x", "url": "ftp://x"},
 		{"node_id": types.NewID(), "name": "x", "url": "https://x", "tls_cert": "/etc/passwd"},
-		{"node_id": a.id, "name": "self", "url": "https://x"},
+		{"node_id": a.ID, "name": "self", "url": "https://x"},
 		{"node_id": types.NewID(), "name": "x", "url": "https://x", "inbound_key": "k", "inbound_key_sha256": strings.Repeat("ab", 32)},
 		{"node_id": types.NewID(), "name": "x", "url": "https://x", "client_cert_sha256": strings.Repeat("ab", 32)},
 	} {
@@ -121,21 +121,21 @@ func TestPeers_SeedNeverClobbers(t *testing.T) {
 	ctx := context.Background()
 	seedID := types.NewID()
 	cfg := []config.PeerConfig{{NodeID: seedID, Name: "from-config", URL: "https://cfg.example.com", APIKey: "cfg-key"}}
-	if n, err := a.peers.Seed(ctx, cfg); err != nil || n != 1 {
+	if n, err := a.Peers.Seed(ctx, cfg); err != nil || n != 1 {
 		t.Fatalf("first seed = %d, %v", n, err)
 	}
-	if _, err := a.peers.Upsert(ctx, api.PeerRequest{NodeID: seedID, Name: "edited", URL: "https://edited.example.com"}); err != nil {
+	if _, err := a.Peers.Upsert(ctx, api.PeerRequest{NodeID: seedID, Name: "edited", URL: "https://edited.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	restart := func() []api.PeerView {
 		t.Helper()
-		if n, err := a.peers.Seed(ctx, cfg); err != nil || n != 0 {
+		if n, err := a.Peers.Seed(ctx, cfg); err != nil || n != 0 {
 			t.Fatalf("re-seed = %d, %v; want 0 imported", n, err)
 		}
-		if err := a.peers.Reload(ctx); err != nil {
+		if err := a.Peers.Reload(ctx); err != nil {
 			t.Fatal(err)
 		}
-		peers, err := a.peers.List(ctx)
+		peers, err := a.Peers.List(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestPeers_SeedNeverClobbers(t *testing.T) {
 	if peers := restart(); len(peers) != 1 || peers[0].Name != "edited" || !peers[0].HasAPIKey {
 		t.Fatalf("after restart = %+v, want the edit kept (and the seeded key)", peers)
 	}
-	if err := a.peers.Delete(ctx, seedID); err != nil {
+	if err := a.Peers.Delete(ctx, seedID); err != nil {
 		t.Fatal(err)
 	}
 	if peers := restart(); len(peers) != 0 {
@@ -171,23 +171,23 @@ func TestPeers_ConcurrentSearchAndEdit(t *testing.T) {
 					return
 				default:
 				}
-				if _, err := a.svc.Search(ctx, api.SearchRequest{Query: "quasar", Mode: api.RecallModeKeyword, Federated: true}); err != nil {
+				if _, err := a.Svc.Search(ctx, api.SearchRequest{Query: "quasar", Mode: api.RecallModeKeyword, Federated: true}); err != nil {
 					t.Errorf("search: %v", err)
 					return
 				}
-				_, _ = a.svc.FetchMemoryFrom(ctx, b.id, types.NewID())
+				_, _ = a.Svc.FetchMemoryFrom(ctx, b.ID, types.NewID())
 			}
 		}()
 	}
 	for i := 0; i < 30; i++ {
 		id := types.NewID()
-		if _, err := a.peers.Upsert(ctx, api.PeerRequest{NodeID: id, Name: "churn", URL: "http://127.0.0.1:1", APIKey: "k"}); err != nil {
+		if _, err := a.Peers.Upsert(ctx, api.PeerRequest{NodeID: id, Name: "churn", URL: "http://127.0.0.1:1", APIKey: "k"}); err != nil {
 			t.Error(err)
 		}
-		if err := a.peers.Delete(ctx, id); err != nil {
+		if err := a.Peers.Delete(ctx, id); err != nil {
 			t.Error(err)
 		}
-		if _, err := a.peers.Upsert(ctx, api.PeerRequest{NodeID: b.id, Name: "b", URL: b.ts.URL, Revoked: i%2 == 0}); err != nil {
+		if _, err := a.Peers.Upsert(ctx, api.PeerRequest{NodeID: b.ID, Name: "b", URL: b.TS.URL, Revoked: i%2 == 0}); err != nil {
 			t.Error(err)
 		}
 	}

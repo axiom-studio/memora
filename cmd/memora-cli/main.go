@@ -97,6 +97,8 @@ func main() {
 		cmdRecall(ctx, c, g)
 	case "search":
 		cmdSearch(ctx, c, g)
+	case "fetch":
+		cmdFetch(ctx, c, g)
 	case "list":
 		cmdList(ctx, c, g)
 	case "watermarks":
@@ -559,14 +561,25 @@ func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
 	mode := fs.String("mode", "hybrid", "keyword|vector|hybrid")
 	k := fs.Int("k", 5, "max results")
 	workspaces := fs.String("workspaces", "", "comma-separated workspace IDs to search (default: all)")
+	federated := fs.Bool("federated", false, "also search this node's federation peers")
+	peers := fs.String("peers", "", "with --federated: comma-separated peer node IDs (default: all)")
+	perPeerK := fs.Int("per-peer-k", 0, "with --federated: hits per peer (default: --k)")
+	timeoutMS := fs.Int("timeout-ms", 0, "with --federated: per-peer timeout in ms (default: each peer's)")
+	includeContent := fs.Bool("include-content", false, "return each Memory's full content")
 	args := parseArgs(fs, g.Args)
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]")
+		fmt.Fprintln(os.Stderr, "search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...] [--federated [--peers id,...] [--per-peer-k N] [--timeout-ms N]] [--include-content]")
 		os.Exit(exitUsage)
 	}
-	req := api.SearchRequest{Query: strings.Join(args, " "), Mode: api.RecallMode(*mode), K: *k}
+	req := api.SearchRequest{
+		Query: strings.Join(args, " "), Mode: api.RecallMode(*mode), K: *k,
+		Federated: *federated, PerPeerK: *perPeerK, TimeoutMS: *timeoutMS, IncludeContent: *includeContent,
+	}
 	if *workspaces != "" {
 		req.WorkspaceIDs = strings.Split(*workspaces, ",")
+	}
+	if *peers != "" {
+		req.Peers = strings.Split(*peers, ",")
 	}
 	resp, err := c.Search(ctx, req)
 	die(err)
@@ -576,12 +589,38 @@ func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
 	}
 	if len(resp.Results) == 0 {
 		fmt.Println("(no results)")
-		return
 	}
 	for i, h := range resp.Results {
-		fmt.Printf("[%d] score=%.4f ws=%s mem=%s\n    %s\n", i+1, h.Score, h.WorkspaceID, h.MemoryID, truncate(h.Text, 140))
+		node := ""
+		if h.NodeName != "" {
+			node = " node=" + h.NodeName
+		}
+		fmt.Printf("[%d] score=%.4f%s ws=%s mem=%s\n    %s\n", i+1, h.Score, node, h.WorkspaceID, h.MemoryID, truncate(h.Text, 140))
+	}
+	for _, f := range resp.FailedPeers {
+		fmt.Printf("peer %s (%s) did not answer: %s\n", f.Name, f.NodeID, f.ErrorCode)
 	}
 	fmt.Printf("(%d results, %d candidates, %dms)\n", len(resp.Results), resp.TotalCandidatesScanned, resp.LatencyMS)
+}
+
+// cmdFetch is `fetch <memory_id> [--node <node_id>]`: a full Memory from
+// the node that holds it (this node without --node).
+func cmdFetch(ctx context.Context, c *client.Client, g globalFlags) {
+	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
+	node := fs.String("node", "", "node ID of the peer that holds it (default: this node)")
+	args := parseArgs(fs, g.Args)
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "fetch <memory_id> [--node <node_id>]")
+		os.Exit(exitUsage)
+	}
+	env, err := c.FetchMemory(ctx, args[0], *node)
+	die(err)
+	if g.Output != "text" {
+		emit(g, env)
+		return
+	}
+	fmt.Printf("memory:    %s\nnode:      %s (%s)\nworkspace: %s\nwatermark: %s\ncells:     %d\n\n%s\n",
+		env.ID, env.NodeName, env.NodeID, env.WorkspaceID, env.HeadWatermark, len(env.Cells), env.Content)
 }
 
 func cmdList(ctx context.Context, c *client.Client, g globalFlags) {
@@ -969,6 +1008,8 @@ Commands:
   watermarks <mem_id>
   link <src_mem_id> <tgt_mem_id> --type references|...
   search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]
+         [--federated [--peers id,...] [--per-peer-k N] [--timeout-ms N]] [--include-content]
+  fetch <memory_id> [--node <node_id>]
   unlink <edge_id>
   neighbors <mem_id> [--direction out|in|both] [--types ...] [--k N]
   traverse <seed_mem_id> [--depth 1..3] [--direction ...] [--types ...]

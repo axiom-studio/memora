@@ -214,6 +214,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Agent and CLI access to federation (F-9, #4369):
+  - `memora-cli search --federated [--peers …] [--per-peer-k N]
+    [--timeout-ms N] [--include-content]`, with each hit's node in text
+    output.
+  - New `memora-cli fetch <memory_id> [--node <node_id>]`, in every
+    output format.
+  - MCP `memora_search` documents how to cite and fetch a hit, and takes
+    `include_content`/`max_content_bytes`.
+  - The stdio `memora-core mcp` server now builds the federation peer
+    registry, so federated search and peer fetch work there as under
+    `serve`.
 - Runtime federation peer registry (F-7, #4367).
   - Peers live in the metadata store (SQLite and Postgres migrations)
     and are edited with `GET`/`POST /v1/federation/peers` and

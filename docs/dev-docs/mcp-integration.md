@@ -32,10 +32,10 @@ stdin/stdout, and presents the 26 OSS tools to the model.
 |---|---|
 | `memora_imprint` | Create a Memory. |
 | `memora_lookup` | Fetch a Memory. |
-| `memora_fetch` | Fetch a full Memory from the node that holds it; pass a federated hit's `node_id` to reach a peer. |
+| `memora_fetch` | Fetch a full Memory from the node that holds it: pass a search hit's `memory_id` and `node_id`. |
 | `memora_update` / `memora_patch` / `memora_append` | Edit a Memory (CAS). |
 | `memora_forget` | Soft-delete + cascade edges. |
-| `memora_search` | Search every workspace on the node (keyword/vector/hybrid); hits carry `workspace_id`. |
+| `memora_search` | Search every workspace on the node (keyword/vector/hybrid), and with `federated: true` the node's peers (`peers`, `per_peer_k`, `timeout_ms`, `rerank`). Every hit carries `node_id`, `node_name`, `workspace_id`, `memory_id` and `matched_text`, so an agent can cite its source; `include_content` adds the full content. Peers that did not answer are in `failed_peers`. |
 | `memora_recall` | Search (lookup/keyword/vector/hybrid + graph_expansion). |
 | `memora_pin` / `memora_unpin` | Bind a recall to a watermark. |
 | `memora_list_workspaces` + `_create_workspace` / `_get_workspace` / `_delete_workspace` | Workspace admin. |

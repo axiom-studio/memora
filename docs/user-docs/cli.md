@@ -119,7 +119,8 @@ A `--if-match` value that no longer matches the Memory's head returns `412` and 
 
 | Section | Description |
 |---|---|
-| `search <query>` | Search every workspace on the node. |
+| `search <query>` | Search every workspace on the node, and with `--federated` its peers. |
+| `fetch <memory_id>` | Read a full Memory from the node that holds it. |
 | `recall <query>` | Run a recall query. |
 | `pin create --query <text>` | Save a recall query. |
 | `pin list` | List saved queries. |
@@ -134,6 +135,24 @@ Searches every workspace on the node, not just `--workspace`. Each result shows 
 | `--mode` | `hybrid`, `keyword`, or `vector`. Default `hybrid`. |
 | `--k` | Number of results. Default `5`. |
 | `--workspaces` | Comma-separated workspace IDs to search instead of all of them. |
+| `--federated` | Also search this node's federation peers. Each hit shows the node it came from, and peers that did not answer are listed after the results. |
+| `--peers` | With `--federated`, comma-separated node IDs of the peers to ask. Default: all. |
+| `--per-peer-k` | With `--federated`, hits per peer. Default: `--k`. |
+| `--timeout-ms` | With `--federated`, how long to wait for each peer. Default: each peer's configured timeout. |
+| `--include-content` | Return each Memory's full content with its hit. |
+
+### fetch
+
+Reads a full Memory, with its Cells, from the node that holds it. A federated search hit names that node, so `fetch <memory_id> --node <node_id>` reads a peer's memory through this node.
+
+| Field | Value |
+|---|---|
+| `--node` | The node that holds the Memory. Default: this node. |
+
+```bash
+memora-cli search "glacier mass balance" --federated -o json | jq -r '.results[] | "\(.memory_id) \(.node_id)"'
+memora-cli fetch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 --node 1d0e5a01-6c1b-4a7e-9f20-000000000002
+```
 
 ### recall
 
