@@ -233,35 +233,35 @@ func (s *ServiceDataSource) ImprintMemory(ctx context.Context, wsID string, req 
 	if s.ImprintFunc == nil {
 		return nil, fmt.Errorf("imprint not configured")
 	}
-	return s.ImprintFunc(ctx, wsID, "ui-admin", req)
+	return s.ImprintFunc(ctx, wsID, types.ConsoleAgentID, req)
 }
 
 func (s *ServiceDataSource) UpdateMemory(ctx context.Context, wsID, memID string, req api.UpdateRequest) (*api.UpdateResponse, error) {
 	if s.UpdateFunc == nil {
 		return nil, fmt.Errorf("update not configured")
 	}
-	return s.UpdateFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.UpdateFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) PatchMemory(ctx context.Context, wsID, memID string, req api.PatchRequest) (*api.PatchResponse, error) {
 	if s.PatchFunc == nil {
 		return nil, fmt.Errorf("patch not configured")
 	}
-	return s.PatchFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.PatchFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) AppendMemory(ctx context.Context, wsID, memID string, req api.AppendRequest) (*api.AppendResponse, error) {
 	if s.AppendFunc == nil {
 		return nil, fmt.Errorf("append not configured")
 	}
-	return s.AppendFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.AppendFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) ForgetMemory(ctx context.Context, wsID, memID string) (*api.ForgetResponse, error) {
 	if s.ForgetFunc == nil {
 		return nil, fmt.Errorf("forget not configured")
 	}
-	return s.ForgetFunc(ctx, wsID, memID, "ui-admin")
+	return s.ForgetFunc(ctx, wsID, memID, types.ConsoleAgentID)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {
@@ -615,7 +615,7 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 		SourceMemoryID:   sourceMemID,
 		TargetMemoryID:   targetMemID,
 		EdgeType:         types.EdgeType(edgeType),
-		CreatedByAgentID: "ui-admin",
+		CreatedByAgentID: types.ConsoleAgentID,
 	}
 	out, err := s.Graph.Link(ctx, e)
 	if err != nil {
@@ -628,7 +628,7 @@ func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, wsID, edgeID string)
 	if s.Graph == nil {
 		return fmt.Errorf("graph store not configured")
 	}
-	return s.Graph.Unlink(ctx, wsID, edgeID, "ui-admin")
+	return s.Graph.Unlink(ctx, wsID, edgeID, types.ConsoleAgentID)
 }
 
 func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {

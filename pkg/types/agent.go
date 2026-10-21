@@ -56,15 +56,21 @@ const AgentLegacyVibeflowID = "6f1c3a2e-9b4d-4e7a-8c5f-0d2b1e3a4c50"
 // auto-link feature (F14) for system-generated vector_neighbor edges.
 const AgentSystemAutoLinkID = "2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61"
 
+// ConsoleAgentID is the agent the web console writes as: every imprint,
+// edit, forget, link and unlink made through the console is attributed
+// to it (display name "ui-admin").
+const ConsoleAgentID = "8d3b6e1f-4a2c-4f5d-b7e9-0c1a2b3d4e5f"
+
 // ReservedAgentIDs lists all sentinel agent_ids that cannot be
 // assigned to user-created agents.
-var ReservedAgentIDs = []string{AgentLegacyVibeflowID, AgentSystemAutoLinkID}
+var ReservedAgentIDs = []string{AgentLegacyVibeflowID, AgentSystemAutoLinkID, ConsoleAgentID}
 
 // ReservedAgentDisplayNames are the display names the sentinels are
 // registered with; agent IDs carry no meaning of their own.
 var ReservedAgentDisplayNames = map[string]string{
 	AgentLegacyVibeflowID: "legacy-vibeflow",
 	AgentSystemAutoLinkID: "system-auto-link",
+	ConsoleAgentID:        "ui-admin",
 }
 
 // IsReservedAgentID returns true if the given id is a system sentinel.

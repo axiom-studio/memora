@@ -83,7 +83,7 @@ The `Memora-Identity-Provider` header selects the check and defaults to `opaque`
 
 What `opaque` provides is attribution, not authentication: it records who a write claims to be from, inside the trust boundary the API key already established. That is sufficient when every caller shares one key and the deployment trusts them equally. It is not sufficient when two mutually distrusting agents share one Memora instance.
 
-One reserved identity is used internally. Edges created by auto-linking are attributed to the fixed agent ID `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps system-generated edges distinguishable from anything a real agent asserted.
+Two reserved identities are used internally. Edges created by auto-linking are attributed to the fixed agent ID `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps system-generated edges distinguishable from anything a real agent asserted. Writes made through the web console are attributed to `8d3b6e1f-4a2c-4f5d-b7e9-0c1a2b3d4e5f` (display name `ui-admin`).
 
 ## Multi-Tenancy
 
