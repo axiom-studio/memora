@@ -2,8 +2,10 @@ package embedding
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
 	"math"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -71,10 +73,19 @@ func (p *HashProvider) Embed(_ context.Context, texts []string) ([][]float32, er
 }
 
 func init() {
+	// "hash:default" is 384-dimensional; "hash:<n>" sets the dimension
+	// to n (8–4096), to match a vector store sized for another model.
 	Register("hash", func(model string) (Provider, error) {
 		if model == "" {
 			model = "default"
 		}
-		return &HashProvider{model: model, dim: hashDim}, nil
+		dim := hashDim
+		if n, err := strconv.Atoi(model); err == nil {
+			if n < 8 || n > 4096 {
+				return nil, fmt.Errorf("hash: dimension %d out of range 8-4096", n)
+			}
+			dim = n
+		}
+		return &HashProvider{model: model, dim: dim}, nil
 	})
 }

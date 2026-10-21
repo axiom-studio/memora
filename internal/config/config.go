@@ -87,8 +87,11 @@ type FederationConfig struct {
 	Enabled bool `toml:"enabled"`
 	// FederationID is an optional UUIDv4 cluster label. Nodes are
 	// identified by [node] id, never by this.
-	FederationID string       `toml:"federation_id"`
-	Peers        []PeerConfig `toml:"peers"`
+	FederationID string `toml:"federation_id"`
+	// InboundQPS caps each peer's calls to this node's peer routes
+	// (default federation.DefaultInboundQPS).
+	InboundQPS float64      `toml:"inbound_qps"`
+	Peers      []PeerConfig `toml:"peers"`
 }
 
 type PeerConfig struct {
@@ -285,6 +288,9 @@ func (c *Config) Validate() error {
 		if _, err := types.ParseID("federation.federation_id", c.Federation.FederationID); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if c.Federation.InboundQPS < 0 {
+		errs = append(errs, errors.New("federation.inbound_qps must not be negative"))
 	}
 	for i, p := range c.Federation.Peers {
 		if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", i), p.NodeID); err != nil {

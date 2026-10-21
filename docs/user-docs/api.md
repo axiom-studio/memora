@@ -96,6 +96,16 @@ All paths are relative to `/v1`.
 
 Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_id`, `op` (comma-separated), `limit`, and `since_ledger_id` for cursor paging.
 
+### Federation
+
+Other nodes call these routes. They take peer credentials, not the API key; see [Peer Credentials](configuration.md#peer-credentials).
+
+| Field | Value |
+|---|---|
+| `POST /federation/search` | A peer searches every workspace on this node. Body: `query`, `mode`, `k`, `include_content`, `max_content_bytes`, with the same meanings as `POST /search`. Any other field, including `workspace_ids`, is refused with `400`. This node embeds the query text with its own embedder, so peers can use different models. Hits are those of `POST /search` plus `node_id` and `node_name`, which identify this node. The node does not forward the query to its own peers. |
+
+A peer that sends more than `federation.inbound_qps` requests per second (default 100) gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
+
 ### Operational Endpoints
 
 These sit outside `/v1`.
@@ -186,14 +196,20 @@ Every error response carries an `error_code`. Client faults are distinguished fr
 | `missing_agent_id` | 400 — a write arrived without the `Memora-Agent-Id` header. |
 | `unauthorized` | 401 — missing or invalid bearer token. |
 | `agent_verification_failed` | 401 — the identity provider rejected the agent. |
+| `federation_unauthorized` | 401 — a peer route was called with an unknown node ID or a missing or wrong peer key or client certificate. |
+| `federation_peer_revoked` | 403 — the calling peer is revoked. |
+| `federation_multi_tenant` | 403 — federation search is refused in `multi-tenant` mode. |
+| `federation_disabled` | 404 — federation is not enabled on this node. |
 | `not_found` | 404 — the workspace, collection, memory, edge, or agent does not exist. |
 | `method_not_allowed` | 405 — the endpoint exists but not for this HTTP method. |
 | `already_exists` | 409 — the record already exists. |
 | `already_linked_via_synthetic` | 409 — an auto-generated edge already joins these Memories. |
 | `cannot_unlink_synthetic_edge` | 409 — `vector_neighbor` edges cannot be removed by hand. |
 | `not_empty` | 409 — the container still holds records. |
+| `federation_loop` | 409 — this node is already in the request's federation path. |
 | `cas_conflict` | 412 — the supplied watermark does not match the current head. |
 | `quota_exceeded` | 429 — a configured limit was hit. |
+| `rate_limited` | 429 — a peer exceeded `federation.inbound_qps`. `Retry-After` gives the wait in seconds. |
 | `internal_error` | 500 — an unclassified server fault. |
 | `capability_unavailable` | 501 — the configured adapter does not implement the operation. Most often a missing GraphStore, or a LedgerStore that cannot be queried. |
 

@@ -53,7 +53,9 @@ func (p *RateLimiterPool) Allow(peerID string) bool {
 		if d, exists := p.defaults[peerID]; exists {
 			qps = d
 		}
-		lim = rate.NewLimiter(rate.Limit(qps), int(qps))
+		// Burst is one second's worth, and at least 1: a limiter with
+		// burst 0 refuses everything, which a QPS below 1 would give.
+		lim = rate.NewLimiter(rate.Limit(qps), max(1, int(qps)))
 		p.limiters[peerID] = lim
 	}
 	p.mu.Unlock()

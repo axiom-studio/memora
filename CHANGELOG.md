@@ -175,6 +175,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- `POST /v1/federation/search` (F-2, #4363): an authenticated peer
+  searches every workspace on this node. The query arrives as text and
+  is embedded by this node's own embedder. Hits carry `node_id` and
+  `node_name`. The route never forwards the query to other peers. It
+  enforces the two-hop loop guard (`409 federation_loop`) and a
+  per-peer inbound limit, `federation.inbound_qps` (default 100), which
+  answers `429 rate_limited` with `Retry-After`. Both refusals are
+  ledgered as `federation_rejected`. Multi-tenant nodes refuse with
+  `403`.
+- `hash:<n>` sets the offline hash embedder's dimension.
 - Recall and search hits carry their data: `matched_text` (the matching
   Cell's full text, with `cell_id` and `cell_index`), `created_at`, and
   with `include_content` the Memory's `content` (capped by

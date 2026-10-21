@@ -3,11 +3,13 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -20,6 +22,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/metrics", s.metrics)
 
 	s.mux.HandleFunc("/v1/search", s.handleSearch)
+	s.mux.HandleFunc("/v1/federation/search", s.handleFederationSearch)
 	s.mux.HandleFunc("/v1/workspaces", s.handleWorkspaces)
 	s.mux.HandleFunc("/v1/workspaces/", s.handleWorkspacePath)
 }
@@ -871,3 +874,71 @@ func (s *Server) validOptionalID(w http.ResponseWriter, field, id string) bool {
 
 // Used by handlers to bubble named errors up.
 var _ = errors.New
+
+// handleFederationSearch is POST /v1/federation/search, called by an
+// authenticated peer (the middleware has run AuthenticatePeer, including
+// the loop guard). It searches every workspace on this node with this
+// node's own embedder and never fans out further: federation is one hop.
+func (s *Server) handleFederationSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		s.writeError(w, 405, "method_not_allowed", "", nil)
+		return
+	}
+	peer := peerFrom(r.Context())
+	if peer == nil { // unreachable: the middleware authenticates this route
+		s.writeError(w, 401, "federation_unauthorized", "peer authentication required", nil)
+		return
+	}
+	if s.cfg.Mode == "multi-tenant" {
+		// Peers are trusted per node, not per tenant; a node-wide search
+		// would cross tenants, so it fails closed.
+		s.writeError(w, 403, "federation_multi_tenant", "federation search is not available in multi-tenant mode", nil)
+		return
+	}
+	if !s.inbound.Allow(peer.PeerID) {
+		s.ledgerRejected(r, peer.PeerID, "rate_limited")
+		w.Header().Set("Retry-After", s.inboundRetryAfter())
+		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
+		return
+	}
+	var req api.FederationSearchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeError(w, 400, "invalid_input", err.Error(), nil)
+		return
+	}
+	resp, err := s.cfg.Service.Search(r.Context(), api.SearchRequest{
+		Query: req.Query, Mode: req.Mode, K: req.K,
+		IncludeContent: req.IncludeContent, MaxContentBytes: req.MaxContentBytes,
+	})
+	if err != nil {
+		s.writeErrorFromService(w, err)
+		return
+	}
+	for i := range resp.Results {
+		resp.Results[i].NodeID = s.cfg.Service.NodeID
+		resp.Results[i].NodeName = s.cfg.Service.NodeName
+	}
+	s.writeJSON(w, 200, resp)
+}
+
+// ledgerRejected records a refused peer call as a node-level ledger entry
+// (no workspace). F-8 extends this to every rejection reason.
+func (s *Server) ledgerRejected(r *http.Request, peerID, reason string) {
+	if s.cfg.Service == nil {
+		return
+	}
+	e := federation.NewRejectedEntry("", peerID, reason)
+	e.Target = r.URL.Path
+	s.cfg.Service.AppendLedger(r.Context(), e)
+}
+
+// inboundRetryAfter is the Retry-After for a rate-limited peer: the
+// seconds until the limiter refills one token, at least 1.
+func (s *Server) inboundRetryAfter() string {
+	qps := s.cfg.FederationInboundQPS
+	if qps <= 0 {
+		qps = federation.DefaultInboundQPS
+	}
+	return strconv.Itoa(int(math.Max(1, math.Ceil(1/qps))))
+}

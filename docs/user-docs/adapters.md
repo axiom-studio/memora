@@ -61,7 +61,7 @@ The provider is chosen by a `prefix:model` string, set globally through `embeddi
 | Section | Description |
 |---|---|
 | `noop` | No embeddings. The default. Vector search is unavailable and hybrid search uses keywords only. |
-| `hash` | Offline lexical vectors (feature hashing of words): texts that share words are similar. Needs no network, model or native library. |
+| `hash` | Offline lexical vectors (feature hashing of words): texts that share words are similar. Needs no network, model or native library. `hash:default` is 384-dimensional; `hash:<n>` gives `n` dimensions (8–4096). |
 | `local` | A locally hosted embedding model. |
 | `openai` | OpenAI embedding endpoints. |
 | `voyage` | Voyage AI. |

@@ -100,7 +100,11 @@ type RecallHit struct {
 	WrittenByAgentID string            `json:"written_by_agent_id,omitempty"`
 	Via              string            `json:"via"` // "seed" | "graph" | "federation:<peer>"
 	PeerID           string            `json:"peer_id,omitempty"`
-	GraphProvenance  *GraphProvenance  `json:"graph_provenance,omitempty"`
+	// NodeID and NodeName identify the node that holds the memory. A
+	// node answering a peer's federation search sets them.
+	NodeID          string           `json:"node_id,omitempty"`
+	NodeName        string           `json:"node_name,omitempty"`
+	GraphProvenance *GraphProvenance `json:"graph_provenance,omitempty"`
 }
 
 // RecallResponse is the full search result envelope.
@@ -166,6 +170,18 @@ type SearchRequest struct {
 	IncludeContent  bool `json:"include_content,omitempty"`
 	MaxContentBytes int  `json:"max_content_bytes,omitempty"`
 	IncludeCells    bool `json:"include_cells,omitempty"`
+}
+
+// FederationSearchRequest is POST /v1/federation/search, sent by a peer.
+// The query is text: the receiving node embeds it with its own embedder,
+// so peers need not share a model or dimension. It has no workspace
+// fields; a peer searches the whole node.
+type FederationSearchRequest struct {
+	Query           string     `json:"query"`
+	Mode            RecallMode `json:"mode,omitempty"`
+	K               int        `json:"k,omitempty"`
+	IncludeContent  bool       `json:"include_content,omitempty"`
+	MaxContentBytes int        `json:"max_content_bytes,omitempty"`
 }
 
 // Degraded-mode markers reported in RecallResponse.Degraded.

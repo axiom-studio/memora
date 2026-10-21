@@ -114,6 +114,8 @@ TOML table `[node]`. These identify this node to federation peers and in search 
 
 When `node.id` is unset, the node mints a UUIDv4 the first time it starts and stores it in the metadata store. It keeps that ID across restarts, including in containers without a config file. `memora-core node id` prints it. Set `node.id` only to pin a specific ID.
 
+`federation.inbound_qps` caps how many requests per second each peer may send to this node's peer routes. It defaults to `100`.
+
 Federation peers are listed under `[[federation.peers]]`. Each peer needs `node_id`, which is the peer's own node ID (run `memora-core node id` on the peer), plus `name` and `url`. `federation.federation_id` is optional; if set, it is a UUIDv4 label for the cluster.
 
 ### Peer Credentials
@@ -143,7 +145,7 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 | `401` | `federation_unauthorized` | Unknown node ID, missing or wrong key, or missing or wrong client certificate. These causes are not distinguished. |
 | `403` | `federation_peer_revoked` | The peer presented a valid key, but `revoked` is set. |
 | `404` | `federation_disabled` | Federation is not enabled on this node. |
-| `508` | `federation_loop` | This node is already in the request's federation path. |
+| `409` | `federation_loop` | This node is already in the request's federation path. |
 
 Peer routes need peer credentials even when the server runs without an API key.
 

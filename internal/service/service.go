@@ -1233,7 +1233,7 @@ func HTTPStatus(err error) int {
 	case errors.Is(err, types.ErrFederationAuth):
 		return 401
 	case errors.Is(err, types.ErrFederationLoop):
-		return 508
+		return 409
 	default:
 		return 500
 	}

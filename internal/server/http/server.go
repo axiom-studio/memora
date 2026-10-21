@@ -59,6 +59,9 @@ type Config struct {
 	// Federation authenticates the routes peers call (federation.IsPeerRoute),
 	// which take peer credentials instead of APIKey. nil = federation off.
 	Federation *federation.Registry
+	// FederationInboundQPS caps each peer's calls to the peer routes
+	// (0 = federation.DefaultInboundQPS).
+	FederationInboundQPS float64
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -68,6 +71,8 @@ type Server struct {
 	cfg Config
 	mux *http.ServeMux
 	srv *http.Server
+	// inbound rate-limits each calling peer on the peer routes.
+	inbound *federation.RateLimiterPool
 }
 
 // DefaultMaxBodyBytes caps request bodies at 8 MiB. Memora's largest
@@ -117,7 +122,7 @@ func New(cfg Config) *Server {
 	}
 
 	mux := http.NewServeMux()
-	s := &Server{cfg: cfg, mux: mux}
+	s := &Server{cfg: cfg, mux: mux, inbound: federation.NewInboundPool(cfg.FederationInboundQPS)}
 	s.routes()
 
 	uiHandler, err := ui.NewHandler()
@@ -308,6 +313,10 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			res, err := federation.AuthenticatePeer(r, s.cfg.Federation)
 			if err != nil {
+				if errors.Is(err, types.ErrFederationLoop) {
+					// Loop is checked only after the peer authenticated.
+					s.ledgerRejected(r, r.Header.Get(federation.HeaderLocalInstanceID), "loop")
+				}
 				s.writeErrorFromService(w, err)
 				return
 			}

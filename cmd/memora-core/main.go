@@ -330,6 +330,8 @@ func serve() {
 		},
 		UIFederation: uiFederation,
 		Federation:   fedReg,
+
+		FederationInboundQPS: cfg.Federation.InboundQPS,
 	})
 
 	if cfg.Server.MCPEnable {

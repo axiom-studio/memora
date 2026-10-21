@@ -61,3 +61,22 @@ func TestSearchable(t *testing.T) {
 		t.Fatalf("Searchable: noop=%v nil=%v hash=%v; want false false true", Searchable(noop), Searchable(nil), Searchable(hash))
 	}
 }
+
+func TestHashProvider_Dimension(t *testing.T) {
+	p, err := Open("hash:128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vecs, err := p.Embed(context.Background(), []string{"telescope calibration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Dim() != 128 || len(vecs[0]) != 128 {
+		t.Fatalf("Dim() = %d, len = %d, want 128", p.Dim(), len(vecs[0]))
+	}
+	for _, bad := range []string{"hash:4", "hash:5000"} {
+		if _, err := Open(bad); err == nil {
+			t.Errorf("Open(%q): want an out-of-range error", bad)
+		}
+	}
+}
