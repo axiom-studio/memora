@@ -65,6 +65,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Agent, tag and time filters no longer cut recall and search short
+  (S-4, #4359).
+  - Keyword search applies them in SQL (SQLite FTS5 and Postgres). It
+    uses the `memora_tags` table for tags.
+  - Vector search refills, asking the vector store again with a doubled
+    limit until `k` memories match or the store is exhausted (capped at
+    20,000 cells).
+  - Before, the top `k` were taken first and then filtered, so a filter
+    could return few or no hits while plenty of matches existed.
+  - `adapter.VectorFilter` is now `adapter.MemoryFilter` (alias kept),
+    and `KeywordQuery` gains `Filter`.
 - Federated search merges by rank, not score (F-5, #4365). Local and
   peer hit lists are fused with reciprocal rank fusion, the same
   function hybrid search uses, keyed on `(node_id, memory_id)`. The

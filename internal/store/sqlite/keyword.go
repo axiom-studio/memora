@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -44,6 +45,7 @@ func (s *Store) SearchKeyword(ctx context.Context, q adapter.KeywordQuery) ([]ad
 		where = append(where, "m.collection_id = ?")
 		args = append(args, q.CollectionID)
 	}
+	where, args = appendMemoryFilter(where, args, q.Filter)
 	args = append(args, k)
 	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
 	rows, err := s.db.QueryContext(ctx, `
@@ -64,4 +66,52 @@ ORDER BY score DESC LIMIT ?`, args...)
 		hits = append(hits, h)
 	}
 	return hits, rows.Err()
+}
+
+// appendMemoryFilter adds the agent, time and tag conditions of f on the
+// memora_memories alias m. created_at is fixed-width UTC text, so the
+// range compares as text.
+func appendMemoryFilter(where []string, args []any, f adapter.MemoryFilter) ([]string, []any) {
+	in := func(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
+	if f.AgentID != "" {
+		where = append(where, "m.written_by_agent_id = ?")
+		args = append(args, f.AgentID)
+	}
+	if len(f.AgentIDIn) > 0 {
+		where = append(where, "m.written_by_agent_id IN ("+in(len(f.AgentIDIn))+")")
+		for _, a := range f.AgentIDIn {
+			args = append(args, a)
+		}
+	}
+	if len(f.AgentIDNotIn) > 0 {
+		where = append(where, "m.written_by_agent_id NOT IN ("+in(len(f.AgentIDNotIn))+")")
+		for _, a := range f.AgentIDNotIn {
+			args = append(args, a)
+		}
+	}
+	if f.TsAfter != nil {
+		where = append(where, "m.created_at >= ?")
+		args = append(args, formatTS(*f.TsAfter))
+	}
+	if f.TsBefore != nil {
+		where = append(where, "m.created_at <= ?")
+		args = append(args, formatTS(*f.TsBefore))
+	}
+	keys := make([]string, 0, len(f.Tags))
+	for k := range f.Tags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vals := f.Tags[k]
+		if len(vals) == 0 {
+			continue
+		}
+		where = append(where, "EXISTS (SELECT 1 FROM memora_tags t WHERE t.memory_id = m.id AND t.key = ? AND t.value IN ("+in(len(vals))+"))")
+		args = append(args, k)
+		for _, v := range vals {
+			args = append(args, v)
+		}
+	}
+	return where, args
 }

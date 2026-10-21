@@ -13,7 +13,11 @@ type KeywordQuery struct {
 	AllWorkspaces bool
 	Query         string
 	CollectionID  string
-	K             int
+	// Filter's agent, time and tag fields are applied in the query, so
+	// the K results are K matching memories (its CollectionID is unused;
+	// set CollectionID above).
+	Filter MemoryFilter
+	K      int
 }
 
 // KeywordHit is one ranked live memory. Score is higher-is-better and

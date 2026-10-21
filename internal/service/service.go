@@ -915,6 +915,7 @@ func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, 
 		AllWorkspaces: scope.AllWorkspaces,
 		Query:         req.Query,
 		CollectionID:  req.Filters.CollectionID,
+		Filter:        memoryFilter(req.Filters),
 		K:             k,
 	}
 	if scope.WorkspaceID != "" {
@@ -953,25 +954,81 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 		return nil, fmt.Errorf("%w: vector search: embedder returned no vector", types.ErrCapability)
 	}
 	scope.Embedding = vecs[0]
-	// Hits are cells; over-fetch so that k distinct memories survive the
-	// collapse to one (best) cell per memory below.
-	scope.K = min(k*cellsPerMemoryOverfetch, maxVectorCandidates)
 	scope.Filter = adapter.VectorFilter{CollectionID: req.Filters.CollectionID}
-	res, err := s.Vector.Query(ctx, scope)
+	filter := memoryFilter(req.Filters)
+	// Hits are cells; over-fetch so that k distinct memories survive the
+	// collapse to one (best) cell per memory below. Vector stores hold no
+	// memory metadata, so agent, time and tag filters are checked here,
+	// and the store is asked again with a doubled limit until k memories
+	// pass or it has no more cells (S-4): a filter never leaves fewer than
+	// k results while more matches exist.
+	limit := min(k*cellsPerMemoryOverfetch, maxVectorCandidates)
+	for {
+		scope.K = limit
+		res, err := s.Vector.Query(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]api.RecallHit, 0, k)
+		seen := make(map[string]bool, k)
+		for _, v := range res { // best first, so the first cell seen per memory is its best
+			if seen[v.Key.MemoryID] {
+				continue
+			}
+			seen[v.Key.MemoryID] = true
+			out = append(out, api.RecallHit{
+				MemoryID: v.Key.MemoryID, WorkspaceID: v.Key.WorkspaceID, CellID: v.Key.CellID,
+				Score: v.Score, VectorScore: v.Score, Via: "seed",
+			})
+		}
+		if filter.HasMemoryFields() {
+			if out, err = s.keepMatching(ctx, out, req.Filters); err != nil {
+				return nil, err
+			}
+		}
+		exhausted := len(res) < limit
+		if len(out) >= k || exhausted || limit >= maxFilteredVectorCandidates {
+			if len(out) > k {
+				out = out[:k]
+			}
+			return out, nil
+		}
+		limit = min(limit*2, maxFilteredVectorCandidates)
+	}
+}
+
+// maxFilteredVectorCandidates caps how many cells a filtered vector
+// search reads while refilling.
+const maxFilteredVectorCandidates = 20000
+
+// memoryFilter maps recall filters onto the store-level filter.
+func memoryFilter(f api.RecallFilters) adapter.MemoryFilter {
+	return adapter.MemoryFilter{
+		CollectionID: f.CollectionID, Tags: f.Tags, TsAfter: f.TsAfter, TsBefore: f.TsBefore,
+		AgentID: f.AgentID, AgentIDIn: f.AgentIDIn, AgentIDNotIn: f.AgentIDNotIn,
+	}
+}
+
+// keepMatching drops hits whose memories fail the filters, in order,
+// with one batched metadata load.
+func (s *Service) keepMatching(ctx context.Context, hits []api.RecallHit, f api.RecallFilters) ([]api.RecallHit, error) {
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.MemoryID
+	}
+	mems, err := s.Metadata.GetMemories(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]api.RecallHit, 0, k)
-	seen := make(map[string]bool, k)
-	for _, v := range res { // best first, so the first cell seen per memory is its best
-		if seen[v.Key.MemoryID] || len(out) == k {
-			continue
+	byID := make(map[string]types.Memory, len(mems))
+	for _, m := range mems {
+		byID[m.ID] = m
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if m, ok := byID[h.MemoryID]; ok && passesFilter(m, f) {
+			out = append(out, h)
 		}
-		seen[v.Key.MemoryID] = true
-		out = append(out, api.RecallHit{
-			MemoryID: v.Key.MemoryID, WorkspaceID: v.Key.WorkspaceID, CellID: v.Key.CellID,
-			Score: v.Score, VectorScore: v.Score, Via: "seed",
-		})
 	}
 	return out, nil
 }

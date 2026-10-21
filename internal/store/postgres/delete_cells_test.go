@@ -51,6 +51,16 @@ func TestKeywordSearch_Postgres(t *testing.T) {
 	compliance.KeywordSearchContract(t, ms)
 }
 
+func TestKeywordFilter_Postgres(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	ms := &MetadataStore{}
+	if err := ms.Open(context.Background(), adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	compliance.KeywordFilterContract(t, ms)
+}
+
 func TestBatchLoad_Postgres(t *testing.T) {
 	dsn := skipWithoutPostgres(t)
 	ms := &MetadataStore{}

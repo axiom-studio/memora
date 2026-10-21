@@ -39,8 +39,11 @@ type VectorKey struct {
 	CellID       string
 }
 
-// VectorFilter is the metadata WHERE pushdown for Query.
-type VectorFilter struct {
+// MemoryFilter restricts a search to memories in a collection, written
+// by given agents, created in a time range (both ends inclusive) or
+// carrying given tags (each key must have one of its listed values).
+// Empty fields do not restrict.
+type MemoryFilter struct {
 	CollectionID string
 	Tags         map[string][]string
 	TsAfter      *time.Time
@@ -49,6 +52,18 @@ type VectorFilter struct {
 	AgentIDIn    []string
 	AgentIDNotIn []string
 }
+
+// HasMemoryFields reports whether the filter restricts anything beyond
+// the collection, which every store can filter on directly.
+func (f MemoryFilter) HasMemoryFields() bool {
+	return len(f.Tags) > 0 || f.TsAfter != nil || f.TsBefore != nil ||
+		f.AgentID != "" || len(f.AgentIDIn) > 0 || len(f.AgentIDNotIn) > 0
+}
+
+// VectorFilter is the filter of a VectorQuery. Vector stores hold no
+// memory metadata, so they apply only CollectionID; the service refills
+// for the rest.
+type VectorFilter = MemoryFilter
 
 // VectorQuery is the input to VectorStore.Query.
 type VectorQuery struct {

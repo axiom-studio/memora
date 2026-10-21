@@ -135,7 +135,7 @@ Every hit is labelled `via: seed` or `via: graph`. Graph-expanded hits carry pro
 
 Expansion scores a hit as `weight × decay^layer × seed score`, with expansion weight defaulting to `0.2`, the per-layer decay fixed at `0.7`, and direction defaulting to `out`. A second-hop neighbour therefore scores well below a direct hit, which is the intent: graph expansion widens recall without letting distant relatives outrank actual matches. When expansion is on, results are truncated to `k` plus the requested maximum number of neighbours rather than to `k` alone.
 
-Filters apply to both seeds and expansion: collection, writing agent (a single value, an `in` list, or a `not_in` list), creation-time range, and tag key/value.
+Filters apply to both seeds and expansion: collection, writing agent (a single value, an `in` list, or a `not_in` list), creation-time range (`ts_after` and `ts_before`, both inclusive), and tag key/value (each listed key must have one of its listed values). They select which memories compete, rather than trimming the top results, so a filtered recall or search returns `k` hits whenever `k` matching memories exist. Keyword search applies them in the index query. Vector search, whose store holds no memory metadata, asks the vector store again with a larger limit until it has `k` matches or has read every cell (at most 20,000 cells).
 
 > **Keyword search matches words, not substrings.** The query is split into words, and a Memory matches if it contains any of them, after English stemming (`running` matches `run`). Punctuation and full-text operators such as quotes, `*`, `NEAR` or `-` are treated as plain text. Searching for part of a word (`roadm` for `roadmap`) finds nothing. Use vector or hybrid mode for that.
 

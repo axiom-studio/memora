@@ -125,6 +125,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		KeywordSearchContract(t, factory(t))
 	})
 
+	t.Run("keyword_filter", func(t *testing.T) {
+		KeywordFilterContract(t, factory(t))
+	})
+
 	t.Run("ensure_node_id", func(t *testing.T) {
 		EnsureNodeIDContract(t, factory(t))
 	})
@@ -872,5 +876,74 @@ func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if err := s.UpsertPeer(ctx, adapter.PeerRecord{NodeID: "peer_1", Name: "x", URL: "https://x"}); !errors.Is(err, types.ErrInvalidInput) {
 		t.Fatalf("UpsertPeer with a bad node_id = %v, want ErrInvalidInput", err)
+	}
+}
+
+// KeywordFilterContract checks that SearchKeyword applies its Filter in
+// the query (S-4): agent, agent sets, a time range and tags restrict the
+// K results to matching memories, even when non-matching memories rank
+// higher.
+func KeywordFilterContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	ws := &types.Workspace{Name: "kwf-" + types.NewID()}
+	if err := s.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	agentA, agentB := types.NewID(), types.NewID()
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	write := func(agent string, at time.Time, tags map[string]string, content string) string {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: content, WrittenByAgentID: agent, Tags: tags, CreatedAt: at}
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatalf("ImprintMemory: %v", err)
+		}
+		return m.ID
+	}
+	// Decoys rank first ("obsidian" four times) and fail every filter.
+	for i := 0; i < 8; i++ {
+		write(agentA, base, map[string]string{"kind": "decoy"}, "obsidian obsidian obsidian obsidian decoy")
+	}
+	byB := write(agentB, base, map[string]string{"kind": "decoy"}, "obsidian once, by agent b")
+	tagged := write(agentA, base, map[string]string{"kind": "target", "site": "north"}, "obsidian once, tagged")
+	late := write(agentA, base.Add(30*time.Minute), map[string]string{"kind": "decoy"}, "obsidian once, written late")
+
+	search := func(f adapter.MemoryFilter) map[string]bool {
+		t.Helper()
+		hits, err := s.SearchKeyword(ctx, adapter.KeywordQuery{WorkspaceIDs: []string{ws.ID}, Query: "obsidian", Filter: f, K: 3})
+		if err != nil {
+			t.Fatalf("SearchKeyword(%+v): %v", f, err)
+		}
+		got := map[string]bool{}
+		for _, h := range hits {
+			got[h.MemoryID] = true
+		}
+		return got
+	}
+	lateFrom := base.Add(10 * time.Minute)
+	for name, c := range map[string]struct {
+		f    adapter.MemoryFilter
+		want []string
+	}{
+		"agent":       {adapter.MemoryFilter{AgentID: agentB}, []string{byB}},
+		"agent in":    {adapter.MemoryFilter{AgentIDIn: []string{agentB, types.NewID()}}, []string{byB}},
+		"tag":         {adapter.MemoryFilter{Tags: map[string][]string{"kind": {"target", "other"}}}, []string{tagged}},
+		"two tags":    {adapter.MemoryFilter{Tags: map[string][]string{"kind": {"target"}, "site": {"north"}}}, []string{tagged}},
+		"after":       {adapter.MemoryFilter{TsAfter: &lateFrom}, []string{late}},
+		"before+tag":  {adapter.MemoryFilter{TsBefore: &lateFrom, Tags: map[string][]string{"kind": {"target"}}}, []string{tagged}},
+		"agent notin": {adapter.MemoryFilter{AgentIDNotIn: []string{agentA}}, []string{byB}},
+	} {
+		got := search(c.f)
+		if len(got) != len(c.want) {
+			t.Errorf("%s: hits %v, want %v", name, got, c.want)
+			continue
+		}
+		for _, id := range c.want {
+			if !got[id] {
+				t.Errorf("%s: hits %v, want %v", name, got, c.want)
+			}
+		}
+	}
+	if got := search(adapter.MemoryFilter{Tags: map[string][]string{"kind": {"target"}, "site": {"south"}}}); len(got) != 0 {
+		t.Errorf("tags that no memory has both of matched %v", got)
 	}
 }
