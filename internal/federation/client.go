@@ -61,8 +61,8 @@ func NewClientPool(reg *Registry) (*ClientPool, error) {
 
 func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if p.TrustMode == TrustMTLS && p.TLSCert != "" {
-		tlsCfg, err := buildMTLSConfig(p.TLSCert)
+	if p.TrustMode == TrustMTLS {
+		tlsCfg, err := buildMTLSConfig(p)
 		if err != nil {
 			return nil, err
 		}
@@ -79,16 +79,29 @@ func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 	}, nil
 }
 
-func buildMTLSConfig(caCertPath string) (*tls.Config, error) {
-	caCert, err := os.ReadFile(caCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("read CA cert %s: %w", caCertPath, err)
+// buildMTLSConfig trusts the peer's CA (TLSCert) when set, and presents
+// this node's client certificate when one is configured.
+func buildMTLSConfig(p Peer) (*tls.Config, error) {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if p.TLSCert != "" {
+		caCert, err := os.ReadFile(p.TLSCert)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert %s: %w", p.TLSCert, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA cert from %s", p.TLSCert)
+		}
+		cfg.RootCAs = pool
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA cert from %s", caCertPath)
+	if p.ClientCertFile != "" {
+		cert, err := tls.LoadX509KeyPair(p.ClientCertFile, p.ClientKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load client cert: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
 	}
-	return &tls.Config{RootCAs: pool}, nil
+	return cfg, nil
 }
 
 func (c *PeerClient) setHeaders(req *http.Request, path string) {

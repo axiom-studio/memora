@@ -28,7 +28,9 @@ type Peer struct {
 	Endpoint         string
 	TrustMode        TrustMode
 	APIKey           string
-	TLSCert          string
+	TLSCert          string // CA for the peer's server certificate
+	ClientCertFile   string // our client certificate for outbound mTLS
+	ClientKeyFile    string
 	Workspaces       []string // empty = all workspaces
 	RateLimitQPS     int
 	RequestTimeoutMS int
@@ -118,7 +120,7 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
 	}
 
 	trust := TrustAPIKey
-	if pc.TLSCert != "" {
+	if pc.TLSCert != "" || pc.ClientCertFile != "" {
 		trust = TrustMTLS
 	}
 
@@ -129,6 +131,8 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
 		TrustMode:        trust,
 		APIKey:           pc.APIKey,
 		TLSCert:          pc.TLSCert,
+		ClientCertFile:   pc.ClientCertFile,
+		ClientKeyFile:    pc.ClientKeyFile,
 		RateLimitQPS:     50,
 		RequestTimeoutMS: 5000,
 		Revoked:          pc.Revoked,

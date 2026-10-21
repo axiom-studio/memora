@@ -99,6 +99,10 @@ type PeerConfig struct {
 	// the peer in X-Memora-Federation-Auth.
 	APIKey  string `toml:"api_key"`
 	TLSCert string `toml:"tls_cert"`
+	// ClientCertFile and ClientKeyFile are the TLS client certificate
+	// this node presents when it calls the peer (outbound mTLS).
+	ClientCertFile string `toml:"client_cert_file"`
+	ClientKeyFile  string `toml:"client_key_file"`
 	// InboundKeySHA256 is the hex SHA-256 of the key the peer presents
 	// to this node. Only the hash is configured, so the key itself never
 	// sits in this node's config. Empty means the peer cannot call in.
@@ -209,6 +213,12 @@ func (c *Config) expandPaths() {
 	c.Server.TLS.CertFile = expandTilde(c.Server.TLS.CertFile)
 	c.Server.TLS.KeyFile = expandTilde(c.Server.TLS.KeyFile)
 	c.Server.APIKeyFile = expandTilde(c.Server.APIKeyFile)
+	for i := range c.Federation.Peers {
+		p := &c.Federation.Peers[i]
+		p.TLSCert = expandTilde(p.TLSCert)
+		p.ClientCertFile = expandTilde(p.ClientCertFile)
+		p.ClientKeyFile = expandTilde(p.ClientKeyFile)
+	}
 }
 
 // GraphEnabled reports whether a graph store should be opened. "" and
@@ -282,6 +292,9 @@ func (c *Config) Validate() error {
 		}
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
+		}
+		if (p.ClientCertFile == "") != (p.ClientKeyFile == "") {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_file and client_key_file must be set together", i))
 		}
 		if p.InboundKeySHA256 != "" && !isSHA256Hex(p.InboundKeySHA256) {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: inbound_key_sha256 must be 64 hex characters", i))

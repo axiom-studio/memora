@@ -24,7 +24,9 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `401`. A peer marked `revoked` gets `403`. `client_cert_sha256`
   optionally pins a TLS client certificate.
   `memora-core node peer-key` generates a key and its hash. The
-  outbound key is now sent in mTLS trust mode too. Before this, nothing
+  outbound key is now sent in mTLS trust mode too, and
+  `client_cert_file`/`client_key_file` make outbound calls present a
+  client certificate (before, mTLS only set the CA). Before this, nothing
   checked a peer's key: inbound calls were matched only by the claimed
   node ID.
 - The Gemini embedding provider sent its API key as a URL query parameter

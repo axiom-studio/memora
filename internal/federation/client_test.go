@@ -2,11 +2,16 @@ package federation
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -186,5 +191,96 @@ func TestPeerClient_KeyAuthenticatesAtPeer(t *testing.T) {
 				t.Errorf("mode %s, key %q: err = %v", mode, k, err)
 			}
 		}
+	}
+}
+
+// TestPeerClient_OutboundMTLS: a client built from peer config trusts
+// the callee's certificate (tls_cert) and presents its own client
+// certificate, which the callee pins (client_cert_sha256). Without the
+// client certificate the same key is refused.
+func TestPeerClient_OutboundMTLS(t *testing.T) {
+	const key = "mtls-round-trip-key-0123456789"
+	serverRes, err := certgen.Generate(certgen.Opts{Host: "127.0.0.1", OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRes, err := certgen.Generate(certgen.Opts{Host: "caller", OutputDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCert, err := tls.LoadX509KeyPair(serverRes.CertPath, serverRes.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCert, err := tls.LoadX509KeyPair(clientRes.CertPath, clientRes.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := sha256.Sum256(clientCert.Certificate[0])
+
+	caller, callee := nid("caller"), nid("callee")
+	calleeReg, err := NewRegistry(config.FederationConfig{
+		Enabled: true,
+		Peers: []config.PeerConfig{{
+			NodeID: caller, Name: "caller", URL: "https://caller.example.com",
+			InboundKeySHA256: sha256Hex(key), ClientCertSHA256: hex.EncodeToString(fp[:]),
+		}},
+	}, callee)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := AuthenticatePeer(r, calleeReg); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(api.RecallResponse{})
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}, ClientAuth: tls.RequestClientCert}
+	srv.StartTLS()
+	defer srv.Close()
+
+	callerReg, err := NewRegistry(config.FederationConfig{
+		Enabled: true,
+		Peers: []config.PeerConfig{
+			{NodeID: callee, Name: "with-cert", URL: srv.URL, APIKey: key, TLSCert: serverRes.CertPath,
+				ClientCertFile: clientRes.CertPath, ClientKeyFile: clientRes.KeyPath},
+		},
+	}, caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := NewClientPool(callerReg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc := pool.clients[callee]
+	if _, err := pc.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, ""); err != nil {
+		t.Fatalf("with client cert: %v", err)
+	}
+
+	noCert := callerReg.Peers()[0]
+	noCert.ClientCertFile, noCert.ClientKeyFile = "", ""
+	pc2, err := newPeerClient(noCert, "", caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pc2.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, ""); err == nil {
+		t.Fatal("without client cert: want 401, got success")
+	}
+}
+
+func TestNewClientPool_BadClientCert(t *testing.T) {
+	reg, err := NewRegistry(config.FederationConfig{
+		Enabled: true,
+		Peers: []config.PeerConfig{{NodeID: nid("p"), Name: "p", URL: "https://p.example.com",
+			ClientCertFile: "/nonexistent/cert.pem", ClientKeyFile: "/nonexistent/key.pem"}},
+	}, nid("self"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewClientPool(reg); err == nil || !strings.Contains(err.Error(), "client cert") {
+		t.Fatalf("err = %v, want a client cert load error", err)
 	}
 }

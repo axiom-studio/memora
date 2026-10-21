@@ -127,12 +127,14 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 | `client_cert_sha256` | string (64 hex characters) | *(empty)* |
 | `revoked` | bool | `false` |
 | `tls_cert` | string (path) | *(empty)* |
+| `client_cert_file`, `client_key_file` | string (path) | *(empty)* |
 
 - **`api_key`** is the key this node sends when it calls the peer. It goes in `X-Memora-Federation-Auth: Bearer <key>`, and the node sends its node ID in `X-Memora-Local-Instance-ID`.
 - **`inbound_key_sha256`** is the SHA-256 of the key the peer sends when it calls this node. Only the hash is configured, so the key never sits in this node's config, logs or responses. The comparison runs in constant time. A peer without it cannot call this node, and the server logs a warning at startup.
 - **`client_cert_sha256`**, when set, also requires the peer to present a TLS client certificate with this SHA-256 fingerprint. It needs `server.tls`; the server refuses to start without it.
 - **`revoked = true`** keeps the peer listed but refuses its calls.
 - **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
+- **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
 
 `memora-core node peer-key` prints a new random key and its SHA-256. Put the key in the calling node's `api_key` for this peer, and the hash in this node's `inbound_key_sha256` for the caller.
 
