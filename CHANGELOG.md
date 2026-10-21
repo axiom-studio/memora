@@ -214,6 +214,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Federation audit, limits and metrics (F-8, #4368).
+  - Ledger ops `federation_search` (caller), `federation_inbound` and
+    `federation_rejected` (receiver), and `federation_fetch` (both
+    sides). The peer's node ID is the entry's actor.
+  - Refusals record their reason (`unknown_peer`, `bad_key`, `bad_cert`,
+    `revoked`, `federation_mismatch`, `loop`, `rate_limited`), which the
+    caller never sees. Query text sits in metadata, so redaction hides
+    it.
+  - Per-peer `inbound_qps` (config, API, store) with
+    `federation.inbound_qps` as the default.
+  - `/metrics` adds `memora_federation_peer_requests_total`,
+    `memora_federation_peer_latency_seconds` and
+    `memora_federation_inbound_total`, with bounded labels.
 - Agent and CLI access to federation (F-9, #4369):
   - `memora-cli search --federated [--peers …] [--per-peer-k N]
     [--timeout-ms N] [--include-content]`, with each hit's node in text

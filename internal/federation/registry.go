@@ -35,6 +35,7 @@ type Peer struct {
 	ClientKeyFile    string
 	ClientCertSHA256 string // hex pin of the peer's client certificate
 	RateLimitQPS     float64
+	InboundQPS       float64 // 0 = the node's federation.inbound_qps
 	RequestTimeoutMS int
 	// Revoked peers stay known but their inbound calls get 403.
 	Revoked bool
@@ -75,6 +76,15 @@ type Registry struct {
 
 	defaults config.FederationConfig // peer timeout and QPS defaults
 	snap     atomic.Pointer[registrySnapshot]
+	metrics  *Metrics
+}
+
+// Metrics returns the node's federation traffic counters.
+func (r *Registry) Metrics() *Metrics {
+	if r == nil {
+		return nil
+	}
+	return r.metrics
 }
 
 type registrySnapshot struct {
@@ -95,7 +105,7 @@ func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, err
 	if _, err := types.ParseID("node id", selfNodeID); err != nil {
 		return nil, fmt.Errorf("federation: %w", err)
 	}
-	r := &Registry{NodeID: selfNodeID, FederationID: cfg.FederationID, defaults: cfg}
+	r := &Registry{NodeID: selfNodeID, FederationID: cfg.FederationID, defaults: cfg, metrics: NewMetrics()}
 	r.defaults.Peers = nil
 	if err := r.Replace(cfg.Peers); err != nil {
 		return nil, err
@@ -207,6 +217,7 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.Feder
 		RateLimitQPS:     firstPositive(pc.RateLimitQPS, fc.OutboundQPS, DefaultOutboundQPS),
 		RequestTimeoutMS: int(firstPositive(float64(pc.TimeoutMS), float64(fc.PeerTimeoutMS), DefaultPeerTimeoutMS)),
 		Revoked:          pc.Revoked,
+		InboundQPS:       pc.InboundQPS,
 	}
 	if pc.InboundKeySHA256 != "" {
 		h, err := decodeSHA256(pc.InboundKeySHA256)

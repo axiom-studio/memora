@@ -74,6 +74,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	_, _ = w.Write([]byte("# Memora minimal metrics\nmemora_up 1\n"))
+	s.cfg.Federation.Metrics().WritePrometheus(w)
 }
 
 // /v1/workspaces (collection)
@@ -926,9 +927,10 @@ func (s *Server) handleFederationSearch(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, 403, "federation_multi_tenant", "federation search is not available in multi-tenant mode", nil)
 		return
 	}
-	if !s.inbound.Allow(peer.PeerID) {
-		s.ledgerRejected(r, peer.PeerID, "rate_limited")
-		w.Header().Set("Retry-After", s.inboundRetryAfter())
+	if qps := s.inboundQPS(peer.PeerID); !s.inbound.AllowRate(peer.PeerID, qps) {
+		s.ledgerRejected(r, peer.PeerID, federation.ReasonRateLimited)
+		s.observeInbound(peer.PeerID, federation.ReasonRateLimited)
+		w.Header().Set("Retry-After", retryAfter(qps))
 		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
 		return
 	}
@@ -942,9 +944,12 @@ func (s *Server) handleFederationSearch(w http.ResponseWriter, r *http.Request) 
 		IncludeContent: req.IncludeContent, MaxContentBytes: req.MaxContentBytes,
 	})
 	if err != nil {
+		s.observeInbound(peer.PeerID, federation.OutcomeError)
 		s.writeErrorFromService(w, err)
 		return
 	}
+	s.observeInbound(peer.PeerID, federation.OutcomeOK)
+	s.cfg.Service.AppendLedger(r.Context(), federation.InboundSearchEntry(peer.PeerID, req.Query, peer.FederationPath, len(resp.Results)))
 	for i := range resp.Results {
 		resp.Results[i].NodeID = s.cfg.Service.NodeID
 		resp.Results[i].NodeName = s.cfg.Service.NodeName
@@ -958,18 +963,35 @@ func (s *Server) ledgerRejected(r *http.Request, peerID, reason string) {
 	if s.cfg.Service == nil {
 		return
 	}
-	e := federation.NewRejectedEntry("", peerID, reason)
-	e.Target = r.URL.Path
-	s.cfg.Service.AppendLedger(r.Context(), e)
+	s.cfg.Service.AppendLedger(r.Context(), federation.RejectedEntry(peerID, reason, r.URL.Path))
 }
 
-// inboundRetryAfter is the Retry-After for a rate-limited peer: the
-// seconds until the limiter refills one token, at least 1.
-func (s *Server) inboundRetryAfter() string {
-	qps := s.cfg.FederationInboundQPS
-	if qps <= 0 {
-		qps = federation.DefaultInboundQPS
+// observeInbound counts a peer-route call for /metrics. A caller that
+// is not a registered peer is counted as "unknown", so callers cannot
+// grow the label space.
+func (s *Server) observeInbound(peerID, outcome string) {
+	label := "unknown"
+	if peerID != "" && s.cfg.Federation.Peer(peerID) != nil {
+		label = peerID
 	}
+	s.cfg.Federation.Metrics().ObserveInbound(label, outcome)
+}
+
+// inboundQPS is the rate a peer may call this node at: its own
+// inbound_qps when set, else federation.inbound_qps, else the default.
+func (s *Server) inboundQPS(peerID string) float64 {
+	if p := s.cfg.Federation.Peer(peerID); p != nil && p.InboundQPS > 0 {
+		return p.InboundQPS
+	}
+	if s.cfg.FederationInboundQPS > 0 {
+		return s.cfg.FederationInboundQPS
+	}
+	return federation.DefaultInboundQPS
+}
+
+// retryAfter is the Retry-After for a peer limited to qps: the seconds
+// until the limiter refills one token, at least 1.
+func retryAfter(qps float64) string {
 	return strconv.Itoa(int(math.Max(1, math.Ceil(1/qps))))
 }
 
@@ -1028,13 +1050,21 @@ func (s *Server) handleFederationMemory(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, 403, "federation_multi_tenant", "federation is not available in multi-tenant mode", nil)
 		return
 	}
-	if !s.inbound.Allow(peer.PeerID) {
-		s.ledgerRejected(r, peer.PeerID, "rate_limited")
-		w.Header().Set("Retry-After", s.inboundRetryAfter())
+	if qps := s.inboundQPS(peer.PeerID); !s.inbound.AllowRate(peer.PeerID, qps) {
+		s.ledgerRejected(r, peer.PeerID, federation.ReasonRateLimited)
+		s.observeInbound(peer.PeerID, federation.ReasonRateLimited)
+		w.Header().Set("Retry-After", retryAfter(qps))
 		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
 		return
 	}
-	env, err := s.cfg.Service.FetchMemory(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/federation/memories/"))
+	memID := strings.TrimPrefix(r.URL.Path, "/v1/federation/memories/")
+	env, err := s.cfg.Service.FetchMemory(r.Context(), memID)
+	outcome, wsID := federation.OutcomeOf(err), ""
+	if err == nil {
+		wsID = env.WorkspaceID
+	}
+	s.observeInbound(peer.PeerID, outcome)
+	s.cfg.Service.AppendLedger(r.Context(), federation.FetchEntry("inbound", peer.PeerID, memID, wsID, outcome))
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return

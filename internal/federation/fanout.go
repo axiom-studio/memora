@@ -41,6 +41,7 @@ type NodeHits struct {
 // FanoutResult is the collected output of a federated search: one ranked
 // list per contributing node, this node's first, for Merge to fuse.
 type FanoutResult struct {
+	Asked         []string // node IDs of the peers asked
 	Lists         []NodeHits
 	Failures      []PeerFailure
 	PeerLatencyMS map[string]int // by node ID, this node's included
@@ -104,9 +105,13 @@ func FanoutSearch(
 	federationPath string,
 	timeout time.Duration,
 	limiter *RateLimiterPool,
+	metrics *Metrics,
 ) (*FanoutResult, error) {
 	out := &FanoutResult{
 		PeerLatencyMS: make(map[string]int, len(peers)+1),
+	}
+	for _, pc := range peers {
+		out.Asked = append(out.Asked, pc.PeerID())
 	}
 
 	if local != nil {
@@ -149,6 +154,7 @@ func FanoutSearch(
 
 	byPeer := map[string]NodeHits{}
 	for pr := range resultCh {
+		metrics.ObserveRequest(pr.PeerID, OutcomeOf(pr.Err), time.Duration(pr.LatencyMS)*time.Millisecond)
 		if pr.Err != nil {
 			out.Failures = append(out.Failures, PeerFailure{NodeID: pr.PeerID, Name: pr.PeerName, Err: pr.Err})
 			continue

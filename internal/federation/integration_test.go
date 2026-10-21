@@ -62,7 +62,7 @@ func TestIntegration_AllPeersFailed_Error(t *testing.T) {
 		testPeerClient(srv, "dead2"),
 	}
 
-	_, err := FanoutSearch(context.Background(), nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
+	_, err := FanoutSearch(context.Background(), nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil, nil)
 	if !errors.Is(err, ErrAllPeersFailed) {
 		t.Errorf("expected ErrAllPeersFailed, got %v", err)
 	}

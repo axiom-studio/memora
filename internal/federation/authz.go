@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -27,6 +28,46 @@ var noPeerHash = func() [32]byte {
 	}
 	return h
 }()
+
+// Reject reasons recorded in the audit ledger and metrics. They are
+// internal: the response a refused caller sees does not reveal them.
+const (
+	ReasonUnknownPeer        = "unknown_peer"
+	ReasonBadKey             = "bad_key"
+	ReasonBadCert            = "bad_cert"
+	ReasonRevoked            = "revoked"
+	ReasonFederationMismatch = "federation_mismatch"
+	ReasonLoop               = "loop"
+	ReasonRateLimited        = "rate_limited"
+)
+
+// PeerAuthError is an authentication refusal. Error() is what the caller
+// is told; Reason is what the audit records.
+type PeerAuthError struct {
+	Reason string
+	msg    string
+	kind   error // types.ErrFederationAuth or types.ErrFederationRevoked
+}
+
+func (e *PeerAuthError) Error() string { return e.kind.Error() + ": " + e.msg }
+func (e *PeerAuthError) Unwrap() error { return e.kind }
+
+func refuse(reason, msg string) error {
+	return &PeerAuthError{Reason: reason, msg: msg, kind: types.ErrFederationAuth}
+}
+
+// RejectReason returns the audit reason for an AuthenticatePeer error.
+func RejectReason(err error) string {
+	var pe *PeerAuthError
+	switch {
+	case errors.As(err, &pe):
+		return pe.Reason
+	case errors.Is(err, types.ErrFederationLoop):
+		return ReasonLoop
+	default:
+		return "error"
+	}
+}
 
 // AuthenticatePeer authenticates a call to one of the routes peers call.
 // The caller names itself in X-Memora-Local-Instance-ID (its node ID)
@@ -52,26 +93,30 @@ func AuthenticatePeer(r *http.Request, reg *Registry) (*InboundAuthResult, error
 	}
 	match := subtle.ConstantTimeCompare(got[:], want[:]) == 1
 	if !match || !bearer || key == "" || p == nil || !p.hasInboundKey {
-		return nil, fmt.Errorf("%w: unknown peer or invalid credential", types.ErrFederationAuth)
+		reason := ReasonBadKey
+		if p == nil {
+			reason = ReasonUnknownPeer
+		}
+		return nil, refuse(reason, "unknown peer or invalid credential")
 	}
 
 	if p.hasClientCert {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-			return nil, fmt.Errorf("%w: client certificate required", types.ErrFederationAuth)
+			return nil, refuse(ReasonBadCert, "client certificate required")
 		}
 		fp := sha256.Sum256(r.TLS.PeerCertificates[0].Raw)
 		if subtle.ConstantTimeCompare(fp[:], p.clientCertHash[:]) != 1 {
-			return nil, fmt.Errorf("%w: client certificate does not match", types.ErrFederationAuth)
+			return nil, refuse(ReasonBadCert, "client certificate does not match")
 		}
 	}
 
 	if p.Revoked {
-		return nil, fmt.Errorf("%w: peer %s", types.ErrFederationRevoked, peerID)
+		return nil, &PeerAuthError{Reason: ReasonRevoked, msg: "peer " + peerID, kind: types.ErrFederationRevoked}
 	}
 
 	remoteFedID := r.Header.Get(HeaderFederationID)
 	if remoteFedID != "" && reg.FederationID != "" && remoteFedID != reg.FederationID {
-		return nil, fmt.Errorf("%w: remote federation %q != local %q", types.ErrFederationAuth, remoteFedID, reg.FederationID)
+		return nil, refuse(ReasonFederationMismatch, fmt.Sprintf("remote federation %q != local %q", remoteFedID, reg.FederationID))
 	}
 
 	path := ParseFederationPath(r.Header.Get(HeaderFederationPath))

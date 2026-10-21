@@ -320,10 +320,16 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			res, err := federation.AuthenticatePeer(r, s.cfg.Federation)
 			if err != nil {
-				if errors.Is(err, types.ErrFederationLoop) {
-					// Loop is checked only after the peer authenticated.
-					s.ledgerRejected(r, r.Header.Get(federation.HeaderLocalInstanceID), "loop")
+				// Audit with the reason; the caller only sees the
+				// uniform error. A claimed node ID is recorded only
+				// when it is well-formed.
+				claimed := r.Header.Get(federation.HeaderLocalInstanceID)
+				if _, perr := types.ParseID("node_id", claimed); perr != nil {
+					claimed = ""
 				}
+				reason := federation.RejectReason(err)
+				s.ledgerRejected(r, claimed, reason)
+				s.observeInbound(claimed, reason)
 				s.writeErrorFromService(w, err)
 				return
 			}

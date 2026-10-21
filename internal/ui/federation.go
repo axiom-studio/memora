@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -98,7 +99,7 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 	fmt.Fprint(w, `<div id="fed-modal-container"></div>`)
 
 	if h.data != nil {
-		entries, err := h.data.LedgerEntriesSince(r.Context(), time.Time{}, []string{"federation_recall", "federation_inbound"}, 100)
+		entries, err := h.data.LedgerEntriesSince(r.Context(), time.Time{}, federation.Ops, 100)
 		if err == nil && len(entries) > 0 {
 			fmt.Fprint(w, `<div class="card"><h3 class="card-title">Recent Federation Activity</h3>`)
 			fmt.Fprint(w, `<table><thead><tr><th>Time</th><th>Op</th><th>Target</th><th>Agent</th></tr></thead><tbody>`)

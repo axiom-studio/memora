@@ -130,6 +130,7 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 | `revoked` | bool | `false` |
 | `timeout_ms` | int | `federation.peer_timeout_ms` |
 | `rate_limit_qps` | float | `federation.outbound_qps` |
+| `inbound_qps` | float | `federation.inbound_qps` |
 | `tls_cert` | string (path) | *(empty)* |
 | `client_cert_file`, `client_key_file` | string (path) | *(empty)* |
 
@@ -138,6 +139,7 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 - **`client_cert_sha256`**, when set, also requires the peer to present a TLS client certificate with this SHA-256 fingerprint. It needs `server.tls`; the server refuses to start without it.
 - **`revoked = true`** keeps the peer listed but refuses its calls, and leaves it out of federated searches.
 - **`timeout_ms`** and **`rate_limit_qps`** bound this node's calls to the peer during a federated search. A search's own `timeout_ms` overrides `timeout_ms`.
+- **`inbound_qps`** caps the peer's calls to this node. Over it, the peer gets `429` with `Retry-After`.
 - **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
 - **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
 

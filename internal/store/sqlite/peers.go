@@ -11,7 +11,7 @@ import (
 )
 
 const peerColumns = `node_id, name, url, inbound_key_sha256, sealed_api_key, tls_cert, client_cert_file,
-    client_key_file, client_cert_sha256, timeout_ms, rate_limit_qps, revoked, created_at, updated_at`
+    client_key_file, client_cert_sha256, timeout_ms, rate_limit_qps, inbound_qps, revoked, created_at, updated_at`
 
 // ListPeers implements adapter.PeerStore.
 func (s *Store) ListPeers(ctx context.Context) ([]adapter.PeerRecord, error) {
@@ -27,7 +27,7 @@ WHERE deleted_at IS NULL ORDER BY node_id`)
 		var revoked int
 		var created, updated sqliteTime
 		if err := rows.Scan(&p.NodeID, &p.Name, &p.URL, &p.InboundKeySHA256, &p.SealedAPIKey, &p.TLSCert,
-			&p.ClientCertFile, &p.ClientKeyFile, &p.ClientCertSHA256, &p.TimeoutMS, &p.RateLimitQPS,
+			&p.ClientCertFile, &p.ClientKeyFile, &p.ClientCertSHA256, &p.TimeoutMS, &p.RateLimitQPS, &p.InboundQPS,
 			&revoked, &created, &updated); err != nil {
 			return nil, fmt.Errorf("scan peer: %w", err)
 		}
@@ -40,9 +40,9 @@ WHERE deleted_at IS NULL ORDER BY node_id`)
 func (s *Store) writePeer(ctx context.Context, p adapter.PeerRecord, conflict string) (sql.Result, error) {
 	now := time.Now().UTC()
 	return s.db.ExecContext(ctx, `INSERT INTO memora_federation_peers (`+peerColumns+`, deleted_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) `+conflict,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) `+conflict,
 		p.NodeID, p.Name, p.URL, p.InboundKeySHA256, p.SealedAPIKey, p.TLSCert, p.ClientCertFile,
-		p.ClientKeyFile, p.ClientCertSHA256, p.TimeoutMS, p.RateLimitQPS, boolToInt(p.Revoked),
+		p.ClientKeyFile, p.ClientCertSHA256, p.TimeoutMS, p.RateLimitQPS, p.InboundQPS, boolToInt(p.Revoked),
 		formatTS(now), formatTS(now))
 }
 
@@ -56,7 +56,7 @@ func (s *Store) UpsertPeer(ctx context.Context, p adapter.PeerRecord) error {
     sealed_api_key = excluded.sealed_api_key, tls_cert = excluded.tls_cert,
     client_cert_file = excluded.client_cert_file, client_key_file = excluded.client_key_file,
     client_cert_sha256 = excluded.client_cert_sha256, timeout_ms = excluded.timeout_ms,
-    rate_limit_qps = excluded.rate_limit_qps, revoked = excluded.revoked,
+    rate_limit_qps = excluded.rate_limit_qps, inbound_qps = excluded.inbound_qps, revoked = excluded.revoked,
     updated_at = excluded.updated_at, deleted_at = NULL`)
 	if err != nil {
 		return fmt.Errorf("upsert peer %s: %w", p.NodeID, err)

@@ -811,7 +811,7 @@ func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
 	p := adapter.PeerRecord{
 		NodeID: types.NewID(), Name: "peer", URL: "https://peer.example.com",
 		InboundKeySHA256: "ab", SealedAPIKey: []byte{0, 1, 2, 255}, ClientCertSHA256: "cd",
-		TimeoutMS: 1500, RateLimitQPS: 2.5, Revoked: true,
+		TimeoutMS: 1500, RateLimitQPS: 2.5, InboundQPS: 7, Revoked: true,
 	}
 	if err := s.UpsertPeer(ctx, p); err != nil {
 		t.Fatalf("UpsertPeer: %v", err)
@@ -819,7 +819,7 @@ func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
 	got := find(p.NodeID)
 	if got == nil || got.Name != "peer" || got.URL != p.URL || got.InboundKeySHA256 != "ab" ||
 		string(got.SealedAPIKey) != string(p.SealedAPIKey) || got.ClientCertSHA256 != "cd" ||
-		got.TimeoutMS != 1500 || got.RateLimitQPS != 2.5 || !got.Revoked || got.CreatedAt.IsZero() {
+		got.TimeoutMS != 1500 || got.RateLimitQPS != 2.5 || got.InboundQPS != 7 || !got.Revoked || got.CreatedAt.IsZero() {
 		t.Fatalf("round trip = %+v, want %+v", got, p)
 	}
 	created := got.CreatedAt

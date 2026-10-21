@@ -57,7 +57,7 @@ func (m *Manager) Seed(ctx context.Context, peers []config.PeerConfig) (int, err
 			InboundKeySHA256: strings.ToLower(pc.InboundKeySHA256), SealedAPIKey: sealed,
 			TLSCert: pc.TLSCert, ClientCertFile: pc.ClientCertFile, ClientKeyFile: pc.ClientKeyFile,
 			ClientCertSHA256: strings.ToLower(pc.ClientCertSHA256),
-			TimeoutMS:        pc.TimeoutMS, RateLimitQPS: pc.RateLimitQPS, Revoked: pc.Revoked,
+			TimeoutMS:        pc.TimeoutMS, RateLimitQPS: pc.RateLimitQPS, InboundQPS: pc.InboundQPS, Revoked: pc.Revoked,
 		})
 		if err != nil {
 			return n, err
@@ -101,7 +101,7 @@ func (m *Manager) toConfig(recs []adapter.PeerRecord) []config.PeerConfig {
 			InboundKeySHA256: r.InboundKeySHA256, TLSCert: r.TLSCert,
 			ClientCertFile: r.ClientCertFile, ClientKeyFile: r.ClientKeyFile,
 			ClientCertSHA256: r.ClientCertSHA256, TimeoutMS: r.TimeoutMS,
-			RateLimitQPS: r.RateLimitQPS, Revoked: r.Revoked,
+			RateLimitQPS: r.RateLimitQPS, InboundQPS: r.InboundQPS, Revoked: r.Revoked,
 		})
 	}
 	return out
@@ -129,7 +129,7 @@ func view(r adapter.PeerRecord) api.PeerView {
 		NodeID: r.NodeID, Name: r.Name, URL: r.URL, TrustMode: trust,
 		HasInboundKey: r.InboundKeySHA256 != "", HasAPIKey: len(r.SealedAPIKey) > 0,
 		ClientCertSHA256: r.ClientCertSHA256, TimeoutMS: r.TimeoutMS, RateLimitQPS: r.RateLimitQPS,
-		Revoked: r.Revoked, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		InboundQPS: r.InboundQPS, Revoked: r.Revoked, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
@@ -149,8 +149,8 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 		return invalid("name and url are required")
 	case req.InboundKey != "" && req.InboundKeySHA256 != "":
 		return invalid("set inbound_key or inbound_key_sha256, not both")
-	case req.TimeoutMS < 0 || req.RateLimitQPS < 0:
-		return invalid("timeout_ms and rate_limit_qps must not be negative")
+	case req.TimeoutMS < 0 || req.RateLimitQPS < 0 || req.InboundQPS < 0:
+		return invalid("timeout_ms, rate_limit_qps and inbound_qps must not be negative")
 	case req.ClientCertSHA256 != "" && !m.AllowClientCertPins:
 		return invalid("client_cert_sha256 needs server.tls")
 	}
@@ -170,7 +170,7 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 	}
 	rec.Name, rec.URL = strings.TrimSpace(req.Name), strings.TrimSpace(req.URL)
 	rec.ClientCertSHA256 = strings.ToLower(req.ClientCertSHA256)
-	rec.TimeoutMS, rec.RateLimitQPS, rec.Revoked = req.TimeoutMS, req.RateLimitQPS, req.Revoked
+	rec.TimeoutMS, rec.RateLimitQPS, rec.InboundQPS, rec.Revoked = req.TimeoutMS, req.RateLimitQPS, req.InboundQPS, req.Revoked
 	switch {
 	case req.InboundKey != "":
 		sum := sha256.Sum256([]byte(req.InboundKey))

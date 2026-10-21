@@ -53,7 +53,7 @@ func (s *Searcher) Fanout(ctx context.Context, localResult *api.RecallResponse, 
 	if opts.Timeout > MaxFederatedTimeout {
 		opts.Timeout = MaxFederatedTimeout
 	}
-	return FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound)
+	return FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound, s.reg.metrics)
 }
 
 // selectPeers resolves the fan-out targets against one registry
@@ -107,11 +107,14 @@ func (s *Searcher) Fetch(ctx context.Context, nodeID, memoryID string) (*api.Mem
 	}
 	c := snap.clients[nodeID]
 	if !s.outbound.AllowRate(nodeID, p.RateLimitQPS) {
+		s.reg.metrics.ObserveRequest(nodeID, OutcomeRateLimited, 0)
 		return nil, ErrOutboundRateLimited
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.RequestTimeout())
 	defer cancel()
+	start := time.Now()
 	env, err := c.FetchMemory(ctx, memoryID, AppendToPath("", s.reg.NodeID))
+	s.reg.metrics.ObserveRequest(nodeID, OutcomeOf(err), time.Since(start))
 	if err != nil {
 		return nil, err
 	}

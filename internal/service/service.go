@@ -681,6 +681,7 @@ func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*
 	if err != nil {
 		return nil, err
 	}
+	s.AppendLedger(ctx, federation.SearchEntry(req.Query, fr))
 	var hits []api.RecallHit
 	if req.Rerank {
 		// The re-scorer sees a wider pool than k, so it can promote hits
@@ -1430,5 +1431,9 @@ func (s *Service) FetchMemoryFrom(ctx context.Context, nodeID, memoryID string) 
 	if s.Federation == nil {
 		return nil, fmt.Errorf("%w: %s (federation is not enabled)", federation.ErrUnknownNode, nodeID)
 	}
-	return s.Federation.Fetch(ctx, nodeID, memoryID)
+	env, err := s.Federation.Fetch(ctx, nodeID, memoryID)
+	if !errors.Is(err, federation.ErrUnknownNode) {
+		s.AppendLedger(ctx, federation.FetchEntry("outbound", nodeID, memoryID, "", federation.OutcomeOf(err)))
+	}
+	return env, err
 }

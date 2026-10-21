@@ -128,6 +128,9 @@ type PeerConfig struct {
 	// 0 takes federation.peer_timeout_ms / federation.outbound_qps.
 	TimeoutMS    int     `toml:"timeout_ms"`
 	RateLimitQPS float64 `toml:"rate_limit_qps"`
+	// InboundQPS caps this peer's calls to this node; 0 takes
+	// federation.inbound_qps.
+	InboundQPS float64 `toml:"inbound_qps"`
 }
 
 type TelemetryConfig struct {
@@ -313,8 +316,8 @@ func (c *Config) Validate() error {
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
 		}
-		if p.TimeoutMS < 0 || p.RateLimitQPS < 0 {
-			errs = append(errs, fmt.Errorf("federation.peers[%d]: timeout_ms and rate_limit_qps must not be negative", i))
+		if p.TimeoutMS < 0 || p.RateLimitQPS < 0 || p.InboundQPS < 0 {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: timeout_ms, rate_limit_qps and inbound_qps must not be negative", i))
 		}
 		if (p.ClientCertFile == "") != (p.ClientKeyFile == "") {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_file and client_key_file must be set together", i))

@@ -128,6 +128,27 @@ A peer that fails, times out or is over this node's outbound limit for it does n
 
 In `multi-tenant` mode the `X-Memora-Workspace` header is required, only that workspace's memories are returned, and `node` cannot name a peer (`403 federation_multi_tenant`). The SDK's `FetchMemory` and the MCP `memora_fetch` tool do the same.
 
+### Federation Audit and Metrics
+
+Every federated call is written to the ledger as a node-level entry (no workspace), with the other node's ID in `api_key_id`, so the ledger's `actor` filter finds everything about one peer:
+
+| Op | Written by | Metadata |
+|---|---|---|
+| `federation_search` | the node that searched | `query`, `peers_asked`, `hits_per_node`, `total_hits`, `failed_peers` |
+| `federation_inbound` | the node that answered a peer's search | `requesting_peer`, `query`, `hit_count`, `federation_path` |
+| `federation_rejected` | the node that refused a peer call | `requesting_peer` (when well-formed), `reason`: `unknown_peer`, `bad_key`, `bad_cert`, `revoked`, `federation_mismatch`, `loop` or `rate_limited` |
+| `federation_fetch` | both nodes of a fetch | `direction` (`outbound`/`inbound`), `node_id`, `memory_id`, `outcome`; the serving node files it under the memory's workspace |
+
+The query text is sensitive. It is kept in the entry's metadata, so redacting an entry's `metadata` hides it. The reason for a refusal is recorded only in the ledger; the refused caller sees the same `401` whatever the reason.
+
+`GET /metrics` adds, when federation is on:
+
+| Metric | Labels |
+|---|---|
+| `memora_federation_peer_requests_total` | `peer` (node ID), `outcome`: `ok`, `timeout`, `unreachable`, `rate_limited`, `rejected`, `not_found`, `error` |
+| `memora_federation_peer_latency_seconds` | `peer`; a histogram of this node's calls to that peer |
+| `memora_federation_inbound_total` | `peer` (node ID, or `unknown` for an unregistered caller), `outcome`: `ok`, `error`, or a refusal reason |
+
 ### Managing Peers
 
 The peer registry can be edited while the node runs. These routes take the API key; peers cannot call them. An edit takes effect on the next request: a new peer is searched, and a removed peer is no longer searched and its calls get `401`. A revoked peer stays listed, is not searched, and its calls get `403`.
@@ -135,7 +156,7 @@ The peer registry can be edited while the node runs. These routes take the API k
 | Field | Value |
 |---|---|
 | `GET /federation/peers` | List peers: `node_id`, `name`, `url`, `trust_mode`, `has_inbound_key`, `has_api_key`, `client_cert_sha256`, `timeout_ms`, `rate_limit_qps`, `revoked`, `created_at`, `updated_at`. Keys are never returned. |
-| `POST /federation/peers` | Create or replace the peer with `node_id`. Body: `node_id`, `name`, `url`; optional `inbound_key` (the key the peer will present, stored only as its SHA-256) or `inbound_key_sha256`; `api_key` (the key this node presents to the peer, stored sealed); `client_cert_sha256` (needs `server.tls`); `timeout_ms`; `rate_limit_qps`; `revoked`. A key left out keeps the stored one. TLS file paths are set only in the config file. Answers with the peer as `GET` shows it. |
+| `POST /federation/peers` | Create or replace the peer with `node_id`. Body: `node_id`, `name`, `url`; optional `inbound_key` (the key the peer will present, stored only as its SHA-256) or `inbound_key_sha256`; `api_key` (the key this node presents to the peer, stored sealed); `client_cert_sha256` (needs `server.tls`); `timeout_ms`; `rate_limit_qps` (this node's calls to the peer); `inbound_qps` (the peer's calls to this node; default `federation.inbound_qps`); `revoked`. A key left out keeps the stored one. TLS file paths are set only in the config file. Answers with the peer as `GET` shows it. |
 | `DELETE /federation/peers/{node_id}` | Remove a peer. `404` if it is not registered. |
 
 Without federation these answer `404 federation_disabled`. The console's Federation page uses the same registry.
@@ -149,7 +170,7 @@ Other nodes call these routes. They take peer credentials, not the API key; see 
 | `GET /federation/memories/{memory_id}` | A peer reads a full Memory, with its Cells, from any workspace on this node. `404` if it is not here. |
 | `POST /federation/search` | A peer searches every workspace on this node. Body: `query`, `mode`, `k`, `include_content`, `max_content_bytes`, with the same meanings as `POST /search`. Any other field, including `workspace_ids`, is refused with `400`. This node embeds the query text with its own embedder, so peers can use different models. Hits are those of `POST /search` plus `node_id` and `node_name`, which identify this node. The node does not forward the query to its own peers. |
 
-A peer that sends more than `federation.inbound_qps` requests per second (default 100) gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
+A peer that sends more than its `inbound_qps` (or `federation.inbound_qps`, default 100) requests per second gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
 
 ### Operational Endpoints
 

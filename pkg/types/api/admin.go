@@ -104,6 +104,7 @@ type PeerRequest struct {
 	ClientCertSHA256 string  `json:"client_cert_sha256,omitempty"`
 	TimeoutMS        int     `json:"timeout_ms,omitempty"`
 	RateLimitQPS     float64 `json:"rate_limit_qps,omitempty"`
+	InboundQPS       float64 `json:"inbound_qps,omitempty"`
 	Revoked          bool    `json:"revoked,omitempty"`
 }
 
@@ -119,6 +120,7 @@ type PeerView struct {
 	ClientCertSHA256 string    `json:"client_cert_sha256,omitempty"`
 	TimeoutMS        int       `json:"timeout_ms,omitempty"`
 	RateLimitQPS     float64   `json:"rate_limit_qps,omitempty"`
+	InboundQPS       float64   `json:"inbound_qps,omitempty"`
 	Revoked          bool      `json:"revoked"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`

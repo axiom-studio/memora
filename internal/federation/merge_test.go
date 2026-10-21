@@ -90,7 +90,7 @@ func TestFanoutSearch_PeerAttributionFromConfig(t *testing.T) {
 	}))
 	defer srv.Close()
 	pc := testPeerClient(srv, "peer-x")
-	fr, err := FanoutSearch(context.Background(), nil, "self", []*PeerClient{pc}, api.FederationSearchRequest{}, "", 0, nil)
+	fr, err := FanoutSearch(context.Background(), nil, "self", []*PeerClient{pc}, api.FederationSearchRequest{}, "", 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestFailedPeers_Unreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	pc := testPeerClient(srv, "gone")
 	srv.Close()
-	fr, err := FanoutSearch(context.Background(), &api.RecallResponse{}, "self", []*PeerClient{pc}, api.FederationSearchRequest{}, "", 0, nil)
+	fr, err := FanoutSearch(context.Background(), &api.RecallResponse{}, "self", []*PeerClient{pc}, api.FederationSearchRequest{}, "", 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

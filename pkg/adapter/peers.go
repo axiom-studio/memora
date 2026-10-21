@@ -21,6 +21,7 @@ type PeerRecord struct {
 	ClientCertSHA256 string
 	TimeoutMS        int
 	RateLimitQPS     float64
+	InboundQPS       float64
 	Revoked          bool
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
