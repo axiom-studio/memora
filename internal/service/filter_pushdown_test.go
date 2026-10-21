@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -94,6 +95,30 @@ func TestFilters_ReturnKMatches(t *testing.T) {
 				want = k
 			}
 			check(t, fmt.Sprintf("recall/%s/%s", fname, mode), rr.Results, f, want)
+		}
+	}
+}
+
+// TestFilters_SizeCapped: an oversized filter is invalid input, not a
+// store error.
+func TestFilters_SizeCapped(t *testing.T) {
+	s := newTestService(t)
+	ws := newTestWorkspace(t, s)
+	tags := map[string][]string{}
+	for i := 0; i < 33; i++ {
+		tags[fmt.Sprintf("k%d", i)] = []string{"v"}
+	}
+	many := make([]string, 101)
+	for i := range many {
+		many[i] = types.NewID()
+	}
+	for name, f := range map[string]api.RecallFilters{
+		"tag keys":   {Tags: tags},
+		"tag values": {Tags: map[string][]string{"k": make([]string, 101)}},
+		"agents in":  {AgentIDIn: many},
+	} {
+		if _, err := s.Recall(context.Background(), ws, api.RecallRequest{Query: "x", Mode: api.RecallModeKeyword, Filters: f}); !errors.Is(err, types.ErrInvalidInput) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput", name, err)
 		}
 	}
 }

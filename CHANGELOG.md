@@ -74,6 +74,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
     20,000 cells).
   - Before, the top `k` were taken first and then filtered, so a filter
     could return few or no hits while plenty of matches existed.
+  - On pgvector the HNSW index scan is widened per query
+    (`hnsw.ef_search` up to 1,000, and `iterative_scan = relaxed_order`
+    on pgvector 0.8 or later), so a large limit or a filter no longer
+    gets a short page. For ANN stores a short page is not taken to
+    mean the store is exhausted (#4359 QA).
+  - Filters allow at most 32 tag keys and 100 values per key or agent
+    list.
   - `adapter.VectorFilter` is now `adapter.MemoryFilter` (alias kept),
     and `KeywordQuery` gains `Filter`.
 - Federated search merges by rank, not score (F-5, #4365). Local and

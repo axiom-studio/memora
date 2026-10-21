@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/service"
@@ -111,5 +114,96 @@ func TestReembedCommand_PgvectorDimensionChange(t *testing.T) {
 	}
 	if n := vectorHits(t, cfg, ws); n != 2 {
 		t.Fatalf("after reembed: %d hits, want 2", n)
+	}
+}
+
+// TestPgvectorFilteredVectorSearch_HNSW (#4359 QA): on pgvector at a
+// size where the planner uses the HNSW index, a filtered vector search
+// still returns k matches. 3,000 strong decoys fail the filters; 30 weak
+// targets pass. An HNSW scan used to return a short page (ef_search 40),
+// which the refill took for exhaustion: 0 of 10.
+func TestPgvectorFilteredVectorSearch_HNSW(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Storage.VectorDriver = "pgvector"
+	cfg.Storage.VectorDSN = freshPostgresDB(t)
+	cfg.Embedding.Model = "hash:64"
+	ctx := context.Background()
+	svc, closeAll, err := openCoreAdapters(ctx, cfg, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeAll()
+	ws := &types.Workspace{Name: "hnsw"}
+	if err := svc.Metadata.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	decoyAgent, targetAgent := types.NewID(), types.NewID()
+	off := false
+	write := func(agent, content, team string) {
+		if _, err := svc.Imprint(ctx, ws.ID, agent, api.ImprintRequest{Content: content, Tags: map[string]string{"team": team}, AutoLink: &off}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3000; i++ {
+		write(decoyAgent, fmt.Sprintf("alpha bravo charlie delta decoy %d", i), "ops")
+	}
+	for i := 0; i < 30; i++ {
+		write(targetAgent, fmt.Sprintf("alpha zulu yankee xray whiskey target %d", i), "qa")
+	}
+
+	// The query shape must actually use the HNSW index at this size.
+	vec, err := svc.Embedder.Embed(ctx, []string{"alpha bravo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, cfg.Storage.VectorDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	// As autovacuum would, so the planner sees the real row counts.
+	if _, err := conn.Exec(ctx, "ANALYZE memora_cell_vectors"); err != nil {
+		t.Fatal(err)
+	}
+	lit := strings.ReplaceAll(fmt.Sprint(vec[0]), " ", ",")
+	var plan strings.Builder
+	rows, err := conn.Query(ctx, `EXPLAIN SELECT cell_id FROM memora_cell_vectors WHERE model = $1 ORDER BY embedding <=> $2::vector LIMIT 40`, "hash:64", lit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	rows.Close()
+	if !strings.Contains(plan.String(), "idx_cellvec_hnsw") {
+		t.Fatalf("the planner does not use the HNSW index, so this test proves nothing:\n%s", plan.String())
+	}
+
+	for name, f := range map[string]api.RecallFilters{
+		"tag":          {Tags: map[string][]string{"team": {"qa"}}},
+		"agent":        {AgentID: targetAgent},
+		"agent not in": {AgentIDNotIn: []string{decoyAgent}},
+	} {
+		for _, mode := range []api.RecallMode{api.RecallModeVector, api.RecallModeHybrid} {
+			r, err := svc.Search(ctx, api.SearchRequest{Query: "alpha bravo", Mode: mode, K: 10, Filters: f})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(r.Results) != 10 {
+				t.Fatalf("%s/%s: %d hits, want 10", name, mode, len(r.Results))
+			}
+			for _, h := range r.Results {
+				if h.WrittenByAgentID != targetAgent {
+					t.Fatalf("%s/%s: hit %s by %s fails the filter", name, mode, h.MemoryID, h.WrittenByAgentID)
+				}
+			}
+		}
 	}
 }

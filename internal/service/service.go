@@ -712,6 +712,12 @@ func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*
 	}, nil
 }
 
+// Filter size limits (validateRecallIDs).
+const (
+	maxFilterTagKeys = 32
+	maxFilterValues  = 100
+)
+
 // maxRerankPool caps how many fused hits a Reranker is given.
 const maxRerankPool = 200
 
@@ -963,6 +969,12 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 	// pass or it has no more cells (S-4): a filter never leaves fewer than
 	// k results while more matches exist.
 	limit := min(k*cellsPerMemoryOverfetch, maxVectorCandidates)
+	// An exact store returns fewer rows than the limit only when it has
+	// no more. An ANN index may return a short page while more rows
+	// exist, so for it only a doubled limit that returns no more rows
+	// means exhausted (#4359 QA).
+	ann := s.Vector.Capabilities().SupportsANN
+	prev := -1
 	for {
 		scope.K = limit
 		res, err := s.Vector.Query(ctx, scope)
@@ -986,7 +998,8 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 				return nil, err
 			}
 		}
-		exhausted := len(res) < limit
+		exhausted := len(res) < limit && (!ann || len(res) <= prev)
+		prev = len(res)
 		if len(out) >= k || exhausted || limit >= maxFilteredVectorCandidates {
 			if len(out) > k {
 				out = out[:k]
@@ -1431,6 +1444,16 @@ func ErrorCode(err error) string {
 // memory_ids entry, that is not a UUID, naming the field. Empty values
 // are "not set".
 func validateRecallIDs(f api.RecallFilters, memoryIDs []string) error {
+	// Each tag key becomes a subquery and each value a bound parameter;
+	// keep a filter far below SQLite's parameter limit.
+	if len(f.Tags) > maxFilterTagKeys || len(f.AgentIDIn) > maxFilterValues || len(f.AgentIDNotIn) > maxFilterValues {
+		return fmt.Errorf("%w: filters allow at most %d tag keys and %d agents per list", types.ErrInvalidInput, maxFilterTagKeys, maxFilterValues)
+	}
+	for k, vs := range f.Tags {
+		if len(vs) > maxFilterValues {
+			return fmt.Errorf("%w: filters.tags[%q] has %d values, at most %d", types.ErrInvalidInput, k, len(vs), maxFilterValues)
+		}
+	}
 	for _, c := range []struct {
 		field string
 		ids   []string

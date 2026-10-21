@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ type Store struct {
 	pool  *pgxpool.Pool
 	dim   int
 	model string // active embedder model ID; rows record theirs
+	// iterative is pgvector >= 0.8, whose HNSW scans can keep going until
+	// LIMIT rows pass the WHERE clause (hnsw.iterative_scan).
+	iterative bool
 }
 
 // ErrDimensionMismatch is Open refusing a vector column sized for
@@ -59,6 +63,10 @@ func (s *Store) Open(ctx context.Context, cfg adapter.VectorConfig) error {
 	}
 
 	s.model = cfg.Model
+	var version string
+	if err := pool.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&version); err == nil {
+		s.iterative = versionAtLeast(version, 0, 8)
+	}
 	if err := s.checkDimension(ctx, cfg.Rebuild); err != nil {
 		pool.Close()
 		return err
@@ -93,7 +101,9 @@ CREATE TABLE IF NOT EXISTS memora_cell_vectors (
 	// active model's: the column's dimension already matches.
 	for _, stmt := range []string{
 		"ALTER TABLE memora_cell_vectors ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''",
-		"CREATE INDEX IF NOT EXISTS idx_cellvec_model ON memora_cell_vectors(model)",
+		// No index on model: nearly every row has the active model, and
+		// an index there can draw the planner away from the HNSW index.
+		"DROP INDEX IF EXISTS idx_cellvec_model",
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			pool.Close()
@@ -267,7 +277,27 @@ ORDER BY embedding <=> $%d::vector
 LIMIT $%d`, argN, whereClause, argN, argN+1)
 	args = append(args, vecStr, q.K)
 
-	rows, err := s.pool.Query(ctx, query, args...)
+	// An HNSW index scan visits at most ef_search candidates (default
+	// 40), so a plain scan returns fewer than LIMIT rows once LIMIT is
+	// larger, or once the WHERE clause drops some. Widen it for this
+	// query, and on pgvector >= 0.8 let the scan continue until LIMIT
+	// rows pass the filter (#4359 QA). Settings are LOCAL to this
+	// transaction.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pgvector: query: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL hnsw.ef_search = %d", min(max(q.K, 40), 1000))); err != nil {
+		return nil, fmt.Errorf("pgvector: set ef_search: %w", err)
+	}
+	if s.iterative {
+		if _, err := tx.Exec(ctx, "SET LOCAL hnsw.iterative_scan = relaxed_order"); err != nil {
+			return nil, fmt.Errorf("pgvector: set iterative_scan: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("pgvector: query: %w", err)
 	}
@@ -290,7 +320,22 @@ LIMIT $%d`, argN, whereClause, argN, argN+1)
 		}
 		hits = append(hits, h)
 	}
-	return hits, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// relaxed_order may return rows slightly out of distance order.
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	return hits, nil
+}
+
+// versionAtLeast reports whether a "major.minor[.patch]" version is at
+// least major.minor.
+func versionAtLeast(v string, major, minor int) bool {
+	var ma, mi int
+	if _, err := fmt.Sscanf(v, "%d.%d", &ma, &mi); err != nil {
+		return false
+	}
+	return ma > major || ma == major && mi >= minor
 }
 
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error {
