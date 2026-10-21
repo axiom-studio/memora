@@ -65,6 +65,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The web console validates IDs too (#4371). Workspace, memory,
+  collection, agent, edge, pin, ledger, peer and seed IDs, in
+  `/ui/workspaces/{ws}/memories/{id}` paths and in query and form
+  parameters, must be UUIDs. Otherwise the console answers `400` naming
+  the field, shown in place, instead of an empty page or "not found".
+  Memory ID fields show a UUID example.
 - Agent, tag and time filters no longer cut recall and search short
   (S-4, #4359).
   - Keyword search applies them in SQL (SQLite FTS5 and Postgres). It

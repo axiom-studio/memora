@@ -204,10 +204,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	protected.HandleFunc("/ui/api/bulk/replay", h.handleBulkReplay)
 	protected.HandleFunc("/ui/events/activity", h.handleActivitySSE)
 
-	mux.Handle("/ui/partials/", h.hsts(h.authMiddleware(protected)))
-	mux.Handle("/ui/", h.hsts(h.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		protected.ServeHTTP(w, r)
-	}))))
+	checked := h.validateIDs(protected)
+	mux.Handle("/ui/partials/", h.hsts(h.authMiddleware(checked)))
+	mux.Handle("/ui/", h.hsts(h.authMiddleware(checked)))
 }
 
 func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
