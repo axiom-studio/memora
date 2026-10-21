@@ -111,6 +111,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		ResolveIdentityKeyContract(t, factory(t))
 	})
 
+	t.Run("agents_per_workspace", func(t *testing.T) {
+		AgentsPerWorkspaceContract(t, factory(t))
+	})
+
 	t.Run("batch_load", func(t *testing.T) {
 		BatchLoadContract(t, factory(t))
 	})
@@ -578,6 +582,57 @@ func BatchLoadContract(t *testing.T, s adapter.MetadataStore) {
 		cs := cells[id]
 		if len(cs) != 2 || cs[0].Seq != 0 || cs[0].Text != "first" || cs[1].Seq != 1 {
 			t.Fatalf("cells for %s = %+v, want first, second in seq order", id, cs)
+		}
+	}
+}
+
+// AgentsPerWorkspaceContract checks that agents are registered per
+// workspace (#6154): every reserved sentinel is registered in each
+// workspace, and one agent ID can be registered in several workspaces.
+func AgentsPerWorkspaceContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	for _, id := range types.ReservedAgentIDs {
+		if _, err := types.ParseID("reserved agent_id", id); err != nil {
+			t.Fatalf("reserved agent: %v", err)
+		}
+	}
+	var wss []string
+	for i := 0; i < 2; i++ {
+		ws := &types.Workspace{Name: "agents-" + types.NewID()}
+		if err := s.CreateWorkspace(ctx, ws); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+		wss = append(wss, ws.ID)
+	}
+	for _, ws := range wss {
+		for _, id := range types.ReservedAgentIDs {
+			a, err := s.GetAgent(ctx, ws, id)
+			if err != nil {
+				t.Fatalf("sentinel %s in workspace %s: %v", id, ws, err)
+			}
+			if a.DisplayName != types.ReservedAgentDisplayNames[id] {
+				t.Errorf("sentinel %s display name = %q", id, a.DisplayName)
+			}
+		}
+	}
+	shared := types.NewID()
+	for _, ws := range wss {
+		if err := s.RegisterAgent(ctx, &types.Agent{AgentID: shared, WorkspaceID: ws, IdentityProvider: "opaque"}); err != nil {
+			t.Fatalf("RegisterAgent in %s: %v", ws, err)
+		}
+	}
+	for _, ws := range wss {
+		agents, err := s.ListAgents(ctx, ws, 100)
+		if err != nil {
+			t.Fatalf("ListAgents: %v", err)
+		}
+		found := false
+		for _, a := range agents {
+			found = found || a.AgentID == shared
+		}
+		if !found {
+			t.Errorf("agent %s registered in %s is not listed there", shared, ws)
 		}
 	}
 }

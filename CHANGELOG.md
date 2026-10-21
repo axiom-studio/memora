@@ -50,6 +50,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Agents are registered per workspace: `memora_agents` is keyed
+  `(workspace_id, agent_id)` (sqlite migration 0009, postgres 0006), so
+  the reserved agents (auto-link, legacy shim, console) and any shared
+  agent ID such as the CLI default are registered in every workspace
+  that uses them. Before, the first workspace claimed the ID node-wide
+  and others returned 404 (#6154). Both stores back-fill the reserved
+  agents into existing workspaces at startup.
 - Hybrid recall and search fuse the keyword and vector rankings by
   reciprocal rank fusion (`internal/rank`, k=60) instead of
   `0.7·cosine + 0.3·keyword`. `weights` now scale each ranking's votes

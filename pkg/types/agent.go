@@ -47,8 +47,8 @@ const (
 )
 
 // AgentLegacyVibeflowID is the reserved sentinel agent_id used by the
-// parent_context_id migration shim (F11). Auto-registered in every
-// workspace at server startup. The value is fixed and published so
+// parent_context_id migration shim (F11). Like every reserved agent it is
+// registered in every workspace (agents are keyed per workspace). The value is fixed and published so
 // clients can recognise shim-authored edges.
 const AgentLegacyVibeflowID = "6f1c3a2e-9b4d-4e7a-8c5f-0d2b1e3a4c50"
 

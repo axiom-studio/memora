@@ -204,7 +204,7 @@ func (s *Store) ensureLegacyAgent(ctx context.Context) error {
 			_, err := s.db.ExecContext(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
 VALUES (?, ?, ?, 'opaque', datetime('now'), 1)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, wsID, types.ReservedAgentDisplayNames[agentID])
+ON CONFLICT(workspace_id, agent_id) DO NOTHING`, agentID, wsID, types.ReservedAgentDisplayNames[agentID])
 			if err != nil {
 				return err
 			}

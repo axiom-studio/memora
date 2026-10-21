@@ -38,6 +38,26 @@ func (s *MetadataStore) Open(ctx context.Context, cfg adapter.MetadataConfig) er
 		pool.Close()
 		return fmt.Errorf("postgres: migrate: %w", err)
 	}
+	if err := s.seedReservedAgents(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("postgres: seed reserved agents: %w", err)
+	}
+	return nil
+}
+
+// seedReservedAgents registers every reserved sentinel agent in every
+// workspace, once per sentinel with one INSERT … SELECT over all
+// workspaces. Idempotent; it back-fills workspaces created before
+// agents were per-workspace (#6154).
+func (s *MetadataStore) seedReservedAgents(ctx context.Context) error {
+	for _, id := range types.ReservedAgentIDs {
+		if _, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+SELECT $1, id, $2, 'opaque', now(), TRUE FROM memora_workspaces
+ON CONFLICT (workspace_id, agent_id) DO NOTHING`, id, types.ReservedAgentDisplayNames[id]); err != nil {
+			return fmt.Errorf("seed agent %s: %w", id, err)
+		}
+	}
 	return nil
 }
 
@@ -100,7 +120,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		_, _ = s.pool.Exec(ctx, `
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
 VALUES ($1, $2, $3, 'opaque', now(), TRUE)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID, types.ReservedAgentDisplayNames[agentID])
+ON CONFLICT(workspace_id, agent_id) DO NOTHING`, agentID, w.ID, types.ReservedAgentDisplayNames[agentID])
 	}
 	return nil
 }
@@ -1031,7 +1051,7 @@ func (s *MetadataStore) RegisterAgent(ctx context.Context, a *types.Agent) error
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, identity_proof,
     agent_type, model, capabilities_json, registered_at, last_seen_at, active)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
-ON CONFLICT(agent_id) DO UPDATE SET
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
     display_name=excluded.display_name,
     identity_provider=excluded.identity_provider,
     identity_proof=excluded.identity_proof,

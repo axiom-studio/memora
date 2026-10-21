@@ -29,7 +29,7 @@ func (s *Store) RegisterAgent(ctx context.Context, a *types.Agent) error {
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, identity_proof,
     agent_type, model, capabilities_json, registered_at, last_seen_at, active)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-ON CONFLICT(agent_id) DO UPDATE SET
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
     display_name=excluded.display_name,
     identity_provider=excluded.identity_provider,
     identity_proof=excluded.identity_proof,
