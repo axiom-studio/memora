@@ -28,5 +28,19 @@ type IdentityProvider interface {
 	Capabilities() IdentityCapabilities
 }
 
+// IdentityKeyer is implemented by providers whose identity comes from
+// the proof itself (a session fingerprint, a token claim) rather than
+// from an agent_id the client chose. Agent IDs are UUIDv4s, which an
+// external claim never is, so the server maps each identity key to a
+// UUIDv4 agent_id minted on first sight (MetadataStore.ResolveIdentityKey).
+//
+// IdentityKey verifies the proof and returns the key: provider-scoped,
+// stable for the same identity, and never empty on success. For these
+// providers Verify checks the proof only; binding the key to an
+// agent_id is the server's job.
+type IdentityKeyer interface {
+	IdentityKey(ctx context.Context, proof map[string]any) (string, error)
+}
+
 // IdentityFactory builds an IdentityProvider.
 type IdentityFactory func() IdentityProvider

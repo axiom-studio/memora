@@ -98,9 +98,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	}
 	for _, agentID := range types.ReservedAgentIDs {
 		_, _ = s.pool.Exec(ctx, `
-INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
-VALUES ($1, $2, 'opaque', now(), TRUE)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID)
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+VALUES ($1, $2, $3, 'opaque', now(), TRUE)
+ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID, types.ReservedAgentDisplayNames[agentID])
 	}
 	return nil
 }
@@ -981,6 +981,23 @@ ON CONFLICT(agent_id) DO UPDATE SET
 		nullableStr(a.IdentityProofHash), nullableStr(a.AgentType), nullableStr(a.Model),
 		nullableJSON(capsJSON), a.RegisteredAt, time.Now().UTC())
 	return err
+}
+
+// ResolveIdentityKey implements adapter.MetadataStore. The insert is a
+// no-op when the key is already bound, so the select always returns the
+// first binding.
+func (s *MetadataStore) ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error) {
+	if _, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agent_identities (identity_key, agent_id) VALUES ($1, $2)
+ON CONFLICT (identity_key) DO NOTHING`, identityKey, candidateID); err != nil {
+		return "", fmt.Errorf("bind identity key: %w", err)
+	}
+	var agentID string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT agent_id FROM memora_agent_identities WHERE identity_key = $1`, identityKey).Scan(&agentID); err != nil {
+		return "", fmt.Errorf("read identity key binding: %w", err)
+	}
+	return agentID, nil
 }
 
 func (s *MetadataStore) GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error) {

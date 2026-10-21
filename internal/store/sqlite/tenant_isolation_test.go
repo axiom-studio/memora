@@ -34,12 +34,12 @@ func newIsoFixture(t *testing.T) isoFixture {
 	if err := s.CreateWorkspace(ctx, w2); err != nil {
 		t.Fatal(err)
 	}
-	m := &types.Memory{WorkspaceID: w1.ID, Content: "owner secret", WrittenByAgentID: "agent_opaque_iso"}
+	m := &types.Memory{WorkspaceID: w1.ID, Content: "owner secret", WrittenByAgentID: "225cb486-36d4-415c-a534-ae16706b6507"}
 	wmk, err := s.ImprintMemory(ctx, m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpsertCells(ctx, m.ID, []types.Cell{{Seq: 0, Text: "owner secret", TextMD5: types.MD5Hex("owner secret"), WrittenByAgentID: "agent_opaque_iso"}}); err != nil {
+	if err := s.UpsertCells(ctx, m.ID, []types.Cell{{Seq: 0, Text: "owner secret", TextMD5: types.MD5Hex("owner secret"), WrittenByAgentID: "225cb486-36d4-415c-a534-ae16706b6507"}}); err != nil {
 		t.Fatal(err)
 	}
 	return isoFixture{s: s, ctx: ctx, owner: w1.ID, other: w2.ID, mem: m, watermark: wmk}
@@ -58,7 +58,7 @@ func (f isoFixture) assertUnchanged(t *testing.T) {
 
 func TestTenantIsolation_UpdateMemory(t *testing.T) {
 	f := newIsoFixture(t)
-	upd := &types.Memory{Content: "overwritten", LastModifiedByAgentID: "agent_opaque_attacker"}
+	upd := &types.Memory{Content: "overwritten", LastModifiedByAgentID: "e4a4489f-ff05-4b66-88b6-ecb54e0d9027"}
 
 	// Correct watermark, wrong workspace: must not write.
 	if _, err := f.s.UpdateMemory(f.ctx, f.other, f.mem.ID, f.watermark, upd); !errors.Is(err, types.ErrNotFound) {
@@ -79,11 +79,11 @@ func TestTenantIsolation_UpdateMemory(t *testing.T) {
 
 func TestTenantIsolation_AppendMemory(t *testing.T) {
 	f := newIsoFixture(t)
-	if _, _, err := f.s.AppendMemory(f.ctx, f.other, f.mem.ID, f.watermark, " injected", "agent_opaque_attacker"); !errors.Is(err, types.ErrNotFound) {
+	if _, _, err := f.s.AppendMemory(f.ctx, f.other, f.mem.ID, f.watermark, " injected", "e4a4489f-ff05-4b66-88b6-ecb54e0d9027"); !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("cross-workspace append err = %v, want ErrNotFound", err)
 	}
 	f.assertUnchanged(t)
-	if _, _, err := f.s.AppendMemory(f.ctx, f.owner, f.mem.ID, f.watermark, " more", "agent_opaque_iso"); err != nil {
+	if _, _, err := f.s.AppendMemory(f.ctx, f.owner, f.mem.ID, f.watermark, " more", "225cb486-36d4-415c-a534-ae16706b6507"); err != nil {
 		t.Fatalf("same-workspace append: %v", err)
 	}
 }
@@ -91,11 +91,11 @@ func TestTenantIsolation_AppendMemory(t *testing.T) {
 func TestTenantIsolation_PatchMemory(t *testing.T) {
 	f := newIsoFixture(t)
 	ops := []api.PatchOp{{OldString: "secret", NewString: "public"}}
-	if _, _, _, err := f.s.PatchMemory(f.ctx, f.other, f.mem.ID, f.watermark, ops, "agent_opaque_attacker"); !errors.Is(err, types.ErrNotFound) {
+	if _, _, _, err := f.s.PatchMemory(f.ctx, f.other, f.mem.ID, f.watermark, ops, "e4a4489f-ff05-4b66-88b6-ecb54e0d9027"); !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("cross-workspace patch err = %v, want ErrNotFound", err)
 	}
 	f.assertUnchanged(t)
-	if _, _, _, err := f.s.PatchMemory(f.ctx, f.owner, f.mem.ID, f.watermark, ops, "agent_opaque_iso"); err != nil {
+	if _, _, _, err := f.s.PatchMemory(f.ctx, f.owner, f.mem.ID, f.watermark, ops, "225cb486-36d4-415c-a534-ae16706b6507"); err != nil {
 		t.Fatalf("same-workspace patch: %v", err)
 	}
 }
@@ -130,20 +130,20 @@ func TestTenantIsolation_DeletePin(t *testing.T) {
 
 func TestTenantIsolation_GraphStoreUnlinkAndCascadeForget(t *testing.T) {
 	f := newIsoFixture(t)
-	target := &types.Memory{WorkspaceID: f.owner, Content: "target", WrittenByAgentID: "agent_opaque_iso"}
+	target := &types.Memory{WorkspaceID: f.owner, Content: "target", WrittenByAgentID: "225cb486-36d4-415c-a534-ae16706b6507"}
 	if _, err := f.s.ImprintMemory(f.ctx, target); err != nil {
 		t.Fatal(err)
 	}
 	gs := &GraphStore{db: f.s.db}
-	e, err := gs.Link(f.ctx, types.Edge{WorkspaceID: f.owner, SourceMemoryID: f.mem.ID, TargetMemoryID: target.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_iso"})
+	e, err := gs.Link(f.ctx, types.Edge{WorkspaceID: f.owner, SourceMemoryID: f.mem.ID, TargetMemoryID: target.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "225cb486-36d4-415c-a534-ae16706b6507"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := gs.Unlink(f.ctx, f.other, e.EdgeID, "agent_opaque_attacker"); !errors.Is(err, types.ErrNotFound) {
+	if err := gs.Unlink(f.ctx, f.other, e.EdgeID, "e4a4489f-ff05-4b66-88b6-ecb54e0d9027"); !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("cross-workspace Unlink err = %v, want ErrNotFound", err)
 	}
-	if n, err := gs.CascadeForget(f.ctx, f.other, f.mem.ID, "agent_opaque_attacker"); err != nil || n != 0 {
+	if n, err := gs.CascadeForget(f.ctx, f.other, f.mem.ID, "e4a4489f-ff05-4b66-88b6-ecb54e0d9027"); err != nil || n != 0 {
 		t.Fatalf("cross-workspace CascadeForget = (%d, %v), want (0, nil)", n, err)
 	}
 	edges, _, err := gs.Neighbors(f.ctx, f.owner, f.mem.ID, adapter.NeighborsOpts{Direction: api.GraphDirOut})
@@ -151,7 +151,7 @@ func TestTenantIsolation_GraphStoreUnlinkAndCascadeForget(t *testing.T) {
 		t.Fatalf("owner's edges after cross-workspace calls = (%d, %v), want 1 surviving edge", len(edges), err)
 	}
 
-	if err := gs.Unlink(f.ctx, f.owner, e.EdgeID, "agent_opaque_iso"); err != nil {
+	if err := gs.Unlink(f.ctx, f.owner, e.EdgeID, "225cb486-36d4-415c-a534-ae16706b6507"); err != nil {
 		t.Fatalf("same-workspace Unlink: %v", err)
 	}
 }

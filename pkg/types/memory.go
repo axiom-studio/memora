@@ -45,7 +45,7 @@ func (m *Memory) Validate() error {
 	if m.WrittenByAgentID == "" {
 		return errEmpty("memory.written_by_agent_id")
 	}
-	return nil
+	return parseErr("written_by_agent_id", m.WrittenByAgentID)
 }
 
 // MD5Hex returns the canonical content_md5 value for a piece of content.

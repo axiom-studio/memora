@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // hasVibeflowContextsTable returns true when the SQLite database also
@@ -20,7 +22,7 @@ func (s *Store) hasVibeflowContextsTable(ctx context.Context) bool {
 // when vibeflow_contexts is present. The view UNIONs synthetic
 // `parent_of` edges (one per rotation-archive row with non-null
 // parent_context_id) with the live `memora_edges` table. Synthetic
-// edges carry the `agent_legacy_vibeflow` sentinel and the prefix
+// edges carry the types.AgentLegacyVibeflowID sentinel and the prefix
 // `edg_synthetic_` so GraphUnlink can refuse to delete them.
 //
 // In OSS-standalone installs (no vibeflow_contexts table) this is
@@ -40,7 +42,7 @@ SELECT
     archive.parent_context_id                   AS target_memory_id,
     'parent_of'                                 AS edge_type,
     NULL                                        AS properties_json,
-    'agent_legacy_vibeflow'                     AS created_by_agent_id,
+    '`+types.AgentLegacyVibeflowID+`'      AS created_by_agent_id,
     archive.created_at                          AS created_at,
     NULL                                        AS deleted_at,
     archive.created_at                          AS watermark

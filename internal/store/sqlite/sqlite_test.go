@@ -38,7 +38,7 @@ func TestImprintAndGet(t *testing.T) {
 	m := &types.Memory{
 		WorkspaceID:      ws.ID,
 		Content:          "hello world",
-		WrittenByAgentID: "agent_opaque_test",
+		WrittenByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7",
 	}
 	wmk, err := s.ImprintMemory(ctx, m)
 	if err != nil {
@@ -63,14 +63,14 @@ func TestUpdateMemory_CAS(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "test"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "v1", WrittenByAgentID: "agent_opaque_x"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "v1", WrittenByAgentID: "a254b43c-3269-4471-a68d-d1dfc32f38e6"}
 	wmk, err := s.ImprintMemory(ctx, m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Happy path.
 	m.Content = "v2"
-	m.LastModifiedByAgentID = "agent_opaque_x"
+	m.LastModifiedByAgentID = "a254b43c-3269-4471-a68d-d1dfc32f38e6"
 	newWmk, err := s.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, m)
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -89,11 +89,11 @@ func TestPatchMemory_AppliesOps(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "patch"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "alpha beta gamma", WrittenByAgentID: "agent_opaque_p"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "alpha beta gamma", WrittenByAgentID: "71574897-eb90-4db5-b0e4-0df9ee4f867f"}
 	wmk, _ := s.ImprintMemory(ctx, m)
 
 	ops := []api.PatchOp{{OldString: "beta", NewString: "BETA"}}
-	newWmk, _, content, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, ops, "agent_opaque_p")
+	newWmk, _, content, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, ops, "71574897-eb90-4db5-b0e4-0df9ee4f867f")
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
@@ -109,9 +109,9 @@ func TestPatchMemory_AmbiguousAnchorRejected(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "patch2"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "x x", WrittenByAgentID: "agent_opaque_p"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "x x", WrittenByAgentID: "71574897-eb90-4db5-b0e4-0df9ee4f867f"}
 	wmk, _ := s.ImprintMemory(ctx, m)
-	_, _, _, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, []api.PatchOp{{OldString: "x", NewString: "y"}}, "agent_opaque_p")
+	_, _, _, err := s.PatchMemory(ctx, m.WorkspaceID, m.ID, wmk, []api.PatchOp{{OldString: "x", NewString: "y"}}, "71574897-eb90-4db5-b0e4-0df9ee4f867f")
 	if err == nil {
 		t.Fatal("expected ErrPatchAnchor on ambiguous")
 	}
@@ -122,8 +122,8 @@ func TestGraphLink_AndNeighbors(t *testing.T) {
 	ws := &types.Workspace{Name: "graph"}
 	_ = s.CreateWorkspace(ctx, ws)
 
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_g"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_g"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "b9f7720c-6f2f-4ed1-b6be-70bd064aeae2"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "b9f7720c-6f2f-4ed1-b6be-70bd064aeae2"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
 
@@ -132,7 +132,7 @@ func TestGraphLink_AndNeighbors(t *testing.T) {
 		SourceMemoryID:   a.ID,
 		TargetMemoryID:   b.ID,
 		EdgeType:         types.EdgeTypeReferences,
-		CreatedByAgentID: "agent_opaque_g",
+		CreatedByAgentID: "b9f7720c-6f2f-4ed1-b6be-70bd064aeae2",
 	}
 	if _, err := s.GraphLink(ctx, e); err != nil {
 		t.Fatalf("link: %v", err)
@@ -153,11 +153,11 @@ func TestGraphLink_UniqueLiveTriple(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "uniq"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_u"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_u"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "5c037994-44a1-4c5a-ae85-2df16d4ab567"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "5c037994-44a1-4c5a-ae85-2df16d4ab567"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
-	e := types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_u"}
+	e := types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "5c037994-44a1-4c5a-ae85-2df16d4ab567"}
 	if _, err := s.GraphLink(ctx, e); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestGraphTraverse_DepthCap(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "depth"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_d"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "06e2eae9-edfa-42db-b0d6-61fe0b2593bb"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, err := s.GraphTraverse(ctx, ws.ID, a.ID, adapter.TraverseOpts{Depth: 5})
 	if err == nil {
@@ -182,12 +182,12 @@ func TestGraphCascadeForget(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "cascade"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_c"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_c"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
-	n, err := s.GraphCascadeForget(ctx, ws.ID, a.ID, "agent_opaque_c")
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"})
+	n, err := s.GraphCascadeForget(ctx, ws.ID, a.ID, "339f2f5f-7486-4171-a049-62c4a9213966")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,10 +271,10 @@ func TestMigrationSplit_NewObjects(t *testing.T) {
 		versions = append(versions, v)
 	}
 	_ = rows.Close()
-	if len(versions) != 5 {
-		t.Fatalf("expected 5 migrations, got %v", versions)
+	if len(versions) != 6 {
+		t.Fatalf("expected 6 migrations, got %v", versions)
 	}
-	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" || versions[3] != "0004_pins.sql" || versions[4] != "0005_pins_rebuild.sql" {
+	if versions[0] != "0001_init.sql" || versions[1] != "0002_agents.sql" || versions[2] != "0003_edges.sql" || versions[3] != "0004_pins.sql" || versions[4] != "0005_pins_rebuild.sql" || versions[5] != "0006_agent_identities.sql" {
 		t.Fatalf("unexpected migration versions: %v", versions)
 	}
 }
@@ -297,13 +297,13 @@ func TestTenantIsolation_GetAgent(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, w1)
 	_ = s.CreateWorkspace(ctx, w2)
 
-	a := &types.Agent{AgentID: "agent_iso_1", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
+	a := &types.Agent{AgentID: "a8cee4fc-50aa-4b1f-8251-9b68d24f7394", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
 	_ = s.RegisterAgent(ctx, a)
 
-	if _, err := s.GetAgent(ctx, w1.ID, "agent_iso_1"); err != nil {
+	if _, err := s.GetAgent(ctx, w1.ID, "a8cee4fc-50aa-4b1f-8251-9b68d24f7394"); err != nil {
 		t.Fatalf("same-workspace GetAgent failed: %v", err)
 	}
-	if _, err := s.GetAgent(ctx, w2.ID, "agent_iso_1"); err != types.ErrNotFound {
+	if _, err := s.GetAgent(ctx, w2.ID, "a8cee4fc-50aa-4b1f-8251-9b68d24f7394"); err != types.ErrNotFound {
 		t.Fatalf("cross-workspace GetAgent: expected ErrNotFound, got %v", err)
 	}
 }
@@ -315,13 +315,13 @@ func TestTenantIsolation_DeactivateAgent(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, w1)
 	_ = s.CreateWorkspace(ctx, w2)
 
-	a := &types.Agent{AgentID: "agent_iso_2", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
+	a := &types.Agent{AgentID: "dc4c475c-b583-41d3-902d-1788412cd223", WorkspaceID: w1.ID, IdentityProvider: "opaque"}
 	_ = s.RegisterAgent(ctx, a)
 
-	if err := s.DeactivateAgent(ctx, w2.ID, "agent_iso_2"); err != types.ErrNotFound {
+	if err := s.DeactivateAgent(ctx, w2.ID, "dc4c475c-b583-41d3-902d-1788412cd223"); err != types.ErrNotFound {
 		t.Fatalf("cross-workspace DeactivateAgent: expected ErrNotFound, got %v", err)
 	}
-	if err := s.DeactivateAgent(ctx, w1.ID, "agent_iso_2"); err != nil {
+	if err := s.DeactivateAgent(ctx, w1.ID, "dc4c475c-b583-41d3-902d-1788412cd223"); err != nil {
 		t.Fatalf("same-workspace DeactivateAgent failed: %v", err)
 	}
 }
@@ -333,7 +333,7 @@ func TestTenantIsolation_UpsertTag(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, w1)
 	_ = s.CreateWorkspace(ctx, w2)
 
-	m := &types.Memory{WorkspaceID: w1.ID, Content: "tagged", WrittenByAgentID: "agent_opaque_t"}
+	m := &types.Memory{WorkspaceID: w1.ID, Content: "tagged", WrittenByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	if err := s.UpsertTag(ctx, w1.ID, m.ID, "env", "prod"); err != nil {
@@ -351,7 +351,7 @@ func TestTenantIsolation_GetWatermarkHistory(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, w1)
 	_ = s.CreateWorkspace(ctx, w2)
 
-	m := &types.Memory{WorkspaceID: w1.ID, Content: "wmk", WrittenByAgentID: "agent_opaque_w"}
+	m := &types.Memory{WorkspaceID: w1.ID, Content: "wmk", WrittenByAgentID: "28dd6785-5482-4d6e-8403-da3e194c9f58"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	hist, err := s.GetWatermarkHistory(ctx, w1.ID, m.ID, time.Now().Add(-1*time.Hour))
@@ -383,7 +383,7 @@ func TestDeleteWorkspace_NonEmpty(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "nonempty"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "keep me", WrittenByAgentID: "agent_opaque_ne"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "keep me", WrittenByAgentID: "6d92bb48-1463-43a9-860e-9d2fe1e26238"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	err := s.DeleteWorkspace(ctx, ws.ID)
@@ -403,7 +403,7 @@ func TestDeleteCollection_NonEmpty(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, ws)
 	c := &types.Collection{WorkspaceID: ws.ID, Name: "test_coll"}
 	_ = s.CreateCollection(ctx, c)
-	m := &types.Memory{WorkspaceID: ws.ID, CollectionID: c.ID, Content: "in coll", WrittenByAgentID: "agent_opaque_cn"}
+	m := &types.Memory{WorkspaceID: ws.ID, CollectionID: c.ID, Content: "in coll", WrittenByAgentID: "a5f1ac35-460c-4344-ada9-d73d9e188dbf"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	err := s.DeleteCollection(ctx, c.ID)
@@ -421,7 +421,7 @@ func TestUpdateMemory_ConcurrentWriters(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "race"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "v0", WrittenByAgentID: "agent_opaque_r"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "v0", WrittenByAgentID: "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db"}
 	wmk, _ := s.ImprintMemory(ctx, m)
 
 	var winnerCount, loserCount atomic.Int32
@@ -433,7 +433,7 @@ func TestUpdateMemory_ConcurrentWriters(t *testing.T) {
 			m2 := &types.Memory{
 				WorkspaceID:           ws.ID,
 				Content:               fmt.Sprintf("v%d", i+1),
-				LastModifiedByAgentID: "agent_opaque_r",
+				LastModifiedByAgentID: "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db",
 			}
 			_, err := s.UpdateMemory(ctx, m.WorkspaceID, m.ID, wmk, m2)
 			switch {
@@ -459,12 +459,12 @@ func TestUpsertCells_Idempotent(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "cells"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "agent_opaque_c"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	cells := []types.Cell{
-		{Seq: 0, Text: "first", TextMD5: types.MD5Hex("first"), WrittenByAgentID: "agent_opaque_c"},
-		{Seq: 1, Text: "second", TextMD5: types.MD5Hex("second"), WrittenByAgentID: "agent_opaque_c"},
+		{Seq: 0, Text: "first", TextMD5: types.MD5Hex("first"), WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"},
+		{Seq: 1, Text: "second", TextMD5: types.MD5Hex("second"), WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"},
 	}
 	if err := s.UpsertCells(ctx, m.ID, cells); err != nil {
 		t.Fatal(err)
@@ -485,7 +485,7 @@ func TestGetWatermarkHistory_SinceFilter(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "wmkh"}
 	_ = s.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "v1", WrittenByAgentID: "agent_opaque_w"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "v1", WrittenByAgentID: "28dd6785-5482-4d6e-8403-da3e194c9f58"}
 	_, _ = s.ImprintMemory(ctx, m)
 
 	future := time.Now().UTC().Add(time.Hour)
@@ -511,7 +511,7 @@ func TestRegisterAgent_ConcurrentUpserts(t *testing.T) {
 	ws := &types.Workspace{Name: "agents_race"}
 	_ = s.CreateWorkspace(ctx, ws)
 
-	const id = "agent_opaque_race"
+	const id = "a981aab2-1e50-4f64-9e75-0e0f4ac653ff"
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
@@ -554,11 +554,11 @@ func TestGraphLink_AllEdgeTypes(t *testing.T) {
 	_ = s.CreateWorkspace(ctx, ws)
 
 	for _, et := range types.StoredEdgeTypes {
-		a := &types.Memory{WorkspaceID: ws.ID, Content: "A-" + string(et), WrittenByAgentID: "agent_opaque_t"}
-		b := &types.Memory{WorkspaceID: ws.ID, Content: "B-" + string(et), WrittenByAgentID: "agent_opaque_t"}
+		a := &types.Memory{WorkspaceID: ws.ID, Content: "A-" + string(et), WrittenByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07"}
+		b := &types.Memory{WorkspaceID: ws.ID, Content: "B-" + string(et), WrittenByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07"}
 		_, _ = s.ImprintMemory(ctx, a)
 		_, _ = s.ImprintMemory(ctx, b)
-		e := types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: et, CreatedByAgentID: "agent_opaque_t"}
+		e := types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: et, CreatedByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07"}
 		got, err := s.GraphLink(ctx, e)
 		if err != nil {
 			t.Errorf("link %s: %v", et, err)
@@ -574,17 +574,17 @@ func TestGraphLinkBatch_PerEdgeIsolation(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "batch"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_b"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_b"}
-	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_b"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
 	_, _ = s.ImprintMemory(ctx, c)
 
 	edges := []types.Edge{
-		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
-		{WorkspaceID: ws.ID, SourceMemoryID: "mem_does_not_exist", TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
-		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_b"},
+		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"},
+		{WorkspaceID: ws.ID, SourceMemoryID: "mem_does_not_exist", TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"},
+		{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "1e1eb705-8a26-40a7-bd4f-b29139923d72"},
 	}
 	results, err := s.GraphLinkBatch(ctx, edges)
 	if err != nil {
@@ -608,25 +608,25 @@ func TestGraphLink_OutDegreeCap(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "outdeg"}
 	_ = s.CreateWorkspace(ctx, ws)
-	src := &types.Memory{WorkspaceID: ws.ID, Content: "src", WrittenByAgentID: "agent_opaque_od"}
+	src := &types.Memory{WorkspaceID: ws.ID, Content: "src", WrittenByAgentID: "8eb3066b-c03e-4709-a5e7-fc4746d84b76"}
 	_, _ = s.ImprintMemory(ctx, src)
 
 	for i := 0; i < 1000; i++ {
-		tgt := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("tgt-%d", i), WrittenByAgentID: "agent_opaque_od"}
+		tgt := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("tgt-%d", i), WrittenByAgentID: "8eb3066b-c03e-4709-a5e7-fc4746d84b76"}
 		_, _ = s.ImprintMemory(ctx, tgt)
 		_, err := s.GraphLink(ctx, types.Edge{
 			WorkspaceID: ws.ID, SourceMemoryID: src.ID, TargetMemoryID: tgt.ID,
-			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_od",
+			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "8eb3066b-c03e-4709-a5e7-fc4746d84b76",
 		})
 		if err != nil {
 			t.Fatalf("link %d: %v", i, err)
 		}
 	}
-	overflow := &types.Memory{WorkspaceID: ws.ID, Content: "overflow", WrittenByAgentID: "agent_opaque_od"}
+	overflow := &types.Memory{WorkspaceID: ws.ID, Content: "overflow", WrittenByAgentID: "8eb3066b-c03e-4709-a5e7-fc4746d84b76"}
 	_, _ = s.ImprintMemory(ctx, overflow)
 	_, err := s.GraphLink(ctx, types.Edge{
 		WorkspaceID: ws.ID, SourceMemoryID: src.ID, TargetMemoryID: overflow.ID,
-		EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_od",
+		EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "8eb3066b-c03e-4709-a5e7-fc4746d84b76",
 	})
 	if !errors.Is(err, types.ErrQuotaExceeded) {
 		t.Fatalf("expected ErrQuotaExceeded on 1001st edge, got %v", err)
@@ -640,7 +640,7 @@ func TestGraphTraverse_LayerOrdering(t *testing.T) {
 
 	ids := map[string]string{}
 	for _, name := range []string{"A", "B", "C", "D", "E", "F", "G"} {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: name, WrittenByAgentID: "agent_opaque_t"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: name, WrittenByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07"}
 		_, _ = s.ImprintMemory(ctx, m)
 		ids[name] = m.ID
 	}
@@ -652,7 +652,7 @@ func TestGraphTraverse_LayerOrdering(t *testing.T) {
 	} {
 		_, _ = s.GraphLink(ctx, types.Edge{
 			WorkspaceID: ws.ID, SourceMemoryID: ids[link[0]], TargetMemoryID: ids[link[1]],
-			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_t",
+			EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "2fe0f846-5778-4699-afb3-d64180692e07",
 		})
 	}
 
@@ -678,15 +678,15 @@ func TestGraphTraverse_CycleDoesNotLoop(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "cycle"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_c"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_c"}
-	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_c"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
 	_, _ = s.ImprintMemory(ctx, c)
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: c.ID, TargetMemoryID: a.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_c"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: c.ID, TargetMemoryID: a.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"})
 
 	res, err := s.GraphTraverse(ctx, ws.ID, a.ID, adapter.TraverseOpts{Depth: 3, Direction: api.GraphDirOut})
 	if err != nil {
@@ -701,19 +701,19 @@ func TestGraphTraverse_FilterPrunes_DescendantsExplored(t *testing.T) {
 	s, ctx := openStore(t)
 	ws := &types.Workspace{Name: "filter"}
 	_ = s.CreateWorkspace(ctx, ws)
-	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "agent_opaque_alice"}
-	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "agent_opaque_bob"}
-	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "agent_opaque_alice"}
+	a := &types.Memory{WorkspaceID: ws.ID, Content: "A", WrittenByAgentID: "28d99032-760a-43c9-b68c-4baee6a91462"}
+	b := &types.Memory{WorkspaceID: ws.ID, Content: "B", WrittenByAgentID: "41b5ba02-d1e5-43e6-9c10-a7cbadb717c7"}
+	c := &types.Memory{WorkspaceID: ws.ID, Content: "C", WrittenByAgentID: "28d99032-760a-43c9-b68c-4baee6a91462"}
 	_, _ = s.ImprintMemory(ctx, a)
 	_, _ = s.ImprintMemory(ctx, b)
 	_, _ = s.ImprintMemory(ctx, c)
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_alice"})
-	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent_opaque_alice"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: a.ID, TargetMemoryID: b.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "28d99032-760a-43c9-b68c-4baee6a91462"})
+	_, _ = s.GraphLink(ctx, types.Edge{WorkspaceID: ws.ID, SourceMemoryID: b.ID, TargetMemoryID: c.ID, EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "28d99032-760a-43c9-b68c-4baee6a91462"})
 
 	res, _ := s.GraphTraverse(ctx, ws.ID, a.ID, adapter.TraverseOpts{
 		Depth:     2,
 		Direction: api.GraphDirOut,
-		Filter:    map[string]any{"agent_id": "agent_opaque_alice"},
+		Filter:    map[string]any{"agent_id": "28d99032-760a-43c9-b68c-4baee6a91462"},
 	})
 
 	foundC := false

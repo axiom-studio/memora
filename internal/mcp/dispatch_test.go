@@ -147,7 +147,7 @@ func TestDispatch_Lookup_FromOtherWorkspace_ReturnsNotFound(t *testing.T) {
 	s := NewServer(svc, testLogger())
 	owner := createWorkspace(t, s, map[string]any{"name": "owner"})
 	other := createWorkspace(t, s, map[string]any{"name": "other"})
-	imp, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": owner, "agent_id": "agent_opaque_t", "content": "owner secret"})
+	imp, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": owner, "agent_id": "2fe0f846-5778-4699-afb3-d64180692e07", "content": "owner secret"})
 	if err != nil {
 		t.Fatalf("imprint: %v", err)
 	}

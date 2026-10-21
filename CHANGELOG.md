@@ -48,9 +48,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   the field, e.g. `memory_id must be a UUID`. `types.NewID()` takes no
   prefix; `types.ParseID(field, id)` replaces `MustHavePrefix`; the
   `oklog/ulid` dependency is gone. `federation.federation_id` must be a
-  UUID. Agent IDs keep the `agent_` prefix for now. Existing prefixed data
-  is not migrated yet (see docs/dev-docs/prd-uuid-ids-federated-search.md,
-  ID-8).
+  UUID. Agent IDs are UUIDs too (`Memora-Agent-Id`, MCP `agent_id`,
+  `written_by_agent_id`); names go in `display_name`. The sentinel agents
+  have fixed UUIDs (`AgentLegacyVibeflowID`, `AgentSystemAutoLinkID`) and
+  the CLI's default agent is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`.
+  Existing prefixed data is not migrated yet (see
+  docs/dev-docs/prd-uuid-ids-federated-search.md, ID-8).
+- **BREAKING (identity)**: `anthropic_session`, `oauth_agent` and
+  `oidc_agent` no longer require the agent ID to equal a derived string or
+  token claim. They implement the new `adapter.IdentityKeyer`: the proven
+  identity is mapped to a UUIDv4 agent ID minted on first sight (new
+  `MetadataStore.ResolveIdentityKey`, adapter API) and returned as
+  `agentId` from MCP `initialize`. `identity.DeriveAnthropicSessionID` is
+  replaced by `identity.AnthropicSessionKey`.
 - **BREAKING (adapter API)**: `MetadataStore` gains
   `DeleteCellsFrom(ctx, workspaceID, memoryID, fromSeq)` (#6037); see
   `pkg/adapter/compliance.DeleteCellsFromContract`.

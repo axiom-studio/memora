@@ -300,6 +300,10 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				s.writeError(w, http.StatusBadRequest, "missing_agent_id", "Memora-Agent-Id header required on writes", nil)
 				return
 			}
+			if _, err := types.ParseID("agent_id", agentID); err != nil {
+				s.writeErrorFromService(w, err)
+				return
+			}
 			provName := r.Header.Get("Memora-Identity-Provider")
 			if provName == "" {
 				provName = string(types.IdentityProviderOpaque)

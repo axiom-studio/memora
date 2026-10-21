@@ -40,7 +40,7 @@ func TestAppend_DurableAcrossReopen(t *testing.T) {
 		LedgerID:    "lg_durable",
 		WorkspaceID: "ws_a",
 		Op:          "imprint",
-		AgentID:     "agent_a",
+		AgentID:     "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp:   time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
@@ -69,8 +69,8 @@ func TestAppendBatch_RollsBackOnError(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.AppendBatch(ctx, []api.LedgerEntry{
-		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a", Timestamp: time.Now().UTC()},
-		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "update", AgentID: "agent_a", Timestamp: time.Now().UTC()},
+		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC()},
+		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "update", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC()},
 	})
 	if err == nil {
 		t.Fatal("expected PK violation error, got nil")
@@ -92,7 +92,7 @@ func TestQuery_FilterByOp(t *testing.T) {
 	for i, op := range []string{"imprint", "imprint", "update", "update", "forget"} {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%d", i), WorkspaceID: "ws_a",
-			Op: op, AgentID: "agent_a", Timestamp: time.Now().UTC(),
+			Op: op, AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC(),
 		})
 	}
 
@@ -118,7 +118,7 @@ func TestQuery_FilterByTimeRange(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%d", i), WorkspaceID: "ws_a",
-			Op: "imprint", AgentID: "agent_a", Timestamp: base.Add(time.Duration(i) * time.Hour),
+			Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: base.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
@@ -143,7 +143,7 @@ func TestQuery_CursorPagination(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%04d", i), WorkspaceID: "ws_a",
-			Op: "imprint", AgentID: "agent_a", Timestamp: base.Add(time.Duration(i) * time.Minute),
+			Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: base.Add(time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -198,7 +198,7 @@ func TestRedact_ReplacesButDoesNotDelete(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Append(ctx, api.LedgerEntry{
-		LedgerID: "lg_redact", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a",
+		LedgerID: "lg_redact", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp: time.Now().UTC(), Metadata: map[string]any{"pii": "alice@example.com"},
 	})
 	if err := s.Redact(ctx, "lg_redact", []string{"metadata"}); err != nil {
@@ -225,7 +225,7 @@ func TestRedact_HonorsAllFieldNames(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Append(ctx, api.LedgerEntry{
-		LedgerID: "lg_full", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a",
+		LedgerID: "lg_full", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp: time.Now().UTC(), IP: "1.2.3.4", UserAgent: "curl/7.0",
 		APIKeyID: "key_123", UserID: "user_456", Target: "mem_abc",
 		WatermarkBefore: "wmk_old", WatermarkAfter: "wmk_new", RequestID: "req_789",
@@ -281,7 +281,7 @@ func TestQuery_TimestampRoundTrip(t *testing.T) {
 	ts := time.Date(2026, 5, 18, 14, 30, 45, 123456789, time.UTC)
 	_ = s.Append(ctx, api.LedgerEntry{
 		LedgerID: "lg_ts", WorkspaceID: "ws_a", Op: "imprint",
-		AgentID: "agent_a", Timestamp: ts,
+		AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: ts,
 	})
 
 	entries, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: "ws_a"})

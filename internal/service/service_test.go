@@ -16,7 +16,7 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-const testAgent = "agent_opaque_service_test"
+const testAgent = "faa4328a-2e04-4400-ab38-9138bb3ae647"
 
 // newTestService wires the OSS-default sqlite metadata + sqlite-vec vector
 // stores and the noop embedder; no test doubles.
@@ -208,7 +208,7 @@ func TestHybridMerge_EmptyInputs(t *testing.T) {
 
 func TestPassesFilter(t *testing.T) {
 	now := time.Now()
-	m := types.Memory{CollectionID: "c1", WrittenByAgentID: "agent_a", CreatedAt: now, Tags: map[string]string{"team": "core"}}
+	m := types.Memory{CollectionID: "c1", WrittenByAgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", CreatedAt: now, Tags: map[string]string{"team": "core"}}
 	before, after := now.Add(-time.Hour), now.Add(time.Hour)
 	cases := []struct {
 		name string
@@ -218,11 +218,11 @@ func TestPassesFilter(t *testing.T) {
 		{"no filters", api.RecallFilters{}, true},
 		{"collection match", api.RecallFilters{CollectionID: "c1"}, true},
 		{"collection mismatch", api.RecallFilters{CollectionID: "c2"}, false},
-		{"agent match", api.RecallFilters{AgentID: "agent_a"}, true},
-		{"agent mismatch", api.RecallFilters{AgentID: "agent_b"}, false},
-		{"agent in", api.RecallFilters{AgentIDIn: []string{"agent_b", "agent_a"}}, true},
-		{"agent not in list", api.RecallFilters{AgentIDIn: []string{"agent_b"}}, false},
-		{"agent excluded", api.RecallFilters{AgentIDNotIn: []string{"agent_a"}}, false},
+		{"agent match", api.RecallFilters{AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9"}, true},
+		{"agent mismatch", api.RecallFilters{AgentID: "558a81e1-5845-4733-abeb-b79072c2b4b3"}, false},
+		{"agent in", api.RecallFilters{AgentIDIn: []string{"558a81e1-5845-4733-abeb-b79072c2b4b3", "88b4bd22-90ad-4364-badb-bf03e8a490a9"}}, true},
+		{"agent not in list", api.RecallFilters{AgentIDIn: []string{"558a81e1-5845-4733-abeb-b79072c2b4b3"}}, false},
+		{"agent excluded", api.RecallFilters{AgentIDNotIn: []string{"88b4bd22-90ad-4364-badb-bf03e8a490a9"}}, false},
 		{"after window", api.RecallFilters{TsAfter: &before}, true},
 		{"before cutoff fails", api.RecallFilters{TsAfter: &after}, false},
 		{"tsbefore fails", api.RecallFilters{TsBefore: &before}, false},

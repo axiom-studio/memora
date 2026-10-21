@@ -15,7 +15,7 @@ func TestRoutes_NonUUIDIDs_Return400NamingTheField(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+	agentH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
 
 	_, ws := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "ids"}, nil))
 	wsID := ws["id"].(string)

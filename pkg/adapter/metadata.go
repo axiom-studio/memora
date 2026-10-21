@@ -102,6 +102,10 @@ type MetadataStore interface {
 	GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error)
 	ListAgents(ctx context.Context, workspaceID string, limit int) ([]types.Agent, error)
 	DeactivateAgent(ctx context.Context, workspaceID, id string) error
+	// ResolveIdentityKey returns the agent_id bound to an identity key
+	// (see IdentityKeyer), binding candidateID — a fresh UUIDv4 — when
+	// the key is new. Concurrent calls for one key all get the same ID.
+	ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error)
 
 	// --- Recall pins ---
 

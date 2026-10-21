@@ -48,7 +48,7 @@ func newRealStores(t *testing.T) realStores {
 func (r realStores) liveMemory(t *testing.T, body string) string {
 	t.Helper()
 	ctx := context.Background()
-	m := &types.Memory{WorkspaceID: r.ws, Content: body, WrittenByAgentID: "agent_opaque_gc"}
+	m := &types.Memory{WorkspaceID: r.ws, Content: body, WrittenByAgentID: "2986919d-4168-42c5-a3e9-134e802edf7b"}
 	if _, err := r.meta.ImprintMemory(ctx, m); err != nil {
 		t.Fatal(err)
 	}

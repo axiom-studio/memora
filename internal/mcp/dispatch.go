@@ -21,10 +21,9 @@ func agentFrom(ctx context.Context) string {
 }
 
 // idArgs are the top-level tool arguments that carry Memora IDs.
-// agent_id joins them when agent IDs become UUIDs (ID-3) and edge_id
-// when synthetic edges get UUIDs (ID-4).
+// edge_id joins them when synthetic edges get UUIDs (ID-4).
 var idArgs = []string{
-	"workspace_id", "collection_id", "memory_id", "pin_id",
+	"workspace_id", "collection_id", "memory_id", "pin_id", "agent_id",
 	"source_memory_id", "target_memory_id", "seed_memory_id",
 }
 

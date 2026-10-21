@@ -16,7 +16,7 @@ func TestPins_CreateListDelete_RoundTrip(t *testing.T) {
 	if err := s.CreateWorkspace(ctx, ws); err != nil {
 		t.Fatal(err)
 	}
-	p := &types.Pin{WorkspaceID: ws.ID, Query: "q3 goals", Mode: "vector", K: 7, Watermark: "wm_1", Label: "q3", CreatedBy: "agent_a"}
+	p := &types.Pin{WorkspaceID: ws.ID, Query: "q3 goals", Mode: "vector", K: 7, Watermark: "wm_1", Label: "q3", CreatedBy: "88b4bd22-90ad-4364-badb-bf03e8a490a9"}
 	if err := s.CreatePin(ctx, p); err != nil {
 		t.Fatalf("CreatePin: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestPins_CreateListDelete_RoundTrip(t *testing.T) {
 	}
 	got := pins[0]
 	if got.PinID != p.PinID || got.Query != "q3 goals" || got.Mode != "vector" || got.K != 7 ||
-		got.Watermark != "wm_1" || got.Label != "q3" || got.CreatedBy != "agent_a" {
+		got.Watermark != "wm_1" || got.Label != "q3" || got.CreatedBy != "88b4bd22-90ad-4364-badb-bf03e8a490a9" {
 		t.Fatalf("ListPins round trip = %+v, want fields of %+v", got, p)
 	}
 

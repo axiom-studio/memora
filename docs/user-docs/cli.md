@@ -16,7 +16,7 @@ Global flags may appear before or after the command name. Most commands operate 
 |---|---|
 | `--endpoint` | Server URL. Environment `MEMORA_ENDPOINT`. Default `http://localhost:7777`. |
 | `--api-key` | Bearer token. Environment `MEMORA_API_KEY`. |
-| `--agent-id` | The writing agent. Environment `MEMORA_AGENT_ID`. Default `agent_opaque_local`. |
+| `--agent-id` | The writing agent, a UUID. Environment `MEMORA_AGENT_ID`. Default `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`, the shared local-CLI agent. |
 | `--workspace`, `-w` | Target workspace. Environment `MEMORA_WORKSPACE`. |
 | `--output`, `-o` | Output format. Environment `MEMORA_OUTPUT`. Default `text`. |
 | `--timeout` | Request timeout as a Go duration, such as `45s`. Default `30s`. |
@@ -24,7 +24,7 @@ Global flags may appear before or after the command name. Most commands operate 
 | `--quiet`, `-q` | Suppress normal output. |
 | `--verbose`, `-v` | Enable verbose output. |
 
-Every write the CLI sends carries an agent ID, defaulting to `agent_opaque_local`. Attributing writes from different services to different agents is worth doing early, because the ledger and recall filters both key on it and the attribution cannot be reconstructed afterwards.
+Every write the CLI sends carries an agent ID, defaulting to the shared local-CLI agent `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`. Attributing writes from different services to different agents is worth doing early, because the ledger and recall filters both key on it and the attribution cannot be reconstructed afterwards.
 
 ## Output Formats
 

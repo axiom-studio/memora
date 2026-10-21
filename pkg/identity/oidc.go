@@ -23,11 +23,11 @@ import (
 
 // OIDCAgent verifies agent identity via an OIDC ID Token. The agent
 // presents {id_token}; the provider fetches JWKS from the issuer,
-// validates the JWT signature, and checks the configured claim matches
-// agent_id.
+// validates the JWT signature, and keys the identity on the configured
+// claim (default "sub").
 type OIDCAgent struct {
 	IssuerURL        string // OIDC issuer (used to fetch .well-known/openid-configuration)
-	AgentIDClaim     string // claim in the ID token to match (default: "sub")
+	AgentIDClaim     string // claim in the ID token that identifies the agent (default: "sub")
 	ExpectedAudience string // OIDC client_id; if set, aud claim must contain this value
 	Client           *http.Client
 
@@ -61,63 +61,71 @@ func (o *OIDCAgent) Capabilities() adapter.IdentityCapabilities {
 	return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: true}
 }
 
+// Verify checks the ID token; see IdentityKey.
 func (o *OIDCAgent) Verify(ctx context.Context, in adapter.IdentityVerifyInput) error {
+	_, err := o.IdentityKey(ctx, in.IdentityProof)
+	return err
+}
+
+// IdentityKey implements adapter.IdentityKeyer: the key is the issuer
+// plus the identifying claim and its value.
+func (o *OIDCAgent) IdentityKey(ctx context.Context, proof map[string]any) (string, error) {
 	if o.IssuerURL == "" {
-		return ErrIdentityNotConfigured
+		return "", ErrIdentityNotConfigured
 	}
 	if o.Client == nil && !strings.HasPrefix(o.IssuerURL, "https://") {
-		return fmt.Errorf("oidc_agent: IssuerURL must use https:// scheme")
+		return "", fmt.Errorf("oidc_agent: IssuerURL must use https:// scheme")
 	}
 
-	idToken, _ := in.IdentityProof["id_token"].(string)
+	idToken, _ := proof["id_token"].(string)
 	if idToken == "" {
-		return fmt.Errorf("oidc_agent: identity_proof requires id_token")
+		return "", fmt.Errorf("oidc_agent: identity_proof requires id_token")
 	}
 
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
-		return fmt.Errorf("oidc_agent: invalid JWT format")
+		return "", fmt.Errorf("oidc_agent: invalid JWT format")
 	}
 
 	headerBytes, err := base64URLDecode(parts[0])
 	if err != nil {
-		return fmt.Errorf("oidc_agent: invalid JWT header: %w", err)
+		return "", fmt.Errorf("oidc_agent: invalid JWT header: %w", err)
 	}
 	var header struct {
 		Alg string `json:"alg"`
 		Kid string `json:"kid"`
 	}
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return fmt.Errorf("oidc_agent: invalid JWT header JSON: %w", err)
+		return "", fmt.Errorf("oidc_agent: invalid JWT header JSON: %w", err)
 	}
 
 	payloadBytes, err := base64URLDecode(parts[1])
 	if err != nil {
-		return fmt.Errorf("oidc_agent: invalid JWT payload: %w", err)
+		return "", fmt.Errorf("oidc_agent: invalid JWT payload: %w", err)
 	}
 	var claims map[string]any
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return fmt.Errorf("oidc_agent: invalid JWT claims: %w", err)
+		return "", fmt.Errorf("oidc_agent: invalid JWT claims: %w", err)
 	}
 
 	if iss, _ := claims["iss"].(string); iss != o.IssuerURL {
-		return fmt.Errorf("oidc_agent: issuer %q does not match configured %q", iss, o.IssuerURL)
+		return "", fmt.Errorf("oidc_agent: issuer %q does not match configured %q", iss, o.IssuerURL)
 	}
 
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Unix(int64(exp), 0).Before(time.Now()) {
-			return fmt.Errorf("oidc_agent: token expired")
+			return "", fmt.Errorf("oidc_agent: token expired")
 		}
 	}
 
 	keys, err := o.fetchJWKS(ctx)
 	if err != nil {
-		return fmt.Errorf("oidc_agent: fetch JWKS: %w", err)
+		return "", fmt.Errorf("oidc_agent: fetch JWKS: %w", err)
 	}
 
 	sigBytes, err := base64URLDecode(parts[2])
 	if err != nil {
-		return fmt.Errorf("oidc_agent: invalid JWT signature: %w", err)
+		return "", fmt.Errorf("oidc_agent: invalid JWT signature: %w", err)
 	}
 	signedContent := parts[0] + "." + parts[1]
 
@@ -132,12 +140,12 @@ func (o *OIDCAgent) Verify(ctx context.Context, in adapter.IdentityVerifyInput) 
 		}
 	}
 	if !verified {
-		return fmt.Errorf("oidc_agent: JWT signature verification failed")
+		return "", fmt.Errorf("oidc_agent: JWT signature verification failed")
 	}
 
 	if o.ExpectedAudience != "" {
 		if !audienceContains(claims["aud"], o.ExpectedAudience) {
-			return fmt.Errorf("oidc_agent: token audience does not contain expected %q", o.ExpectedAudience)
+			return "", fmt.Errorf("oidc_agent: token audience does not contain expected %q", o.ExpectedAudience)
 		}
 	}
 
@@ -146,11 +154,10 @@ func (o *OIDCAgent) Verify(ctx context.Context, in adapter.IdentityVerifyInput) 
 		claimKey = "sub"
 	}
 	got, _ := claims[claimKey].(string)
-	if got != in.AgentID {
-		return fmt.Errorf("oidc_agent: claim %q = %q does not match agent_id %q", claimKey, got, in.AgentID)
+	if got == "" {
+		return "", fmt.Errorf("oidc_agent: token has no %q claim", claimKey)
 	}
-
-	return nil
+	return "oidc_agent|" + o.IssuerURL + "|" + claimKey + "|" + got, nil
 }
 
 func (o *OIDCAgent) fetchJWKS(ctx context.Context) ([]jwkKey, error) {

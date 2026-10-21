@@ -92,7 +92,7 @@ func (e *Edge) Validate() error {
 	if e.CreatedByAgentID == "" {
 		return errEmpty("edge.created_by_agent_id")
 	}
-	return nil
+	return parseErr("created_by_agent_id", e.CreatedByAgentID)
 }
 
 // MemoryHeader is a lightweight projection of a Memory used in

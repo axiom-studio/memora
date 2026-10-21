@@ -62,7 +62,7 @@ func TestMetadataStore_MemoryRoundtrip(t *testing.T) {
 	m := &types.Memory{
 		WorkspaceID:      ws.ID,
 		Content:          "hello world",
-		WrittenByAgentID: "agent",
+		WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783",
 	}
 	wmk, err := ms.ImprintMemory(ctx, m)
 	if err != nil {
@@ -86,11 +86,11 @@ func TestMetadataStore_CellRoundtrip(t *testing.T) {
 
 	ws := &types.Workspace{Name: "cell-test"}
 	_ = ms.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "c", WrittenByAgentID: "agent"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "c", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 	_, _ = ms.ImprintMemory(ctx, m)
 
 	cells := []types.Cell{
-		{CellID: types.NewID(), MemoryID: m.ID, Seq: 0, Text: "chunk text", TextMD5: "abc123", WrittenByAgentID: "agent"},
+		{CellID: types.NewID(), MemoryID: m.ID, Seq: 0, Text: "chunk text", TextMD5: "abc123", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"},
 	}
 	if err := ms.UpsertCells(ctx, m.ID, cells); err != nil {
 		t.Fatalf("UpsertCells: %v", err)
@@ -114,7 +114,7 @@ func TestMetadataStore_TagRoundtrip(t *testing.T) {
 		WorkspaceID:      ws.ID,
 		Content:          "c",
 		Tags:             map[string]string{"env": "prod"},
-		WrittenByAgentID: "agent",
+		WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783",
 	}
 	_, _ = ms.ImprintMemory(ctx, m)
 
@@ -140,7 +140,7 @@ func TestMetadataStore_AgentRoundtrip(t *testing.T) {
 	ws := &types.Workspace{Name: "agent-test"}
 	_ = ms.CreateWorkspace(ctx, ws)
 
-	agentID := types.AgentIDPrefix + types.NewID()
+	agentID := types.NewID()
 	a := &types.Agent{
 		AgentID:          agentID,
 		WorkspaceID:      ws.ID,

@@ -108,7 +108,7 @@ When a Workspace enables it, a new Memory is compared against existing ones at w
 | Incoming links per target | `100` per target Memory per day. |
 | Per-imprint override | `auto_link: false` on a single imprint request turns it off for that write. |
 
-Auto-link edges are attributed to the reserved agent `agent_system_auto_link`, which keeps them distinguishable from anything a real agent asserted.
+Auto-link edges are attributed to the reserved agent `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps them distinguishable from anything a real agent asserted.
 
 ## Recall
 

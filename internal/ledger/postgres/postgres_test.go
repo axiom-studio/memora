@@ -46,7 +46,7 @@ func TestStore_AppendAndQuery(t *testing.T) {
 		WorkspaceID: ws,
 		Op:          "memory.imprint",
 		Target:      "mem_test",
-		AgentID:     "agent_test",
+		AgentID:     "434becf0-b125-41d5-8379-5a945dc8fb5e",
 		IP:          "127.0.0.1",
 		Metadata:    map[string]any{"key": "value"},
 	}
@@ -61,7 +61,7 @@ func TestStore_AppendAndQuery(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
-	if entries[0].Op != "memory.imprint" || entries[0].AgentID != "agent_test" {
+	if entries[0].Op != "memory.imprint" || entries[0].AgentID != "434becf0-b125-41d5-8379-5a945dc8fb5e" {
 		t.Fatalf("entry mismatch: %+v", entries[0])
 	}
 	if cursor != "" {
@@ -81,9 +81,9 @@ func TestStore_AppendBatch(t *testing.T) {
 
 	ws := types.NewID()
 	entries := []api.LedgerEntry{
-		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "a1", Timestamp: time.Now().UTC()},
-		{WorkspaceID: ws, Op: "memory.update", AgentID: "a1", Timestamp: time.Now().UTC()},
-		{WorkspaceID: ws, Op: "memory.forget", AgentID: "a1", Timestamp: time.Now().UTC()},
+		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "8a8bb7cd-343a-42ad-99b7-d762030857a2", Timestamp: time.Now().UTC()},
+		{WorkspaceID: ws, Op: "memory.update", AgentID: "8a8bb7cd-343a-42ad-99b7-d762030857a2", Timestamp: time.Now().UTC()},
+		{WorkspaceID: ws, Op: "memory.forget", AgentID: "8a8bb7cd-343a-42ad-99b7-d762030857a2", Timestamp: time.Now().UTC()},
 	}
 	if err := s.AppendBatch(ctx, entries); err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestStore_Redact(t *testing.T) {
 	entry := api.LedgerEntry{
 		WorkspaceID: ws,
 		Op:          "memory.imprint",
-		AgentID:     "agent_redact",
+		AgentID:     "f7f8a524-d304-44b3-a645-3b3827fcadeb",
 		IP:          "10.0.0.1",
 		Metadata:    map[string]any{"secret": "data"},
 	}
@@ -150,16 +150,16 @@ func TestStore_QueryFilters(t *testing.T) {
 
 	ws := types.NewID()
 	entries := []api.LedgerEntry{
-		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "a1"},
-		{WorkspaceID: ws, Op: "memory.update", AgentID: "a2"},
+		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "8a8bb7cd-343a-42ad-99b7-d762030857a2"},
+		{WorkspaceID: ws, Op: "memory.update", AgentID: "693a9fdd-4c2f-4070-8968-fba0d07ff3c0"},
 	}
 	s.AppendBatch(ctx, entries)
 
-	got, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, AgentID: "a1"})
+	got, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, AgentID: "8a8bb7cd-343a-42ad-99b7-d762030857a2"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].AgentID != "a1" {
+	if len(got) != 1 || got[0].AgentID != "8a8bb7cd-343a-42ad-99b7-d762030857a2" {
 		t.Fatalf("agent filter failed: got %d entries", len(got))
 	}
 

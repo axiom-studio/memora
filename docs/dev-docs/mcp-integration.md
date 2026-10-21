@@ -75,10 +75,18 @@ The WebSocket transport (v0.5) will require a Bearer token matching
 ## Agent identity
 
 Every write tool (memora_imprint / update / patch / append / forget /
-link / unlink) requires an `agent_id` argument. The default
-`opaque` provider accepts anything. To enforce verification, point
-the deployer's `MEMORA_IDENTITY_PROVIDER=anthropic_session` and have
-the client supply `identity_proof = {session_id, model, system_prompt}`.
+link / unlink) requires an `agent_id` argument, and every agent ID is a
+UUIDv4. The default `opaque` provider accepts any UUID the client
+chooses.
 
-See [`pkg/identity`](../../pkg/identity) for the derivation recipe used
-by `anthropic_session`.
+`anthropic_session`, `oauth_agent` and `oidc_agent` identify the agent
+from its proof instead. The client sends `identityProvider` and
+`identityProof` in `initialize` (for `anthropic_session`,
+`{session_id, model, system_prompt}`) and may omit `agentId`. The
+server verifies the proof, maps the identity it proves to a UUIDv4
+agent ID (minted the first time that identity is seen, the same ID
+every time after) and returns it as `agentId` in the `initialize`
+result. Every tool call in the session then writes as that agent. An
+`agentId` sent alongside the proof must be that same ID.
+
+See [`pkg/identity`](../../pkg/identity) for the identity-key recipes.

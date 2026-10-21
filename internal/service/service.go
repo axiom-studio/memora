@@ -136,6 +136,37 @@ func (s *Service) IdentityFor(name string) adapter.IdentityProvider {
 	return s.Identity[string(types.IdentityProviderOpaque)]
 }
 
+// ResolveAgent verifies an agent's identity and returns its agent_id.
+// Providers that identify the agent from its proof (adapter.IdentityKeyer)
+// get the UUIDv4 bound to that identity, minted the first time it is
+// seen; a claimedID, if given, must be that ID. Every other provider
+// verifies claimedID itself, which must be a UUID.
+func (s *Service) ResolveAgent(ctx context.Context, provider, claimedID string, proof map[string]any) (string, error) {
+	prov := s.IdentityFor(provider)
+	keyer, ok := prov.(adapter.IdentityKeyer)
+	if !ok {
+		if _, err := types.ParseID("agent_id", claimedID); err != nil {
+			return "", err
+		}
+		if err := prov.Verify(ctx, adapter.IdentityVerifyInput{AgentID: claimedID, IdentityProof: proof}); err != nil {
+			return "", err
+		}
+		return claimedID, nil
+	}
+	key, err := keyer.IdentityKey(ctx, proof)
+	if err != nil {
+		return "", err
+	}
+	agentID, err := s.Metadata.ResolveIdentityKey(ctx, key, types.NewID())
+	if err != nil {
+		return "", fmt.Errorf("resolve %s identity: %w", prov.Name(), err)
+	}
+	if claimedID != "" && claimedID != agentID {
+		return "", fmt.Errorf("%s: agent_id %q is not the agent this identity_proof identifies", prov.Name(), claimedID)
+	}
+	return agentID, nil
+}
+
 func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chunker.Chunker, error) {
 	ws, err := s.Metadata.GetWorkspace(ctx, workspaceID)
 	if err != nil {

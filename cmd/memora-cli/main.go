@@ -43,6 +43,11 @@ const exitClient = 4
 const exitCAS = 5
 const exitNotFound = 8
 
+// defaultAgentID is the agent the CLI writes as when neither
+// --agent-id nor $MEMORA_AGENT_ID is set: one fixed UUIDv4 shared by
+// every local CLI user, as "agent_opaque_local" was before IDs were UUIDs.
+const defaultAgentID = "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d"
+
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
 		printRootHelp()
@@ -136,7 +141,7 @@ func parseGlobal(args []string) globalFlags {
 	g := globalFlags{
 		Endpoint:  getenv("MEMORA_ENDPOINT", "http://localhost:7777"),
 		APIKey:    os.Getenv("MEMORA_API_KEY"),
-		AgentID:   getenv("MEMORA_AGENT_ID", "agent_opaque_local"),
+		AgentID:   getenv("MEMORA_AGENT_ID", defaultAgentID),
 		Workspace: os.Getenv("MEMORA_WORKSPACE"),
 		Output:    getenv("MEMORA_OUTPUT", "text"),
 		Timeout:   30 * time.Second,
@@ -960,7 +965,8 @@ Commands:
 Global flags:
   --endpoint <url>       (default: $MEMORA_ENDPOINT or http://localhost:7777)
   --api-key <key>        (default: $MEMORA_API_KEY)
-  --agent-id <id>        (default: $MEMORA_AGENT_ID or agent_opaque_local)
+  --agent-id <uuid>      (default: $MEMORA_AGENT_ID or the shared local-CLI agent
+                         ` + defaultAgentID + `)
   --workspace, -w <id>   (default: $MEMORA_WORKSPACE)
   --output, -o text|json|jsonl|yaml
   --timeout <duration>   (default: 30s)

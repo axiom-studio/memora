@@ -59,7 +59,7 @@ The response reports the new Memory's ID, its opening watermark, an MD5 of the c
   "content_md5": "…",
   "cells_created": 1,
   "recall_ready": true,
-  "written_by_agent_id": "agent_opaque_local",
+  "written_by_agent_id": "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d",
   "ledger_id": "lg_01HXYZ...",
   "latency_ms": 4
 }
@@ -67,7 +67,7 @@ The response reports the new Memory's ID, its opening watermark, an MD5 of the c
 
 Embedding runs inline as part of the write, which is why `recall_ready` is already true rather than pending. It also means a large imprint holds the request open for as long as the embedding provider takes.
 
-The `written_by_agent_id` is `agent_opaque_local` because that is the CLI's default agent. Every write is attributed to some agent; override it with `--agent-id` or the `MEMORA_AGENT_ID` environment variable.
+The `written_by_agent_id` is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` because that is the CLI's default agent, shared by every local CLI user. Every write is attributed to some agent; override it with `--agent-id` or the `MEMORA_AGENT_ID` environment variable.
 
 ## Recalling It
 
@@ -102,7 +102,7 @@ The response reports how much embedding work the edit avoided:
   "patches_applied": 1,
   "cells_re_embedded": 1,
   "cells_skipped": 0,
-  "last_modified_by_agent_id": "agent_opaque_local",
+  "last_modified_by_agent_id": "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d",
   "ledger_id": "lg_01HXYZ...",
   "latency_ms": 6
 }

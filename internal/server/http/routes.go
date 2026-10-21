@@ -494,6 +494,9 @@ func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string,
 
 // /v1/workspaces/{ws_id}/agents[/{agent_id}]
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "agent_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		ags, err := s.cfg.Service.Metadata.ListAgents(r.Context(), wsID, 0)

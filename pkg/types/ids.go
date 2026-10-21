@@ -12,11 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// AgentIDPrefix is the prefix client-supplied agent IDs still carry.
-// Agent IDs become UUIDv4s with the identity_key change (ID-3); every
-// other Memora ID is already a bare UUIDv4.
-const AgentIDPrefix = "agent_"
-
 // NewID returns a fresh ID: a canonical lowercase UUIDv4 such as
 // "3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90". IDs carry no type prefix and
 // no timestamp; nothing may rely on their order.

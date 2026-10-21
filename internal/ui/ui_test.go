@@ -650,8 +650,8 @@ func TestRecentActivity_WithEntries(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		entries: []api.LedgerEntry{
-			{Op: "imprint", Target: "mem_abc", AgentID: "agent_1", Timestamp: time.Now()},
-			{Op: "recall", Target: "mem_xyz", AgentID: "agent_2", Timestamp: time.Now()},
+			{Op: "imprint", Target: "mem_abc", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", Timestamp: time.Now()},
+			{Op: "recall", Target: "mem_xyz", AgentID: "cfbc51d8-74fc-4d7c-bc7d-5cbaa40cf2ba", Timestamp: time.Now()},
 		},
 	})
 
@@ -772,7 +772,7 @@ func TestWorkspaceDetail_Agents(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		agents: []AgentSummary{
-			{AgentID: "agent_1", DisplayName: "Bot A", IdentityProvider: "opaque", AgentType: "chat"},
+			{AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", DisplayName: "Bot A", IdentityProvider: "opaque", AgentType: "chat"},
 		},
 	})
 	mux := http.NewServeMux()
@@ -783,7 +783,7 @@ func TestWorkspaceDetail_Agents(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	if !strings.Contains(body, "agent_1") || !strings.Contains(body, "Bot A") {
+	if !strings.Contains(body, "004681e8-d399-4612-8c7b-f6b11a0428b5") || !strings.Contains(body, "Bot A") {
 		t.Errorf("agent tab missing agent data: %s", body)
 	}
 }
@@ -818,7 +818,7 @@ func TestMemoryList(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		memories: []MemorySummary{
-			{ID: "mem_abc", AgentID: "agent_1", RecallReady: true, Content: "Hello world", UpdatedAt: time.Now()},
+			{ID: "mem_abc", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", RecallReady: true, Content: "Hello world", UpdatedAt: time.Now()},
 		},
 	})
 	mux := http.NewServeMux()
@@ -844,7 +844,7 @@ func TestMemoryDetail_Content(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		memory: &MemorySummary{
 			ID: "mem_abc", Content: "Full content here", ContentMD5: "abc123",
-			Watermark: "wmk_1", AgentID: "agent_1", RecallReady: true,
+			Watermark: "wmk_1", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", RecallReady: true,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		},
 	})
@@ -892,7 +892,7 @@ func TestMemoryDetail_Edges(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		edges: []EdgeSummary{
-			{EdgeID: "edge_1", SourceMemoryID: "mem_abc", TargetMemoryID: "mem_def", EdgeType: "related", AgentID: "agent_1"},
+			{EdgeID: "edge_1", SourceMemoryID: "mem_abc", TargetMemoryID: "mem_def", EdgeType: "related", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	mux := http.NewServeMux()
@@ -918,7 +918,7 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 				TargetID:        "mem_abc",
 				Watermark:       "wmk_01EXAMPLE",
 				Op:              "imprint",
-				AgentID:         "agent_test",
+				AgentID:         "434becf0-b125-41d5-8379-5a945dc8fb5e",
 				CreatedAt:       time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC),
 				ContentMD5After: "abc123",
 			},
@@ -926,7 +926,7 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 				TargetID:         "mem_abc",
 				Watermark:        "wmk_02EXAMPLE",
 				Op:               "update",
-				AgentID:          "agent_test",
+				AgentID:          "434becf0-b125-41d5-8379-5a945dc8fb5e",
 				CreatedAt:        time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
 				ContentMD5Before: "abc123",
 				ContentMD5After:  "def456",
@@ -952,7 +952,7 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 	if !strings.Contains(body, "update") {
 		t.Error("missing update op")
 	}
-	if !strings.Contains(body, "agent_test") {
+	if !strings.Contains(body, "434becf0-b125-41d5-8") { // the table shows 20 chars
 		t.Error("missing agent ID")
 	}
 	if !strings.Contains(body, "def456") {
@@ -1098,8 +1098,8 @@ func TestAuditList(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
 		auditEntries: []api.LedgerEntry{
-			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
-			{LedgerID: "led-2", Op: "forget", Target: "mem-xyz", AgentID: "agent-2", WorkspaceID: "ws-1", LatencyMS: 7, Timestamp: time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC)},
+			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "26096ca9-acde-4c31-bd4c-479ef452b5aa", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+			{LedgerID: "led-2", Op: "forget", Target: "mem-xyz", AgentID: "19577b55-5eee-4e2c-b3c0-54407686125a", WorkspaceID: "ws-1", LatencyMS: 7, Timestamp: time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC)},
 		},
 	})
 	mux := http.NewServeMux()
@@ -1160,7 +1160,7 @@ func TestAuditExport_CSV(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
 		auditEntries: []api.LedgerEntry{
-			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "26096ca9-acde-4c31-bd4c-479ef452b5aa", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
 		},
 	})
 	mux := http.NewServeMux()
@@ -2300,7 +2300,7 @@ func TestAgentRegisterForm(t *testing.T) {
 	r := httptest.NewRequest("GET", "/ui/partials/agent-register-form?ws=ws_abc", nil)
 	h.partialAgentRegisterForm(w, r)
 	body := w.Body.String()
-	for _, want := range []string{"agent_id", "display_name", "identity_provider", "agent_type", "model", "Register"} {
+	for _, want := range []string{"agent_id", "leave empty to generate one", "identity_provider", "agent_type", "model", "Register"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("register form missing %q", want)
 		}
@@ -2326,7 +2326,7 @@ func TestAgentRegisterForm_NoWS(t *testing.T) {
 func TestAgentRegister(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=agent_test_bot&display_name=Test+Bot&identity_provider=opaque&agent_type=assistant&model=claude"
+	body := "workspace_id=ws_abc&agent_id=8f14e45f-ceea-467a-9575-12345678abcd&display_name=Test+Bot&identity_provider=opaque&agent_type=assistant&model=claude"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2339,20 +2339,20 @@ func TestAgentRegister(t *testing.T) {
 	}
 }
 
-func TestAgentRegister_BadPrefix(t *testing.T) {
+func TestAgentRegister_NonUUIDRejected(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=bad_id&identity_provider=opaque"
+	body := "workspace_id=ws_abc&agent_id=agent_my_bot&identity_provider=opaque"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleAgentRegister(w, r)
-	if !strings.Contains(w.Body.String(), "must start with agent_") {
-		t.Error("expected prefix validation error")
+	if !strings.Contains(w.Body.String(), "Agent ID must be a UUID") {
+		t.Errorf("expected UUID validation error, got %q", w.Body.String())
 	}
 }
 
-func TestAgentRegister_MissingID(t *testing.T) {
+func TestAgentRegister_EmptyIDGeneratesOne(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	body := "workspace_id=ws_abc&agent_id=&identity_provider=opaque"
@@ -2360,8 +2360,8 @@ func TestAgentRegister_MissingID(t *testing.T) {
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleAgentRegister(w, r)
-	if !strings.Contains(w.Body.String(), "required") {
-		t.Error("expected required validation error")
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Errorf("empty agent_id should register with a generated UUID, got %q", w.Body.String())
 	}
 }
 
@@ -2369,10 +2369,10 @@ func TestAgentDeactivateForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/agent-deactivate-form?ws=ws_abc&id=agent_bot", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/agent-deactivate-form?ws=ws_abc&id=c7892920-fc50-4acb-94df-29de66f1b542", nil)
 	h.partialAgentDeactivateForm(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "agent_bot") {
+	if !strings.Contains(body, "c7892920-fc50-4acb-94df-29de66f1b542") {
 		t.Error("deactivate form missing agent ID")
 	}
 	if !strings.Contains(body, "Deactivate") {
@@ -2410,7 +2410,7 @@ func TestWorkspaceAgentsHasRegisterButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		agents: []AgentSummary{
-			{AgentID: "agent_test", DisplayName: "Test", IdentityProvider: "opaque", Deactivated: false},
+			{AgentID: "434becf0-b125-41d5-8379-5a945dc8fb5e", DisplayName: "Test", IdentityProvider: "opaque", Deactivated: false},
 		},
 	})
 	w := httptest.NewRecorder()
@@ -2697,7 +2697,7 @@ func TestEdgesTabHasLinkButton(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		memory: &MemorySummary{ID: "mem_x", Content: "test"},
 		edges: []EdgeSummary{
-			{EdgeID: "edge_1", SourceMemoryID: "mem_x", TargetMemoryID: "mem_y", EdgeType: "references", AgentID: "agent_1"},
+			{EdgeID: "edge_1", SourceMemoryID: "mem_x", TargetMemoryID: "mem_y", EdgeType: "references", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	w := httptest.NewRecorder()
@@ -2776,7 +2776,7 @@ func TestBulkDump(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		memories: []MemorySummary{
-			{ID: "mem_1", Content: "test content", ContentMD5: "abc", AgentID: "agent_1"},
+			{ID: "mem_1", Content: "test content", ContentMD5: "abc", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	w := httptest.NewRecorder()

@@ -72,18 +72,18 @@ The server warns at startup when the private key's permissions allow group or wo
 
 ## Agent Identity
 
-Every write to a memory, edge, or graph endpoint names an agent in the `Memora-Agent-Id` header, and the named identity provider checks it before the write proceeds. An agent that passes and is not yet known is registered automatically.
+Every write to a memory, edge, or graph endpoint names an agent in the `Memora-Agent-Id` header, and the named identity provider checks it before the write proceeds. Agent IDs are UUIDv4s like every other ID; anything else is rejected with `400 invalid_input`. Human-readable names belong in the agent's `display_name`. An agent that passes and is not yet known is registered automatically.
 
 | Section | Description |
 |---|---|
 | `opaque` | Accepts the supplied ID as given. The default, and the fallback for any unrecognised provider name. |
-| `anthropic_session` | Session-based agent identity. |
+| `anthropic_session` | Session-based agent identity, over MCP. The client proves its session in `initialize`; Memora maps that session to a UUIDv4 agent ID, minted on first use, and returns it. `oauth_agent` and `oidc_agent` work the same way, keyed on the token's identifying claim. |
 
 The `Memora-Identity-Provider` header selects the check and defaults to `opaque`.
 
 What `opaque` provides is attribution, not authentication: it records who a write claims to be from, inside the trust boundary the API key already established. That is sufficient when every caller shares one key and the deployment trusts them equally. It is not sufficient when two mutually distrusting agents share one Memora instance.
 
-One reserved identity is used internally. Edges created by auto-linking are attributed to `agent_system_auto_link`, which keeps system-generated edges distinguishable from anything a real agent asserted.
+One reserved identity is used internally. Edges created by auto-linking are attributed to the fixed agent ID `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps system-generated edges distinguishable from anything a real agent asserted.
 
 ## Multi-Tenancy
 

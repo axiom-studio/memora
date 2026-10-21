@@ -42,7 +42,7 @@ memora-cli patch mem_01HXYZ... \
 |---|---|---|
 | `--endpoint URL` | `MEMORA_ENDPOINT` | `http://localhost:7777` |
 | `--api-key KEY` | `MEMORA_API_KEY` | (empty — local-dev mode) |
-| `--agent-id ID` | `MEMORA_AGENT_ID` | `agent_opaque_local` |
+| `--agent-id ID` | `MEMORA_AGENT_ID` | `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` (shared local-CLI agent) |
 | `--workspace ID`, `-w ID` | `MEMORA_WORKSPACE` | (required for memory verbs) |
 | `--output FMT`, `-o FMT` | `MEMORA_OUTPUT` | `text` (`json`, `jsonl`) |
 | `--timeout DURATION` | — | `30s` |

@@ -20,6 +20,7 @@ package compliance
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -57,7 +58,7 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		mem := &types.Memory{
 			WorkspaceID:      ws.ID,
 			Content:          "compliance content",
-			WrittenByAgentID: "agent_opaque_compliance",
+			WrittenByAgentID: "1d8c60fe-2085-4353-9bb2-6dcf9b61eb27",
 		}
 		wmk, err := s.ImprintMemory(ctx, mem)
 		if err != nil {
@@ -83,11 +84,11 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		mem := &types.Memory{
 			WorkspaceID:      ws.ID,
 			Content:          "v1",
-			WrittenByAgentID: "agent_opaque_compliance",
+			WrittenByAgentID: "1d8c60fe-2085-4353-9bb2-6dcf9b61eb27",
 		}
 		wmk, _ := s.ImprintMemory(ctx, mem)
 		mem.Content = "v2"
-		mem.LastModifiedByAgentID = "agent_opaque_compliance"
+		mem.LastModifiedByAgentID = "1d8c60fe-2085-4353-9bb2-6dcf9b61eb27"
 		newWmk, err := s.UpdateMemory(ctx, mem.WorkspaceID, mem.ID, wmk, mem)
 		if err != nil {
 			t.Fatalf("update: %v", err)
@@ -104,6 +105,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		DeleteCellsFromContract(t, factory(t))
 	})
 
+	t.Run("resolve_identity_key", func(t *testing.T) {
+		ResolveIdentityKeyContract(t, factory(t))
+	})
+
 	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
 		s := factory(t)
 		ctx := context.Background()
@@ -112,14 +117,14 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		mem := &types.Memory{
 			WorkspaceID:      ws.ID,
 			Content:          "recall content",
-			WrittenByAgentID: "agent_opaque_c",
+			WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966",
 		}
 		if _, err := s.ImprintMemory(ctx, mem); err != nil {
 			t.Fatalf("imprint: %v", err)
 		}
 		cells := []types.Cell{
-			{Seq: 0, Text: "a", TextMD5: types.MD5Hex("a"), WrittenByAgentID: "agent_opaque_c"},
-			{Seq: 1, Text: "b", TextMD5: types.MD5Hex("b"), WrittenByAgentID: "agent_opaque_c"},
+			{Seq: 0, Text: "a", TextMD5: types.MD5Hex("a"), WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"},
+			{Seq: 1, Text: "b", TextMD5: types.MD5Hex("b"), WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"},
 		}
 		if err := s.UpsertCells(ctx, mem.ID, cells); err != nil {
 			t.Fatalf("upsert cells: %v", err)
@@ -169,7 +174,7 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		empty := &types.Memory{
 			WorkspaceID:      ws.ID,
 			Content:          "empty",
-			WrittenByAgentID: "agent_opaque_c",
+			WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966",
 		}
 		_, _ = s.ImprintMemory(ctx, empty)
 		flipped, err = s.FlipRecallReadyIfAllEmbedded(ctx, empty.ID)
@@ -196,13 +201,13 @@ func DeleteCellsFromContract(t *testing.T, s adapter.MetadataStore) {
 			t.Fatalf("create workspace: %v", err)
 		}
 	}
-	mem := &types.Memory{WorkspaceID: ws.ID, Content: "a b c", WrittenByAgentID: "agent_opaque_c"}
+	mem := &types.Memory{WorkspaceID: ws.ID, Content: "a b c", WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"}
 	if _, err := s.ImprintMemory(ctx, mem); err != nil {
 		t.Fatalf("imprint: %v", err)
 	}
 	var cells []types.Cell
 	for i, txt := range []string{"a", "b", "c"} {
-		cells = append(cells, types.Cell{Seq: i, Text: txt, TextMD5: types.MD5Hex(txt), WrittenByAgentID: "agent_opaque_c"})
+		cells = append(cells, types.Cell{Seq: i, Text: txt, TextMD5: types.MD5Hex(txt), WrittenByAgentID: "339f2f5f-7486-4171-a049-62c4a9213966"})
 	}
 	if err := s.UpsertCells(ctx, mem.ID, cells); err != nil {
 		t.Fatalf("upsert cells: %v", err)
@@ -233,5 +238,46 @@ func DeleteCellsFromContract(t *testing.T, s adapter.MetadataStore) {
 
 	if ids, err := s.DeleteCellsFrom(ctx, ws.ID, mem.ID, 5); err != nil || len(ids) != 0 {
 		t.Fatalf("delete past the end: ids=%v err=%v, want none", ids, err)
+	}
+}
+
+// ResolveIdentityKeyContract checks MetadataStore.ResolveIdentityKey: the
+// first call binds the candidate ID, later calls return that binding and
+// ignore their candidates, distinct keys stay distinct, and concurrent
+// first calls for one key all agree on a single ID.
+func ResolveIdentityKeyContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	key := "compliance|" + types.NewID()
+
+	first := types.NewID()
+	got, err := s.ResolveIdentityKey(ctx, key, first)
+	if err != nil || got != first {
+		t.Fatalf("first resolve = %q, %v; want the candidate %q", got, err, first)
+	}
+	if got, err := s.ResolveIdentityKey(ctx, key, types.NewID()); err != nil || got != first {
+		t.Fatalf("second resolve = %q, %v; want the first binding %q", got, err, first)
+	}
+	if got, err := s.ResolveIdentityKey(ctx, "compliance|"+types.NewID(), types.NewID()); err != nil || got == first {
+		t.Fatalf("a distinct key resolved to %q, %v; want its own ID", got, err)
+	}
+
+	raceKey := "compliance|" + types.NewID()
+	const n = 8
+	ids := make([]string, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ids[i], errs[i] = s.ResolveIdentityKey(ctx, raceKey, types.NewID())
+		}(i)
+	}
+	wg.Wait()
+	for i := 0; i < n; i++ {
+		if errs[i] != nil || ids[i] != ids[0] {
+			t.Fatalf("concurrent resolve %d = %q, %v; want all %q", i, ids[i], errs[i], ids[0])
+		}
 	}
 }

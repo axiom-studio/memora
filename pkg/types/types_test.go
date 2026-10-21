@@ -63,7 +63,7 @@ func TestEdgeValidate_SelfLoopRejected(t *testing.T) {
 		SourceMemoryID:   testMemX,
 		TargetMemoryID:   testMemX,
 		EdgeType:         EdgeTypeReferences,
-		CreatedByAgentID: "agent_opaque_test",
+		CreatedByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7",
 	}
 	if err := e.Validate(); err == nil {
 		t.Fatal("self-loop edge should be rejected")
@@ -76,7 +76,7 @@ func TestEdgeValidate_BadEdgeType(t *testing.T) {
 		SourceMemoryID:   testMemX,
 		TargetMemoryID:   testMemY,
 		EdgeType:         "not_a_real_type",
-		CreatedByAgentID: "agent_opaque_test",
+		CreatedByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7",
 	}
 	if err := e.Validate(); err == nil {
 		t.Fatal("bad edge_type should be rejected")
@@ -89,7 +89,7 @@ func TestEdgeValidate_Happy(t *testing.T) {
 		SourceMemoryID:   testMemX,
 		TargetMemoryID:   testMemY,
 		EdgeType:         EdgeTypeReferences,
-		CreatedByAgentID: "agent_opaque_test",
+		CreatedByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7",
 	}
 	if err := e.Validate(); err != nil {
 		t.Fatalf("happy-path edge rejected: %v", err)
@@ -110,7 +110,7 @@ func TestValidEdgeType(t *testing.T) {
 func TestMemoryValidate(t *testing.T) {
 	m := &Memory{
 		WorkspaceID:      testWS,
-		WrittenByAgentID: "agent_opaque_test",
+		WrittenByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7",
 	}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("happy memory rejected: %v", err)
@@ -127,13 +127,13 @@ func TestMemoryValidate(t *testing.T) {
 func TestValidate_RejectsLegacyPrefixedIDs(t *testing.T) {
 	const legacyWS = "ws_01HXYZABCDEFGHJKMNPQRSTVWX"
 	cases := map[string]interface{ Validate() error }{
-		"memory":     &Memory{WorkspaceID: legacyWS, WrittenByAgentID: "agent_opaque_test"},
+		"memory":     &Memory{WorkspaceID: legacyWS, WrittenByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7"},
 		"cell":       &Cell{MemoryID: "mem_01HXYZABCDEFGHJKMNPQRSTVWX"},
 		"workspace":  &Workspace{ID: legacyWS, Name: "w"},
 		"collection": &Collection{WorkspaceID: legacyWS, Name: "c"},
-		"agent":      &Agent{AgentID: "agent_x", WorkspaceID: legacyWS, IdentityProvider: "opaque"},
+		"agent":      &Agent{AgentID: "fd5c17ad-0c70-4b3d-a408-01f3ae5b44c7", WorkspaceID: legacyWS, IdentityProvider: "opaque"},
 		"edge": &Edge{WorkspaceID: testWS, SourceMemoryID: "mem_01HXYZABCDEFGHJKMNPQRSTVWX", TargetMemoryID: testMemY,
-			EdgeType: EdgeTypeReferences, CreatedByAgentID: "agent_opaque_test"},
+			EdgeType: EdgeTypeReferences, CreatedByAgentID: "2b4224a8-95b4-4171-9e6b-689847d53ac7"},
 	}
 	for name, v := range cases {
 		if err := v.Validate(); !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "must be a UUID") {

@@ -118,7 +118,7 @@ func assertGraphLinkWorks(t *testing.T, cfg config.Config) {
 	}
 	var ids []string
 	for _, body := range []string{"source", "target"} {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: body, WrittenByAgentID: "agent_opaque_local"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: body, WrittenByAgentID: "7c9517b4-7277-400b-959a-2ae960d295f6"}
 		if _, err := svc.Metadata.ImprintMemory(ctx, m); err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +126,7 @@ func assertGraphLinkWorks(t *testing.T, cfg config.Config) {
 	}
 	if _, err := svc.GraphLink(ctx, types.Edge{
 		WorkspaceID: ws.ID, SourceMemoryID: ids[0], TargetMemoryID: ids[1],
-		EdgeType: types.EdgeType("references"), CreatedByAgentID: "agent_opaque_local",
+		EdgeType: types.EdgeType("references"), CreatedByAgentID: "7c9517b4-7277-400b-959a-2ae960d295f6",
 	}); err != nil {
 		t.Fatalf("GraphLink through the wired GraphStore: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestOpenCoreAdapters_AsyncEmbedPoolDrainsOnClose(t *testing.T) {
 		closeAll()
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
-	resp, err := svc.Imprint(ctx, ws.ID, "agent_async_test", api.ImprintRequest{Content: "queued before shutdown"})
+	resp, err := svc.Imprint(ctx, ws.ID, "8acd8ee5-bb49-40d3-814a-329358a35fa4", api.ImprintRequest{Content: "queued before shutdown"})
 	if err != nil {
 		closeAll()
 		t.Fatalf("Imprint: %v", err)

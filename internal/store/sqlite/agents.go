@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/types"
@@ -41,6 +42,23 @@ ON CONFLICT(agent_id) DO UPDATE SET
 		nullableStr(a.IdentityProofHash), nullableStr(a.AgentType), nullableStr(a.Model),
 		nullableStr(string(capsJSON)), a.RegisteredAt, time.Now().UTC())
 	return err
+}
+
+// ResolveIdentityKey implements adapter.MetadataStore. The insert is a
+// no-op when the key is already bound, so the select always returns the
+// first binding.
+func (s *Store) ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error) {
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO memora_agent_identities (identity_key, agent_id, created_at) VALUES (?, ?, ?)
+ON CONFLICT(identity_key) DO NOTHING`, identityKey, candidateID, time.Now().UTC()); err != nil {
+		return "", fmt.Errorf("bind identity key: %w", err)
+	}
+	var agentID string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT agent_id FROM memora_agent_identities WHERE identity_key = ?`, identityKey).Scan(&agentID); err != nil {
+		return "", fmt.Errorf("read identity key binding: %w", err)
+	}
+	return agentID, nil
 }
 
 // GetAgent fetches a single Agent scoped to a workspace.

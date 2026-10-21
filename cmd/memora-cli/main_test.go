@@ -38,7 +38,7 @@ func TestParseGlobal_AllFlags(t *testing.T) {
 		t.Errorf("api-key = %q, want %q", g.APIKey, "secret")
 	}
 	if g.AgentID != "test-agent" {
-		t.Errorf("agent-id = %q, want %q", g.AgentID, "test-agent")
+		t.Errorf("agent-id = %q, want %q", g.AgentID, "ab5346c1-d6fd-44d8-aeab-e65e764965f6")
 	}
 	if g.Workspace != "ws-1" {
 		t.Errorf("workspace = %q, want %q", g.Workspace, "ws-1")
