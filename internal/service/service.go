@@ -63,6 +63,15 @@ type Service struct {
 	noAutoLink sync.Map
 }
 
+// requireAgent rejects a write whose agent is not a UUID. HTTP and MCP
+// check at their boundary; this guards every other caller (the console,
+// background workers, CLI tools), so no write can record a non-UUID
+// agent in last_modified_by, watermark history or the ledger (#4378).
+func requireAgent(agentID string) error {
+	_, err := types.ParseID("agent_id", agentID)
+	return err
+}
+
 // PostEmbedAutoLinkHook returns a closure suitable for embedqueue.PoolConfig.PostEmbedHook.
 // It calls autolink.AutoLink for the given memory after the async embed pool flips recall_ready.
 func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
@@ -93,10 +102,19 @@ func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, erro
 
 // GraphUnlink delegates to the configured GraphStore.
 func (s *Service) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
+	if err := requireAgent(agentID); err != nil {
+		return err
+	}
 	if s.Graph == nil {
 		return fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Graph.Unlink(ctx, workspaceID, edgeID, agentID)
+	if err := s.Graph.Unlink(ctx, workspaceID, edgeID, agentID); err != nil {
+		return err
+	}
+	// The graph store keeps no record of who removed an edge; the ledger
+	// does.
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "unlink", Target: edgeID, AgentID: agentID})
+	return nil
 }
 
 // GraphLinkBatch delegates to the configured GraphStore.
@@ -109,6 +127,9 @@ func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]ada
 
 // GraphCascadeForget delegates to the configured GraphStore.
 func (s *Service) GraphCascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
+	if err := requireAgent(agentID); err != nil {
+		return 0, err
+	}
 	if s.Graph == nil {
 		return 0, nil
 	}
@@ -195,6 +216,9 @@ func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chu
 // queued instead: the response says recall_ready=false and the pool
 // flips it once every cell has a vector.
 func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error) {
+	if err := requireAgent(agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required for imprint", types.ErrInvalidInput)
 	}
@@ -311,6 +335,9 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 
 // Update replaces a Memory's content with CAS.
 func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error) {
+	if err := requireAgent(agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -381,6 +408,9 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Patch is the moat operation: atomic diff-op apply + selective re-embed.
 func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error) {
+	if err := requireAgent(agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -450,6 +480,9 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 
 // Append tacks body onto a Memory.
 func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error) {
+	if err := requireAgent(agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -506,6 +539,9 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Forget removes a Memory and cascades incident edges.
 func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID string) (*api.ForgetResponse, error) {
+	if err := requireAgent(agentID); err != nil {
+		return nil, err
+	}
 	// INVARIANT: forget ordering is metadata → content → vector → ledger.
 	// Metadata goes first so the memory becomes invisible immediately.
 	// If content delete fails, the blob is orphaned but unreachable —

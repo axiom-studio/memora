@@ -65,6 +65,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Every service write checks that its agent is a UUID (#4378). That
+  covers imprint, update, patch, append, forget, link, unlink and
+  cascade-forget, and pins check their creator. Callers that bypass
+  the HTTP and MCP boundary (the console, workers, tools) can no longer
+  record a non-UUID agent. Unlinking an edge now writes an `unlink`
+  ledger entry with the agent, and the console unlinks through the
+  service.
 - The web console validates IDs too (#4371). Workspace, memory,
   collection, agent, edge, pin, ledger, peer and seed IDs, in
   `/ui/workspaces/{ws}/memories/{id}` paths and in query and form

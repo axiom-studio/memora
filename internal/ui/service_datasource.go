@@ -12,17 +12,19 @@ import (
 )
 
 type ServiceDataSource struct {
-	Metadata        adapter.MetadataStore
-	Vector          adapter.VectorStore
-	Ledger          adapter.LedgerStore
-	Content         adapter.ContentStore
-	Graph           adapter.GraphStore
-	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
-	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
-	UpdateFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
-	PatchFunc       func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
-	AppendFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
-	ForgetFunc      func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
+	Metadata    adapter.MetadataStore
+	Vector      adapter.VectorStore
+	Ledger      adapter.LedgerStore
+	Content     adapter.ContentStore
+	Graph       adapter.GraphStore
+	RecallFunc  func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
+	ImprintFunc func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
+	UpdateFunc  func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
+	PatchFunc   func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
+	AppendFunc  func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
+	ForgetFunc  func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
+	// UnlinkFunc removes an edge as an agent (Service.GraphUnlink).
+	UnlinkFunc      func(ctx context.Context, wsID, edgeID, agentID string) error
 	EmbedQueueDepth func() int
 }
 
@@ -625,10 +627,10 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 }
 
 func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, wsID, edgeID string) error {
-	if s.Graph == nil {
-		return fmt.Errorf("graph store not configured")
+	if s.UnlinkFunc == nil {
+		return fmt.Errorf("unlink not configured")
 	}
-	return s.Graph.Unlink(ctx, wsID, edgeID, types.ConsoleAgentID)
+	return s.UnlinkFunc(ctx, wsID, edgeID, types.ConsoleAgentID)
 }
 
 func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {

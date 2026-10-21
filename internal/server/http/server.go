@@ -147,6 +147,7 @@ func New(cfg Config) *Server {
 				PatchFunc:   cfg.Service.Patch,
 				AppendFunc:  cfg.Service.Append,
 				ForgetFunc:  cfg.Service.Forget,
+				UnlinkFunc:  cfg.Service.GraphUnlink,
 			}
 			uiHandler.SetDataSource(ds)
 		}
