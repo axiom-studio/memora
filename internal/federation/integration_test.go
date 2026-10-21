@@ -202,11 +202,11 @@ func TestIntegration_RegistryToPeers(t *testing.T) {
 		Enabled:      true,
 		FederationID: "fed_main",
 		Peers: []config.PeerConfig{
-			{Name: "peer1", URL: srv.URL, APIKey: "key1"},
+			{NodeID: nid("peer1"), Name: "peer1", URL: srv.URL, APIKey: "key1"},
 		},
 	}
 
-	reg, err := NewRegistry(cfg, "fed_main")
+	reg, err := NewRegistry(cfg, nid("fed_main"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestIntegration_RegistryToPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := pool.Client("peer1")
+	c := pool.Client(nid("peer1"))
 	if c == nil {
 		t.Fatal("expected client for peer1")
 	}

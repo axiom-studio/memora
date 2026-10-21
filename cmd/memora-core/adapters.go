@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -58,6 +59,11 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 	if err := refuseLegacyIDs(ctx, meta); err != nil {
 		return nil, nil, err
 	}
+	nodeID, nodeName, err := resolveNode(ctx, cfg.Node, meta)
+	if err != nil {
+		return nil, nil, err
+	}
+	logger.Info("node identity", "node_id", nodeID, "node_name", nodeName)
 
 	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN)})
 	if err != nil {
@@ -95,6 +101,8 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		Ledger:   led,
 		Embedder: embedProvider,
 		Identity: identityMap,
+		NodeID:   nodeID,
+		NodeName: nodeName,
 	}
 
 	if cfg.Storage.ContentDriver != "" {
@@ -165,6 +173,24 @@ var libpqPassword = regexp.MustCompile(`(?i)\b((?:ssl)?password\s*=\s*)('(?:[^'\
 // redactedQueryParams are URL query parameters that carry a secret; pgx and
 // libpq accept a password there as well as in the userinfo (#6034).
 var redactedQueryParams = map[string]bool{"password": true, "sslpassword": true}
+
+// resolveNode returns this node's ID and name. A configured [node] id
+// wins; otherwise the ID persisted in the metadata store is used, minted
+// on first start, so it survives restarts and config-free containers.
+// The name defaults to the hostname.
+func resolveNode(ctx context.Context, cfg config.NodeConfig, meta adapter.MetadataStore) (id, name string, err error) {
+	id = cfg.ID
+	if id == "" {
+		if id, err = meta.EnsureNodeID(ctx, types.NewID()); err != nil {
+			return "", "", fmt.Errorf("resolve node id: %w", err)
+		}
+	}
+	name = cfg.Name
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	return id, name, nil
+}
 
 // refuseLegacyIDs stops start-up on a database written before Memora's
 // IDs were UUIDv4s. Pre-1.0 releases do not migrate such data (PRD ID-8,

@@ -16,10 +16,10 @@ func testRegistry(t *testing.T) *Registry {
 		Enabled:      true,
 		FederationID: "fed_local",
 		Peers: []config.PeerConfig{
-			{Name: "peer-a", URL: "https://a.example.com", APIKey: "k"},
+			{NodeID: nid("peer-a"), Name: "peer-a", URL: "https://a.example.com", APIKey: "k"},
 		},
 	}
-	reg, err := NewRegistry(cfg, "fed_local")
+	reg, err := NewRegistry(cfg, nid("fed_local"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func testRegistry(t *testing.T) *Registry {
 func TestAuthorizeFederatedRequest_NonFederated(t *testing.T) {
 	reg := testRegistry(t)
 	r := httptest.NewRequest(http.MethodPost, "/v1/workspaces/ws/recall", nil)
-	result, err := AuthorizeFederatedRequest(r, reg, "fed_local")
+	result, err := AuthorizeFederatedRequest(r, reg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,28 +41,28 @@ func TestAuthorizeFederatedRequest_NonFederated(t *testing.T) {
 func TestAuthorizeFederatedRequest_Valid(t *testing.T) {
 	reg := testRegistry(t)
 	r := httptest.NewRequest(http.MethodPost, "/v1/workspaces/ws/recall", nil)
-	r.Header.Set(HeaderLocalInstanceID, "peer-a")
+	r.Header.Set(HeaderLocalInstanceID, nid("peer-a"))
 	r.Header.Set(HeaderFederationID, "fed_local")
 
-	result, err := AuthorizeFederatedRequest(r, reg, "fed_local")
+	result, err := AuthorizeFederatedRequest(r, reg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result.PeerID != "peer-a" {
-		t.Errorf("expected peer-a, got %s", result.PeerID)
+	if result.PeerID != nid("peer-a") {
+		t.Errorf("expected peer-a's node ID, got %s", result.PeerID)
 	}
 }
 
 func TestAuthorizeFederatedRequest_FedIDMismatch(t *testing.T) {
 	reg := testRegistry(t)
 	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set(HeaderLocalInstanceID, "peer-a")
+	r.Header.Set(HeaderLocalInstanceID, nid("peer-a"))
 	r.Header.Set(HeaderFederationID, "fed_other")
 
-	_, err := AuthorizeFederatedRequest(r, reg, "fed_local")
+	_, err := AuthorizeFederatedRequest(r, reg)
 	if !errors.Is(err, types.ErrFederationAuth) {
 		t.Errorf("expected ErrFederationAuth, got %v", err)
 	}
@@ -71,10 +71,10 @@ func TestAuthorizeFederatedRequest_FedIDMismatch(t *testing.T) {
 func TestAuthorizeFederatedRequest_UnknownPeer(t *testing.T) {
 	reg := testRegistry(t)
 	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set(HeaderLocalInstanceID, "unknown-peer")
+	r.Header.Set(HeaderLocalInstanceID, nid("unknown-peer"))
 	r.Header.Set(HeaderFederationID, "fed_local")
 
-	_, err := AuthorizeFederatedRequest(r, reg, "fed_local")
+	_, err := AuthorizeFederatedRequest(r, reg)
 	if !errors.Is(err, types.ErrFederationAuth) {
 		t.Errorf("expected ErrFederationAuth, got %v", err)
 	}
@@ -83,11 +83,11 @@ func TestAuthorizeFederatedRequest_UnknownPeer(t *testing.T) {
 func TestAuthorizeFederatedRequest_LoopDetected(t *testing.T) {
 	reg := testRegistry(t)
 	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	r.Header.Set(HeaderLocalInstanceID, "peer-a")
+	r.Header.Set(HeaderLocalInstanceID, nid("peer-a"))
 	r.Header.Set(HeaderFederationID, "fed_local")
-	r.Header.Set(HeaderFederationPath, "fed_local")
+	r.Header.Set(HeaderFederationPath, nid("fed_local")) // this node's own ID: a loop
 
-	_, err := AuthorizeFederatedRequest(r, reg, "fed_local")
+	_, err := AuthorizeFederatedRequest(r, reg)
 	if !errors.Is(err, types.ErrFederationLoop) {
 		t.Errorf("expected ErrFederationLoop, got %v", err)
 	}
@@ -95,7 +95,7 @@ func TestAuthorizeFederatedRequest_LoopDetected(t *testing.T) {
 
 func TestAuthorizeFederatedWorkspace_Allowed(t *testing.T) {
 	reg := testRegistry(t)
-	if err := AuthorizeFederatedWorkspace(reg, "peer-a", "any_ws"); err != nil {
+	if err := AuthorizeFederatedWorkspace(reg, nid("peer-a"), "any_ws"); err != nil {
 		t.Errorf("expected allowed (wildcard), got %v", err)
 	}
 }
@@ -105,14 +105,14 @@ func TestAuthorizeFederatedWorkspace_Denied(t *testing.T) {
 		Enabled:      true,
 		FederationID: "fed_local",
 		Peers: []config.PeerConfig{
-			{Name: "peer-scoped", URL: "https://a.example.com", APIKey: "k"},
+			{NodeID: nid("peer-scoped"), Name: "peer-scoped", URL: "https://a.example.com", APIKey: "k"},
 		},
 	}
-	reg, err := NewRegistry(cfg, "fed_local")
+	reg, err := NewRegistry(cfg, nid("fed_local"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = AuthorizeFederatedWorkspace(reg, "nonexistent", "ws_test")
+	err = AuthorizeFederatedWorkspace(reg, nid("nonexistent"), "ws_test")
 	if !errors.Is(err, types.ErrFederationAuth) {
 		t.Errorf("expected ErrFederationAuth, got %v", err)
 	}

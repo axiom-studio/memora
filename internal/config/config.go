@@ -21,6 +21,7 @@ type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Storage    StorageConfig    `toml:"storage"`
 	Embedding  EmbeddingConfig  `toml:"embedding"`
+	Node       NodeConfig       `toml:"node"`
 	Federation FederationConfig `toml:"federation"`
 	Telemetry  TelemetryConfig  `toml:"telemetry"`
 
@@ -72,13 +73,24 @@ type EmbeddingConfig struct {
 	Async bool `toml:"async"`
 }
 
+// NodeConfig identifies this node to its federation peers. ID is a
+// UUIDv4; when empty the node mints one on first start and keeps it in
+// the metadata store. Name is a display label (default: the hostname).
+type NodeConfig struct {
+	ID   string `toml:"id"`
+	Name string `toml:"name"`
+}
+
 type FederationConfig struct {
-	Enabled      bool         `toml:"enabled"`
+	Enabled bool `toml:"enabled"`
+	// FederationID is an optional UUIDv4 cluster label. Nodes are
+	// identified by [node] id, never by this.
 	FederationID string       `toml:"federation_id"`
 	Peers        []PeerConfig `toml:"peers"`
 }
 
 type PeerConfig struct {
+	NodeID  string `toml:"node_id"` // the peer's [node] id (UUIDv4)
 	Name    string `toml:"name"`
 	URL     string `toml:"url"`
 	APIKey  string `toml:"api_key"`
@@ -241,14 +253,20 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf(`storage.graph_driver "sqlite_graph" requires storage.metadata_driver "sqlite" (got %q); set storage.graph_driver = "none" (or MEMORA_GRAPH_DRIVER=none) to run without the context graph`, c.Storage.MetadataDriver))
 	}
 
-	if c.Federation.Enabled {
-		if c.Federation.FederationID == "" {
-			errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))
-		} else if _, err := types.ParseID("federation.federation_id", c.Federation.FederationID); err != nil {
+	if c.Node.ID != "" {
+		if _, err := types.ParseID("node.id", c.Node.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.Federation.FederationID != "" {
+		if _, err := types.ParseID("federation.federation_id", c.Federation.FederationID); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	for i, p := range c.Federation.Peers {
+		if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", i), p.NodeID); err != nil {
+			errs = append(errs, err)
+		}
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
 		}
@@ -285,6 +303,8 @@ func (c *Config) ResolveAPIKey() (string, error) {
 // wins over the file value when set and non-empty.
 func (c *Config) ApplyEnv() {
 	setIfEnv(&c.Server.Addr, "MEMORA_ADDR")
+	setIfEnv(&c.Node.ID, "MEMORA_NODE_ID")
+	setIfEnv(&c.Node.Name, "MEMORA_NODE_NAME")
 	setIfEnv(&c.Server.Mode, "MEMORA_MODE")
 	setIfEnv(&c.Server.APIKey, "MEMORA_API_KEY")
 	setIfEnv(&c.Storage.DataDir, "MEMORA_DATA_DIR")

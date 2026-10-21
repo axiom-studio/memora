@@ -47,10 +47,10 @@ func NewClientPool(reg *Registry) (*ClientPool, error) {
 	pool := &ClientPool{
 		clients:      make(map[string]*PeerClient, len(reg.peers)),
 		federationID: reg.FederationID,
-		instanceID:   reg.FederationID,
+		instanceID:   reg.NodeID,
 	}
 	for _, p := range reg.peers {
-		c, err := newPeerClient(p, reg.FederationID)
+		c, err := newPeerClient(p, reg.FederationID, reg.NodeID)
 		if err != nil {
 			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
 		}
@@ -59,7 +59,7 @@ func NewClientPool(reg *Registry) (*ClientPool, error) {
 	return pool, nil
 }
 
-func newPeerClient(p Peer, federationID string) (*PeerClient, error) {
+func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if p.TrustMode == TrustMTLS && p.TLSCert != "" {
 		tlsCfg, err := buildMTLSConfig(p.TLSCert)
@@ -75,7 +75,7 @@ func newPeerClient(p Peer, federationID string) (*PeerClient, error) {
 			Timeout:   p.DefaultRequestTimeout(),
 		},
 		federationID: federationID,
-		instanceID:   federationID,
+		instanceID:   nodeID,
 	}, nil
 }
 

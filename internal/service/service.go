@@ -39,6 +39,10 @@ type Service struct {
 	Graph    adapter.GraphStore   // nil = graph ops unavailable
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
+	// NodeID and NodeName identify this node to federation peers and in
+	// results (see cmd/memora-core resolveNode).
+	NodeID   string
+	NodeName string
 	// Pool, when set, takes cell embedding off the write path: writes
 	// queue vectorless cells and the pool flips recall_ready once they
 	// are all embedded (`embedding.async`). nil = embed inline.

@@ -13,15 +13,18 @@ type InboundAuthResult struct {
 	FederationPath []string
 }
 
-func AuthorizeFederatedRequest(r *http.Request, reg *Registry, localFedID string) (*InboundAuthResult, error) {
+// AuthorizeFederatedRequest identifies the calling peer by its node ID
+// (X-Memora-Local-Instance-ID) and applies the loop guard against this
+// node's ID. A cluster label, when both sides set one, must match.
+func AuthorizeFederatedRequest(r *http.Request, reg *Registry) (*InboundAuthResult, error) {
 	peerID := r.Header.Get(HeaderLocalInstanceID)
 	if peerID == "" {
 		return nil, nil
 	}
 
 	remoteFedID := r.Header.Get(HeaderFederationID)
-	if remoteFedID != "" && remoteFedID != localFedID {
-		return nil, fmt.Errorf("%w: remote %q != local %q", types.ErrFederationAuth, remoteFedID, localFedID)
+	if remoteFedID != "" && reg.FederationID != "" && remoteFedID != reg.FederationID {
+		return nil, fmt.Errorf("%w: remote federation %q != local %q", types.ErrFederationAuth, remoteFedID, reg.FederationID)
 	}
 
 	if reg.Peer(peerID) == nil {
@@ -29,7 +32,7 @@ func AuthorizeFederatedRequest(r *http.Request, reg *Registry, localFedID string
 	}
 
 	path := ParseFederationPath(r.Header.Get(HeaderFederationPath))
-	if err := CheckLoop(path, localFedID); err != nil {
+	if err := CheckLoop(path, reg.NodeID); err != nil {
 		return nil, err
 	}
 

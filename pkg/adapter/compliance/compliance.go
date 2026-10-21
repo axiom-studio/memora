@@ -111,6 +111,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		ResolveIdentityKeyContract(t, factory(t))
 	})
 
+	t.Run("ensure_node_id", func(t *testing.T) {
+		EnsureNodeIDContract(t, factory(t))
+	})
+
 	t.Run("flip_recall_ready_if_all_embedded", func(t *testing.T) {
 		s := factory(t)
 		ctx := context.Background()
@@ -390,5 +394,23 @@ func VectorScopeContract(t *testing.T, s adapter.VectorStore) {
 		if _, err := s.Query(ctx, q); !errors.Is(err, types.ErrInvalidInput) {
 			t.Errorf("%s: Query err = %v, want ErrInvalidInput", name, err)
 		}
+	}
+}
+
+// EnsureNodeIDContract checks MetadataStore.EnsureNodeID: the first call
+// stores the candidate, and every later call returns it, ignoring its
+// own candidate.
+func EnsureNodeIDContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	first, err := s.EnsureNodeID(ctx, types.NewID())
+	if err != nil {
+		t.Fatalf("EnsureNodeID: %v", err)
+	}
+	if _, err := types.ParseID("node_id", first); err != nil {
+		t.Fatalf("stored node ID: %v", err)
+	}
+	if again, err := s.EnsureNodeID(ctx, types.NewID()); err != nil || again != first {
+		t.Fatalf("second EnsureNodeID = %q, %v; want the stored %q", again, err, first)
 	}
 }

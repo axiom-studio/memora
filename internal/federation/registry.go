@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // TrustMode describes how a peer authenticates.
@@ -37,30 +38,36 @@ type Peer struct {
 // Registry holds the set of validated federation peers and provides
 // lookup methods used by the fanout engine and inbound auth.
 type Registry struct {
+	// NodeID is this node's [node] id: sent as X-Memora-Local-Instance-ID
+	// and appended to loop-guard paths.
+	NodeID string
+	// FederationID is the optional cluster label from config.
 	FederationID string
 	peers        []Peer
-	byID         map[string]*Peer
+	byID         map[string]*Peer // keyed by peer node ID
 }
 
 // NewRegistry parses and validates the federation config into a ready
-// Registry. Returns nil when federation is disabled. selfID is this
-// instance's federation_id (used to reject self-reference).
-func NewRegistry(cfg config.FederationConfig, selfID string) (*Registry, error) {
+// Registry, keyed by each peer's node ID. Returns nil when federation is
+// disabled. selfNodeID is this node's ID; a peer listing it is rejected
+// as a self-reference.
+func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	if cfg.FederationID == "" {
-		return nil, errors.New("federation: federation_id is required when enabled")
+	if _, err := types.ParseID("node id", selfNodeID); err != nil {
+		return nil, fmt.Errorf("federation: %w", err)
 	}
 
 	r := &Registry{
+		NodeID:       selfNodeID,
 		FederationID: cfg.FederationID,
 		byID:         make(map[string]*Peer, len(cfg.Peers)),
 	}
 
 	var errs []error
 	for i, pc := range cfg.Peers {
-		p, err := parsePeer(pc, i, selfID)
+		p, err := parsePeer(pc, i, selfNodeID)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -75,7 +82,10 @@ func NewRegistry(cfg config.FederationConfig, selfID string) (*Registry, error) 
 	return r, errors.Join(errs...)
 }
 
-func parsePeer(pc config.PeerConfig, idx int, selfID string) (Peer, error) {
+func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
+	if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", idx), pc.NodeID); err != nil {
+		return Peer{}, err
+	}
 	if pc.Name == "" {
 		return Peer{}, fmt.Errorf("federation.peers[%d]: name is required", idx)
 	}
@@ -87,9 +97,9 @@ func parsePeer(pc config.PeerConfig, idx int, selfID string) (Peer, error) {
 		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): invalid url %q", idx, pc.Name, pc.URL)
 	}
 
-	id := pc.Name
-	if id == selfID {
-		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): peer name matches own federation_id (self-reference)", idx, pc.Name)
+	id := pc.NodeID
+	if id == selfNodeID {
+		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): node_id is this node's own ID (self-reference)", idx, pc.Name)
 	}
 
 	trust := TrustAPIKey

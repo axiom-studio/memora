@@ -103,6 +103,19 @@ The value is a `prefix:model` string where the prefix selects the provider. The 
 
 By default a write embeds its changed Cells before it returns, so an imprint responds with `recall_ready: true`. With `embedding.async = true` the write returns as soon as the Cells are stored and a background worker pool embeds them: imprint responds with `recall_ready: false`, and the Memory's `recall_ready` turns `true` once all of its Cells have vectors. Poll a lookup to see when it does. The re-embedded and skipped Cell counts in write responses and the ledger are the same in both modes. On shutdown the server finishes embedding the queued Cells before closing its stores.
 
+## Node Keys
+
+TOML table `[node]`. These identify this node to federation peers and in search results.
+
+| Key | Type | Default |
+|---|---|---|
+| `node.id` | string (UUIDv4) | *(minted on first start)* |
+| `node.name` | string | the hostname |
+
+When `node.id` is unset, the node mints a UUIDv4 the first time it starts and stores it in the metadata store. It keeps that ID across restarts, including in containers without a config file. `memora-core node id` prints it. Set `node.id` only to pin a specific ID.
+
+Federation peers are listed under `[[federation.peers]]`. Each peer needs `node_id`, which is the peer's own node ID (run `memora-core node id` on the peer), plus `name` and `url`. `federation.federation_id` is optional; if set, it is a UUIDv4 label for the cluster.
+
 ## Telemetry Keys
 
 TOML table `[telemetry]`.
@@ -122,6 +135,8 @@ Each variable overrides its file counterpart when set and non-empty.
 |---|---|---|
 | `MEMORA_CONFIG` | string | *(unset — see the search path above)* |
 | `MEMORA_ADDR` | string | `:7777` |
+| `MEMORA_NODE_ID` | string | *(minted on first start)* |
+| `MEMORA_NODE_NAME` | string | the hostname |
 | `MEMORA_MODE` | string | `single-tenant` |
 | `MEMORA_API_KEY` | string | *(empty)* |
 | `MEMORA_DATA_DIR` | string | `./data` |

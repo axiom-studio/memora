@@ -132,7 +132,7 @@ func TestPeerClient_Lookup_NotFound(t *testing.T) {
 
 func TestClientPool_NilSafe(t *testing.T) {
 	var pool *ClientPool
-	if pool.Client("x") != nil {
+	if pool.Client(nid("x")) != nil {
 		t.Error("nil pool should return nil client")
 	}
 }

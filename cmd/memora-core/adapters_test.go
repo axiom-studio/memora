@@ -341,3 +341,41 @@ func TestOpenCoreAdapters_RefusesLegacyPrefixedIDs(t *testing.T) {
 		t.Fatalf("openCoreAdapters on a legacy database = %v, want a refusal naming %s and the upgrade doc", err, legacy)
 	}
 }
+
+// TestOpenCoreAdapters_NodeIdentity: without config the node mints an ID
+// on first start and keeps it across restarts on the same data dir; a
+// configured [node] id wins, and [node] name is used as given.
+func TestOpenCoreAdapters_NodeIdentity(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	svc, closeAll, err := openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("openCoreAdapters: %v", err)
+	}
+	first := svc.NodeID
+	closeAll()
+	if _, err := types.ParseID("node_id", first); err != nil {
+		t.Fatalf("minted node ID: %v", err)
+	}
+	if svc.NodeName == "" {
+		t.Error("node name should default to the hostname")
+	}
+
+	svc, closeAll, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if svc.NodeID != first {
+		t.Fatalf("node ID after restart = %q, want %q", svc.NodeID, first)
+	}
+	closeAll()
+
+	cfg.Node.ID, cfg.Node.Name = types.NewID(), "edge-1"
+	svc, closeAll, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("configured node: %v", err)
+	}
+	defer closeAll()
+	if svc.NodeID != cfg.Node.ID || svc.NodeName != "edge-1" {
+		t.Fatalf("node = %q/%q, want configured %q/edge-1", svc.NodeID, svc.NodeName, cfg.Node.ID)
+	}
+}

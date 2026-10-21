@@ -107,6 +107,12 @@ type MetadataStore interface {
 	// the key is new. Concurrent calls for one key all get the same ID.
 	ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error)
 
+	// --- Node identity ---
+
+	// EnsureNodeID returns this node's persisted ID, storing candidateID
+	// (a fresh UUIDv4) the first time it is called.
+	EnsureNodeID(ctx context.Context, candidateID string) (string, error)
+
 	// --- Recall pins ---
 
 	CreatePin(ctx context.Context, p *types.Pin) error

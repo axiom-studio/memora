@@ -107,6 +107,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Node identity: `[node] id` / `name` (`MEMORA_NODE_ID`, `MEMORA_NODE_NAME`).
+  Without config the node mints a UUIDv4 on first start and keeps it in
+  the metadata store (new `MetadataStore.EnsureNodeID`; sqlite 0008,
+  postgres 0004). `memora-core node id` prints it. Federation peers are
+  keyed by `node_id`, which every `[[federation.peers]]` entry now
+  requires. `federation_id` is an optional UUIDv4 cluster label, and
+  `memora-core federation init` is removed.
 - Node-wide search: `POST /v1/search`, MCP tool `memora_search` and
   `memora-cli search` query every workspace on the node, or those in
   `workspace_ids`, in keyword, vector or hybrid mode. Hits carry

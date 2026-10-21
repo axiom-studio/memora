@@ -61,6 +61,20 @@ ON CONFLICT(identity_key) DO NOTHING`, identityKey, candidateID, time.Now().UTC(
 	return agentID, nil
 }
 
+// EnsureNodeID implements adapter.MetadataStore: the single row of
+// memora_node is written once and read thereafter.
+func (s *Store) EnsureNodeID(ctx context.Context, candidateID string) (string, error) {
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO memora_node (singleton, node_id) VALUES (1, ?) ON CONFLICT(singleton) DO NOTHING`, candidateID); err != nil {
+		return "", fmt.Errorf("store node id: %w", err)
+	}
+	var id string
+	if err := s.db.QueryRowContext(ctx, `SELECT node_id FROM memora_node WHERE singleton = 1`).Scan(&id); err != nil {
+		return "", fmt.Errorf("read node id: %w", err)
+	}
+	return id, nil
+}
+
 // GetAgent fetches a single Agent scoped to a workspace.
 func (s *Store) GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error) {
 	a := &types.Agent{}

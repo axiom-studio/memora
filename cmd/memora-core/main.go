@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	stdlog "log"
 	"log/slog"
 	"net"
@@ -28,7 +29,6 @@ import (
 	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/ui"
-	"github.com/axiom-studio/memora/pkg/types"
 
 	// Register adapters in init().
 	_ "github.com/axiom-studio/memora/internal/ledger/file"
@@ -74,9 +74,9 @@ func main() {
 		runCheckConfig()
 		return
 	}
-	if len(os.Args) >= 2 && os.Args[1] == "federation" {
+	if len(os.Args) >= 2 && os.Args[1] == "node" {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
-		runFederation()
+		runNode()
 		return
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
@@ -96,7 +96,7 @@ func printHelp() {
 Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
-  memora-core federation init      generate a federation ID (UUIDv4)
+  memora-core node id [--config f] print this node's ID and name (minted on first use)
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -519,27 +519,31 @@ func runInitCert() {
 	fmt.Println(res.ConfigSnippet())
 }
 
-func runFederation() {
-	if len(os.Args) < 2 || os.Args[1] != "init" {
-		fmt.Fprintln(os.Stderr, "usage: memora-core federation init [--name <name>]")
+// runNode is `memora-core node id`: it prints the node identity that
+// serve would use, minting and persisting the ID if this is the first
+// start. Peers list this ID as their node_id for this node.
+func runNode() {
+	if len(os.Args) < 2 || os.Args[1] != "id" {
+		fmt.Fprintln(os.Stderr, "usage: memora-core node id [--config <file>]")
 		os.Exit(1)
 	}
-	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
-	fs := flag.NewFlagSet("federation-init", flag.ExitOnError)
-	name := fs.String("name", "", "human-readable name for this federation instance")
-	_ = fs.Parse(os.Args[1:])
+	fs := flag.NewFlagSet("node-id", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to TOML config file")
+	_ = fs.Parse(os.Args[2:])
 
-	fedID := types.NewID()
-	fmt.Printf("Federation ID: %s\n", fedID)
-	if *name != "" {
-		fmt.Printf("Name:          %s\n", *name)
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(config.EX_CONFIG)
 	}
-	fmt.Println()
-	fmt.Println("Add to your config.toml:")
-	fmt.Println()
-	fmt.Println("[federation]")
-	fmt.Println("enabled = true")
-	fmt.Printf("federation_id = %q\n", fedID)
+	cfg.ApplyEnv()
+	svc, closeAdapters, err := openCoreAdapters(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeAdapters()
+	fmt.Printf("Node ID:   %s\nNode name: %s\n", svc.NodeID, svc.NodeName)
 }
 
 func runPrintConfig() {
