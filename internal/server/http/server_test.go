@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -312,7 +313,7 @@ func TestMiddleware_RequestID(t *testing.T) {
 	s := testServer("")
 	var seen string
 	h := s.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen, _ = r.Context().Value(ctxKeyRequestID).(string)
+		seen = reqctx.RequestID(r.Context())
 	}))
 	cases := []struct {
 		name, header string

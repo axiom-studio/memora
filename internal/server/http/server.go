@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/internal/certgen"
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/internal/ui"
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -350,7 +351,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				}
 			}
 		}
-		ctx = context.WithValue(ctx, ctxKeyRequestID, reqID)
+		ctx = reqctx.WithRequestID(ctx, reqID)
 
 		// Wrap response writer to capture status for logs.
 		rw := &recorder{ResponseWriter: w, status: 200}
@@ -370,8 +371,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 type ctxKey int
 
 const (
-	ctxKeyRequestID ctxKey = iota
-	ctxKeyAgent
+	ctxKeyAgent ctxKey = iota
 	ctxKeyWorkspace
 )
 

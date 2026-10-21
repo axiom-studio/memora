@@ -26,6 +26,7 @@ import (
 	"github.com/axiom-studio/memora/internal/chunker"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
 	"github.com/axiom-studio/memora/internal/rank"
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -794,6 +795,9 @@ func (s *Service) AppendLedger(ctx context.Context, e api.LedgerEntry) string {
 	if e.LedgerID == "" {
 		e.LedgerID = types.NewID()
 	}
+	if e.RequestID == "" {
+		e.RequestID = reqctx.RequestID(ctx)
+	}
 	_ = s.Ledger.Append(ctx, e)
 	return e.LedgerID
 }
@@ -805,8 +809,6 @@ func max(a, b int) int {
 	return b
 }
 
-// keywordSearch hits the FTS5 virtual table on the SQLite MetadataStore.
-// Adapter-specific; falls back to a substring scan for adapters without FTS.
 // keywordSearch ranks memories in scope against the store's full-text
 // index (one query, node-wide or scoped) and returns the top k as
 // candidate hits: IDs and scores only, for hydrate to fill. scope carries

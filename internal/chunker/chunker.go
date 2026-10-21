@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/axiom-studio/memora/pkg/types"
 )
