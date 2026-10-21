@@ -83,6 +83,31 @@ FROM memora_memories WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanMemory(row)
 }
 
+// GetMemories implements adapter.MetadataStore in one query.
+func (s *Store) GetMemories(ctx context.Context, ids []string) ([]types.Memory, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	//nolint:gosec // G202: only "?" placeholders are concatenated; values stay parameterized
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE deleted_at IS NULL AND id IN (`+placeholders(len(ids))+`)`, anyArgs(ids)...)
+	if err != nil {
+		return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+	}
+	defer rows.Close()
+	out := make([]types.Memory, 0, len(ids))
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
 // GetMemoryAtWatermark returns the Memory body at a historical watermark.
 func (s *Store) GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error) {
 	// History only stores md5; for v0 we return current row if watermark

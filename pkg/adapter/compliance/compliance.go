@@ -111,6 +111,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		ResolveIdentityKeyContract(t, factory(t))
 	})
 
+	t.Run("batch_load", func(t *testing.T) {
+		BatchLoadContract(t, factory(t))
+	})
+
 	t.Run("keyword_search", func(t *testing.T) {
 		KeywordSearchContract(t, factory(t))
 	})
@@ -518,5 +522,62 @@ func KeywordSearchContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if got := ids(search(adapter.KeywordQuery{WorkspaceIDs: []string{wsC}, Query: "basalt"})); !got[old] {
 		t.Errorf("memory older than the newest 500 not found")
+	}
+}
+
+// BatchLoadContract checks MetadataStore.GetMemories and
+// GetCellsForMemories: one call returns exactly the live memories asked
+// for, and every asked-for memory's cells in seq order.
+func BatchLoadContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	ws := &types.Workspace{Name: "batch-" + types.NewID()}
+	if err := s.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	agent := types.NewID()
+	var ids []string
+	for i := 0; i < 3; i++ {
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "batch", WrittenByAgentID: agent}
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatalf("ImprintMemory: %v", err)
+		}
+		cells := []types.Cell{
+			{Seq: 1, Text: "second", TextMD5: types.MD5Hex("second"), WrittenByAgentID: agent},
+			{Seq: 0, Text: "first", TextMD5: types.MD5Hex("first"), WrittenByAgentID: agent},
+		}
+		if err := s.UpsertCells(ctx, m.ID, cells); err != nil {
+			t.Fatalf("UpsertCells: %v", err)
+		}
+		ids = append(ids, m.ID)
+	}
+	if err := s.ForgetMemory(ctx, ws.ID, ids[2]); err != nil {
+		t.Fatalf("ForgetMemory: %v", err)
+	}
+
+	mems, err := s.GetMemories(ctx, []string{ids[0], ids[1], ids[2], types.NewID()})
+	if err != nil {
+		t.Fatalf("GetMemories: %v", err)
+	}
+	got := map[string]bool{}
+	for _, m := range mems {
+		got[m.ID] = true
+	}
+	if len(mems) != 2 || !got[ids[0]] || !got[ids[1]] {
+		t.Fatalf("GetMemories = %v, want only the two live memories", got)
+	}
+	if empty, err := s.GetMemories(ctx, nil); err != nil || len(empty) != 0 {
+		t.Fatalf("GetMemories(nil) = %v, %v", empty, err)
+	}
+
+	cells, err := s.GetCellsForMemories(ctx, ids[:2])
+	if err != nil {
+		t.Fatalf("GetCellsForMemories: %v", err)
+	}
+	for _, id := range ids[:2] {
+		cs := cells[id]
+		if len(cs) != 2 || cs[0].Seq != 0 || cs[0].Text != "first" || cs[1].Seq != 1 {
+			t.Fatalf("cells for %s = %+v, want first, second in seq order", id, cs)
+		}
 	}
 }

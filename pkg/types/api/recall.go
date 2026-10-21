@@ -1,6 +1,10 @@
 package api
 
-import "time"
+import (
+	"time"
+
+	"github.com/axiom-studio/memora/pkg/types"
+)
 
 // RecallMode is the search strategy.
 type RecallMode string
@@ -50,14 +54,18 @@ type RecallWeights struct {
 
 // RecallRequest is the search query body.
 type RecallRequest struct {
-	Query          string          `json:"query"`
-	Mode           RecallMode      `json:"mode,omitempty"`
-	K              int             `json:"k,omitempty"`
-	Filters        RecallFilters   `json:"filters,omitempty"`
-	Weights        RecallWeights   `json:"weights,omitempty"`
-	IncludeCells   bool            `json:"include_cells,omitempty"`
-	GraphExpansion *GraphExpansion `json:"graph_expansion,omitempty"`
-	MemoryIDs      []string        `json:"memory_ids,omitempty"` // for lookup mode
+	Query        string        `json:"query"`
+	Mode         RecallMode    `json:"mode,omitempty"`
+	K            int           `json:"k,omitempty"`
+	Filters      RecallFilters `json:"filters,omitempty"`
+	Weights      RecallWeights `json:"weights,omitempty"`
+	IncludeCells bool          `json:"include_cells,omitempty"`
+	// IncludeContent adds each hit's full memory content, cut at
+	// MaxContentBytes (default 64 KiB, at most 1 MiB).
+	IncludeContent  bool            `json:"include_content,omitempty"`
+	MaxContentBytes int             `json:"max_content_bytes,omitempty"`
+	GraphExpansion  *GraphExpansion `json:"graph_expansion,omitempty"`
+	MemoryIDs       []string        `json:"memory_ids,omitempty"` // for lookup mode
 }
 
 // GraphProvenance carries the edge a graph result came in through.
@@ -70,13 +78,23 @@ type GraphProvenance struct {
 
 // RecallHit is one search result.
 type RecallHit struct {
-	MemoryID         string            `json:"memory_id"`
-	WorkspaceID      string            `json:"workspace_id,omitempty"`
-	CellID           string            `json:"cell_id,omitempty"`
-	Score            float64           `json:"score"`
-	VectorScore      float64           `json:"vector_score,omitempty"`
-	KeywordScore     float64           `json:"keyword_score,omitempty"`
-	Text             string            `json:"text"`
+	MemoryID     string  `json:"memory_id"`
+	WorkspaceID  string  `json:"workspace_id,omitempty"`
+	CellID       string  `json:"cell_id,omitempty"`
+	Score        float64 `json:"score"`
+	VectorScore  float64 `json:"vector_score,omitempty"`
+	KeywordScore float64 `json:"keyword_score,omitempty"`
+	Text         string  `json:"text"` // short display excerpt
+	// MatchedText is the matched cell's full text; CellID and CellIndex
+	// locate it in the memory.
+	MatchedText string     `json:"matched_text,omitempty"`
+	CellIndex   *int       `json:"cell_index,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	// Content is the memory's full content (include_content), cut at
+	// max_content_bytes when ContentTruncated.
+	Content          string            `json:"content,omitempty"`
+	ContentTruncated bool              `json:"content_truncated,omitempty"`
+	Cells            []types.Cell      `json:"cells,omitempty"` // include_cells
 	Tags             map[string]string `json:"tags,omitempty"`
 	Watermark        string            `json:"watermark"`
 	WrittenByAgentID string            `json:"written_by_agent_id,omitempty"`
@@ -143,6 +161,11 @@ type SearchRequest struct {
 	WorkspaceIDs []string      `json:"workspace_ids,omitempty"`
 	Filters      RecallFilters `json:"filters,omitempty"`
 	Weights      RecallWeights `json:"weights,omitempty"`
+	// IncludeContent, MaxContentBytes and IncludeCells work as in
+	// RecallRequest.
+	IncludeContent  bool `json:"include_content,omitempty"`
+	MaxContentBytes int  `json:"max_content_bytes,omitempty"`
+	IncludeCells    bool `json:"include_cells,omitempty"`
 }
 
 // Degraded-mode markers reported in RecallResponse.Degraded.

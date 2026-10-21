@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/types"
@@ -57,6 +58,36 @@ ORDER BY seq`, memoryID, memoryID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
+	return scanCells(rows)
+}
+
+// GetCellsForMemories implements adapter.MetadataStore in one query.
+func (s *Store) GetCellsForMemories(ctx context.Context, memoryIDs []string) (map[string][]types.Cell, error) {
+	out := make(map[string][]types.Cell, len(memoryIDs))
+	if len(memoryIDs) == 0 {
+		return out, nil
+	}
+	//nolint:gosec // G202: only "?" placeholders are concatenated; values stay parameterized
+	rows, err := s.db.QueryContext(ctx, `
+SELECT cell_id, memory_id, seq, text, text_md5, written_by_agent_id, embedding_model, vector_key, metadata_json, created_at
+FROM memora_cells WHERE memory_id IN (`+placeholders(len(memoryIDs))+`)
+ORDER BY memory_id, seq`, anyArgs(memoryIDs)...)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	cells, err := scanCells(rows)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	for _, c := range cells {
+		out[c.MemoryID] = append(out[c.MemoryID], c)
+	}
+	return out, nil
+}
+
+// scanCells reads memora_cells rows in the GetCells column order and
+// closes rows.
+func scanCells(rows *sql.Rows) ([]types.Cell, error) {
 	defer rows.Close()
 	var out []types.Cell
 	for rows.Next() {
@@ -76,6 +107,15 @@ ORDER BY seq`, memoryID, memoryID, workspaceID)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// anyArgs converts string IDs to query arguments.
+func anyArgs(ids []string) []any {
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return args
 }
 
 // DeleteCellsFrom removes a Memory's cells with seq >= fromSeq and returns

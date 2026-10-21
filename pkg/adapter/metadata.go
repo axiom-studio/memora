@@ -78,6 +78,12 @@ type MetadataStore interface {
 
 	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
 	GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error)
+	// GetMemories loads the live memories among ids in one call, in no
+	// particular order; unknown or forgotten IDs are omitted.
+	GetMemories(ctx context.Context, ids []string) ([]types.Memory, error)
+	// GetCellsForMemories loads the cells of every memory in memoryIDs in
+	// one call, keyed by memory ID, each list in seq order.
+	GetCellsForMemories(ctx context.Context, memoryIDs []string) (map[string][]types.Cell, error)
 	// DeleteCellsFrom removes the Memory's cells with seq >= fromSeq, which an
 	// edit that re-chunks to fewer cells no longer produces, and returns their
 	// cell_ids so the caller can drop their vectors and content. A Memory in

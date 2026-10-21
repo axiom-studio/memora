@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"log/slog"
 
@@ -576,6 +577,15 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	default:
 		return nil, fmt.Errorf("%w: unknown recall mode %q", types.ErrInvalidInput, mode)
 	}
+	if mode != api.RecallModeLookup {
+		var err error
+		if seeds, err = s.hydrate(ctx, seeds, hydrateOpts{
+			query: req.Query, filters: req.Filters, includeContent: req.IncludeContent,
+			maxContentBytes: req.MaxContentBytes, includeCells: req.IncludeCells,
+		}); err != nil {
+			return nil, err
+		}
+	}
 
 	results := seeds
 	var graphExpanded int
@@ -661,6 +671,13 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 	sortHits(hits)
 	if len(hits) > k {
 		hits = hits[:k]
+	}
+	hits, err := s.hydrate(ctx, hits, hydrateOpts{
+		query: req.Query, filters: req.Filters, includeContent: req.IncludeContent,
+		maxContentBytes: req.MaxContentBytes, includeCells: req.IncludeCells,
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &api.RecallResponse{
 		Results:                hits,
@@ -791,11 +808,10 @@ func max(a, b int) int {
 // keywordSearch hits the FTS5 virtual table on the SQLite MetadataStore.
 // Adapter-specific; falls back to a substring scan for adapters without FTS.
 // keywordSearch ranks memories in scope against the store's full-text
-// index (one query, node-wide or scoped) and turns the top k into hits.
-// scope carries only workspace scope fields; WorkspaceID is mapped onto
-// the keyword query's list form. Filters other than collection run after
-// ranking (S-4 pushes them down); each hit costs one memory load (S-5
-// batches them).
+// index (one query, node-wide or scoped) and returns the top k as
+// candidate hits: IDs and scores only, for hydrate to fill. scope carries
+// only workspace scope fields; WorkspaceID is mapped onto the keyword
+// query's list form.
 func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
 	kq := adapter.KeywordQuery{
 		WorkspaceIDs:  scope.WorkspaceIDs,
@@ -811,23 +827,9 @@ func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, 
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]api.RecallHit, 0, len(ranked))
-	for _, r := range ranked {
-		m, err := s.Metadata.GetMemory(ctx, r.MemoryID)
-		if err != nil || !passesFilter(*m, req.Filters) {
-			continue
-		}
-		hits = append(hits, api.RecallHit{
-			MemoryID:         m.ID,
-			WorkspaceID:      m.WorkspaceID,
-			Text:             excerpt(m.Content, req.Query, 240),
-			Tags:             m.Tags,
-			Watermark:        m.HeadWatermark,
-			WrittenByAgentID: m.WrittenByAgentID,
-			KeywordScore:     r.Score,
-			Score:            r.Score,
-			Via:              "seed",
-		})
+	hits := make([]api.RecallHit, len(ranked))
+	for i, r := range ranked {
+		hits[i] = api.RecallHit{MemoryID: r.MemoryID, WorkspaceID: r.WorkspaceID, KeywordScore: r.Score, Score: r.Score, Via: "seed"}
 	}
 	return hits, nil
 }
@@ -861,27 +863,129 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 			continue
 		}
 		seen[v.Key.MemoryID] = true
-		m, err := s.Metadata.GetMemory(ctx, v.Key.MemoryID)
-		if err != nil {
-			continue
-		}
-		if !passesFilter(*m, req.Filters) {
-			continue
-		}
 		out = append(out, api.RecallHit{
-			MemoryID:         m.ID,
-			WorkspaceID:      m.WorkspaceID,
-			CellID:           v.Key.CellID,
-			Score:            v.Score,
-			VectorScore:      v.Score,
-			Text:             excerpt(m.Content, req.Query, 240),
-			Tags:             m.Tags,
-			Watermark:        m.HeadWatermark,
-			WrittenByAgentID: m.WrittenByAgentID,
-			Via:              "seed",
+			MemoryID: v.Key.MemoryID, WorkspaceID: v.Key.WorkspaceID, CellID: v.Key.CellID,
+			Score: v.Score, VectorScore: v.Score, Via: "seed",
 		})
 	}
 	return out, nil
+}
+
+// Content limits for include_content.
+const (
+	defaultMaxContentBytes = 64 << 10
+	hardMaxContentBytes    = 1 << 20
+)
+
+// hydrateOpts says what hydrate fills in beyond the always-present data.
+type hydrateOpts struct {
+	query           string
+	filters         api.RecallFilters
+	includeContent  bool
+	maxContentBytes int
+	includeCells    bool
+}
+
+// hydrate fills ranked candidate hits with their memories' data, in rank
+// order, dropping memories that are gone or fail the filters. It makes
+// two store calls whatever k is: one GetMemories and one
+// GetCellsForMemories. Each hit gets its matched cell: the vector side's
+// best cell, or for keyword hits the cell with the most query terms.
+func (s *Service) hydrate(ctx context.Context, hits []api.RecallHit, o hydrateOpts) ([]api.RecallHit, error) {
+	if len(hits) == 0 {
+		return hits, nil
+	}
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.MemoryID
+	}
+	mems, err := s.Metadata.GetMemories(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load search hits: %w", err)
+	}
+	byID := make(map[string]*types.Memory, len(mems))
+	for i := range mems {
+		byID[mems[i].ID] = &mems[i]
+	}
+	cells, err := s.Metadata.GetCellsForMemories(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load search hit cells: %w", err)
+	}
+	maxBytes := o.maxContentBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxContentBytes
+	}
+	maxBytes = min(maxBytes, hardMaxContentBytes)
+	terms := adapter.KeywordTerms(o.query)
+
+	out := hits[:0]
+	for _, h := range hits {
+		m, ok := byID[h.MemoryID]
+		if !ok || !passesFilter(*m, o.filters) {
+			continue
+		}
+		h.WorkspaceID = m.WorkspaceID
+		h.Tags = m.Tags
+		h.Watermark = m.HeadWatermark
+		h.WrittenByAgentID = m.WrittenByAgentID
+		created := m.CreatedAt
+		h.CreatedAt = &created
+		h.Text = excerpt(m.Content, terms, 240)
+		if c := matchedCell(cells[m.ID], h.CellID, terms); c != nil {
+			h.CellID, h.MatchedText = c.CellID, c.Text
+			seq := c.Seq
+			h.CellIndex = &seq
+		}
+		if o.includeContent {
+			h.Content, h.ContentTruncated = truncateUTF8(m.Content, maxBytes)
+		}
+		if o.includeCells {
+			h.Cells = cells[m.ID]
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// matchedCell picks the hit's cell: cellID when the vector side named
+// one, otherwise the cell containing the most query terms (the first cell
+// when none do). nil when the memory has no cells.
+func matchedCell(cells []types.Cell, cellID string, terms []string) *types.Cell {
+	if len(cells) == 0 {
+		return nil
+	}
+	if cellID != "" {
+		for i := range cells {
+			if cells[i].CellID == cellID {
+				return &cells[i]
+			}
+		}
+	}
+	best, bestN := 0, -1
+	for i, c := range cells {
+		text := strings.ToLower(c.Text)
+		n := 0
+		for _, t := range terms {
+			n += strings.Count(text, t)
+		}
+		if n > bestN {
+			best, bestN = i, n
+		}
+	}
+	return &cells[best]
+}
+
+// truncateUTF8 cuts s to at most max bytes on a rune boundary and reports
+// whether it cut anything.
+func truncateUTF8(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
 }
 
 func passesFilter(m types.Memory, f api.RecallFilters) bool {
@@ -932,28 +1036,28 @@ func passesFilter(m types.Memory, f api.RecallFilters) bool {
 	return true
 }
 
-func excerpt(content, query string, max int) string {
+// excerpt returns up to max bytes of content around the earliest
+// occurrence of any term, or its start when no term occurs.
+func excerpt(content string, terms []string, max int) string {
 	if max <= 0 {
 		max = 200
 	}
 	lc := strings.ToLower(content)
-	lq := strings.ToLower(query)
-	idx := strings.Index(lc, lq)
-	if idx < 0 {
-		if len(content) > max {
-			return content[:max]
+	idx := -1
+	for _, t := range terms {
+		if i := strings.Index(lc, t); i >= 0 && (idx < 0 || i < idx) {
+			idx = i
 		}
-		return content
 	}
-	start := idx - max/2
-	if start < 0 {
-		start = 0
+	start := 0
+	if idx > max/2 {
+		start = idx - max/2
 	}
-	end := start + max
-	if end > len(content) {
-		end = len(content)
+	for start > 0 && !utf8.RuneStart(content[start]) {
+		start--
 	}
-	return content[start:end]
+	end, _ := truncateUTF8(content[start:], max)
+	return end
 }
 
 // Vector hits are cells; a query asks for this many cells per wanted
@@ -1042,7 +1146,7 @@ func (s *Service) graphExpand(ctx context.Context, workspaceID string, seeds []a
 				score := weight * pow(decay, hit.Layer) * seed.Score
 				out = append(out, api.RecallHit{
 					MemoryID:         m.ID,
-					Text:             excerpt(m.Content, "", 240),
+					Text:             excerpt(m.Content, nil, 240),
 					Tags:             m.Tags,
 					Watermark:        m.HeadWatermark,
 					WrittenByAgentID: m.WrittenByAgentID,

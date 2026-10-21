@@ -121,6 +121,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Recall and search hits carry their data: `matched_text` (the matching
+  Cell's full text, with `cell_id` and `cell_index`), `created_at`, and
+  with `include_content` the Memory's `content` (capped by
+  `max_content_bytes`, default 64 KiB, at most 1 MiB, cut on a UTF-8
+  boundary, flagged `content_truncated`). `include_cells` is now
+  honoured. Hits are loaded with two batched store calls whatever `k`
+  is, instead of one `GetMemory` per hit. New
+  `MetadataStore.GetMemories` and `GetCellsForMemories` (adapter API).
 - Node identity: `[node] id` / `name` (`MEMORA_NODE_ID`, `MEMORA_NODE_NAME`).
   Without config the node mints a UUIDv4 on first start and keeps it in
   the metadata store (new `MetadataStore.EnsureNodeID`; sqlite 0008,

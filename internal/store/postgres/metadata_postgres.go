@@ -432,6 +432,40 @@ FROM memora_memories WHERE id = $1 AND deleted_at IS NULL`, id).Scan(
 	return m, nil
 }
 
+// GetMemories implements adapter.MetadataStore in one query.
+func (s *MetadataStore) GetMemories(ctx context.Context, ids []string) ([]types.Memory, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE deleted_at IS NULL AND id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+	}
+	defer rows.Close()
+	out := make([]types.Memory, 0, len(ids))
+	for rows.Next() {
+		var m types.Memory
+		var coll *string
+		var tagsJSON []byte
+		if err := rows.Scan(&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5, &m.HeadWatermark, &m.CreatedWatermark,
+			&m.WrittenByAgentID, &m.LastModifiedByAgentID, &tagsJSON, &m.RecallReady,
+			&m.CreatedAt, &m.UpdatedAt, &m.DeletedAt); err != nil {
+			return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+		}
+		if coll != nil {
+			m.CollectionID = *coll
+		}
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &m.Tags)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *MetadataStore) GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error) {
 	m, err := s.GetMemory(ctx, id)
 	if err != nil {
@@ -782,6 +816,35 @@ ORDER BY seq`, memoryID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
+	return scanCellsPG(rows)
+}
+
+// GetCellsForMemories implements adapter.MetadataStore in one query.
+func (s *MetadataStore) GetCellsForMemories(ctx context.Context, memoryIDs []string) (map[string][]types.Cell, error) {
+	out := make(map[string][]types.Cell, len(memoryIDs))
+	if len(memoryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT cell_id, memory_id, seq, text, text_md5, written_by_agent_id, embedding_model, vector_key, metadata_json, created_at
+FROM memora_cells WHERE memory_id = ANY($1)
+ORDER BY memory_id, seq`, memoryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	cells, err := scanCellsPG(rows)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	for _, c := range cells {
+		out[c.MemoryID] = append(out[c.MemoryID], c)
+	}
+	return out, nil
+}
+
+// scanCellsPG reads memora_cells rows in the GetCells column order and
+// closes rows.
+func scanCellsPG(rows pgx.Rows) ([]types.Cell, error) {
 	defer rows.Close()
 	var out []types.Cell
 	for rows.Next() {
