@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/adapter/compliance"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -302,4 +303,8 @@ func TestCapabilities(t *testing.T) {
 	if !caps.SupportsAppend || !caps.SupportsBatchAppend || !caps.SupportsQuery || !caps.SupportsRedaction || !caps.DurableOnAppend {
 		t.Errorf("unexpected capabilities: %+v", caps)
 	}
+}
+
+func TestQuery_CursorPagination_TiedTimestamps(t *testing.T) {
+	compliance.LedgerCursorContract(t, openLedger(t))
 }

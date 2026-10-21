@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/adapter/compliance"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -170,4 +171,14 @@ func TestStore_QueryFilters(t *testing.T) {
 	if len(got) != 1 || got[0].Op != "memory.update" {
 		t.Fatalf("op filter failed: got %d entries", len(got))
 	}
+}
+
+func TestStore_CursorPagination_TiedTimestamps(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	s := &Store{}
+	if err := s.Open(context.Background(), adapter.LedgerConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	compliance.LedgerCursorContract(t, s)
 }

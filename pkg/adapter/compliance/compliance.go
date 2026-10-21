@@ -22,9 +22,11 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 // MetadataFactory builds a fresh MetadataStore for one test. The
@@ -278,6 +280,63 @@ func ResolveIdentityKeyContract(t *testing.T, s adapter.MetadataStore) {
 	for i := 0; i < n; i++ {
 		if errs[i] != nil || ids[i] != ids[0] {
 			t.Fatalf("concurrent resolve %d = %q, %v; want all %q", i, ids[i], errs[i], ids[0])
+		}
+	}
+}
+
+// LedgerCursorContract checks LedgerStore.Query keyset paging: following
+// nextCursor (passed back as SinceLedgerID) visits every entry exactly
+// once, in the store's ts DESC, ledger_id DESC order, even when many
+// entries share a timestamp and ledger IDs are random UUIDs.
+func LedgerCursorContract(t *testing.T, s adapter.LedgerStore) {
+	t.Helper()
+	ctx := context.Background()
+	ws := types.NewID()
+	base := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	var entries []api.LedgerEntry
+	for i := 0; i < 30; i++ {
+		ts := base // most entries tie on ts; a few sit either side of it
+		switch {
+		case i%10 == 1:
+			ts = base.Add(time.Second)
+		case i%10 == 2:
+			ts = base.Add(-time.Second)
+		}
+		entries = append(entries, api.LedgerEntry{
+			LedgerID: types.NewID(), WorkspaceID: ws, Op: "imprint", AgentID: types.NewID(), Timestamp: ts,
+		})
+	}
+	if err := s.AppendBatch(ctx, entries); err != nil {
+		t.Fatalf("AppendBatch: %v", err)
+	}
+
+	all, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Limit: 1000})
+	if err != nil || len(all) != len(entries) {
+		t.Fatalf("full query = %d entries, %v; want %d", len(all), err, len(entries))
+	}
+	for _, pageSize := range []int{1, 3, 7} {
+		var got []string
+		cursor := ""
+		for page := 0; page <= len(entries); page++ {
+			out, next, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Limit: pageSize, SinceLedgerID: cursor})
+			if err != nil {
+				t.Fatalf("page size %d: Query: %v", pageSize, err)
+			}
+			for _, e := range out {
+				got = append(got, e.LedgerID)
+			}
+			if next == "" {
+				break
+			}
+			cursor = next
+		}
+		if len(got) != len(all) {
+			t.Fatalf("page size %d: paged %d entries, want %d", pageSize, len(got), len(all))
+		}
+		for i := range all {
+			if got[i] != all[i].LedgerID {
+				t.Fatalf("page size %d: entry %d = %s, want %s (skipped or repeated rows)", pageSize, i, got[i], all[i].LedgerID)
+			}
 		}
 	}
 }

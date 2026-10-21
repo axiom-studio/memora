@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS memora_ledger (
     redacted         INTEGER NOT NULL DEFAULT 0,
     redacted_fields  TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts    ON memora_ledger(workspace_id, ts);
+DROP INDEX IF EXISTS idx_ledger_ws_ts;
+CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts_id ON memora_ledger(workspace_id, ts, ledger_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_agent ON memora_ledger(workspace_id, agent_id, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_op    ON memora_ledger(workspace_id, op, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_target   ON memora_ledger(workspace_id, target, ts);`)
@@ -203,8 +204,11 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 		where = append(where, "op IN ("+strings.Join(ph, ",")+")")
 	}
 	if q.SinceLedgerID != "" {
-		where = append(where, "ledger_id < ?")
-		args = append(args, q.SinceLedgerID)
+		// Keyset cursor matching ORDER BY ts DESC, ledger_id DESC: rows
+		// strictly after the cursor entry. Ledger IDs are random UUIDs, so
+		// the cursor's own ts must be part of the comparison.
+		where = append(where, "(ts, ledger_id) < ((SELECT ts FROM memora_ledger WHERE ledger_id = ?), ?)")
+		args = append(args, q.SinceLedgerID, q.SinceLedgerID)
 	}
 
 	sqlStr := "SELECT ledger_id, workspace_id, op, target, agent_id, api_key_id, user_id, watermark_before, watermark_after, ip, user_agent, ts, request_id, latency_ms, metadata_json, redacted, redacted_fields FROM memora_ledger"
