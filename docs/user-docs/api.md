@@ -25,7 +25,7 @@ Unknown fields in a request body are rejected rather than ignored, so a misspell
 | `Memora-Identity-Provider` | Selects the identity check for that agent. Defaults to `opaque`. |
 | `X-Memora-Workspace` | Resolves the workspace when the server runs in `multi-tenant` mode. |
 | `If-Match` | The expected watermark on update, patch, and append. Equivalent to `expected_watermark` in the body. |
-| `X-Request-ID` | Correlation ID. Echoed back when supplied; otherwise the server generates one and returns it. |
+| `X-Request-ID` | Correlation ID. Echoed back when supplied as 1–128 characters of `A-Z a-z 0-9 . _ : -`; otherwise (missing or any other value) the server generates a UUIDv4 and returns it. |
 
 The agent header is required on non-`GET` requests whose path contains `/memories`, `/edges`, or `/graph/`. Workspace, collection, agent, recall, and pin requests do not require it. A write without the header returns `400 missing_agent_id`; one whose identity provider rejects the agent returns `401 agent_verification_failed`.
 

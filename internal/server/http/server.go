@@ -237,13 +237,32 @@ func bindsToLoopback(addr string) bool {
 	return false
 }
 
+// maxRequestIDLen bounds a client-supplied X-Request-ID; anything longer
+// is replaced rather than carried into logs and the ledger.
+const maxRequestIDLen = 128
+
+// requestID returns the client's X-Request-ID when it is a safe token
+// (1–128 chars of [A-Za-z0-9._:-]) and a fresh UUIDv4 otherwise. A bad
+// value is replaced, not rejected: request IDs are a correlation aid,
+// and the response header tells the client which one was used.
+func requestID(clientID string) string {
+	if clientID == "" || len(clientID) > maxRequestIDLen {
+		return types.NewID()
+	}
+	for _, c := range clientID {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '.' || c == '_' || c == ':' || c == '-'
+		if !ok {
+			return types.NewID()
+		}
+	}
+	return clientID
+}
+
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
-			reqID = types.NewID()
-		}
+		reqID := requestID(r.Header.Get("X-Request-ID"))
 		w.Header().Set("X-Request-ID", reqID)
 
 		// CORS (outermost — must run before auth so preflight succeeds).
