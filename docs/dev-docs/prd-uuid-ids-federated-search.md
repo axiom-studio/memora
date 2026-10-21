@@ -191,7 +191,7 @@ Checked against the code at `e2c7c02` when the tickets were filed. The source do
 
 - **Counts.** There are 32 non-test `NewID` call sites (31 direct calls plus `NewWatermark`), not the document's 44. The document's 14 non-test `MustHavePrefix` calls is correct. The scope is the same either way: every call site changes.
 - **`internal/federation` is unused.** Confirmed: no other package imports it. `internal/config` and `internal/ui` have their own `federation` config section and fields.
-- **No release yet.** The repository has no git tags, so no tagged release has shipped with prefixed IDs. That bears on ID-8 (migrate or start fresh), which the user still has to decide.
+- **No release yet.** The repository has no git tags, so no tagged release has shipped with prefixed IDs. That bears on ID-8: todo #4352 chose "start fresh". Start-up refuses a metadata store that holds a prefixed workspace ID, and docs/user-docs/operations.md ("Upgrading from Prefixed IDs") documents it. A `migrate ids` command can still be added later behind that guard.
 - **Which routes take peer credentials (F-3 and F-7).** "Federation routes bypass the server's single API key" applies only to the routes peers call: `POST /v1/federation/search` and `GET /v1/federation/memories/{memory_id}`. The peer-management routes (`GET/POST /v1/federation/peers`, `DELETE /v1/federation/peers/{node_id}`) are operator routes and keep the normal API key.
 - **ID-1 and ID-2 ship together.** Changing the generator breaks every prefix check, so the two cannot land separately with tests passing.
 - **ID-7 is split.** The request-ID half is in F20. The node-ID half is implemented under F-1.

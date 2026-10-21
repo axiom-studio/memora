@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -309,5 +310,34 @@ func TestOpenCoreAdapters_AsyncEmbedPoolDrainsOnClose(t *testing.T) {
 	}
 	if !m.RecallReady {
 		t.Fatal("memory not recall_ready after closeAll; the pool did not drain before the stores closed")
+	}
+}
+
+// TestOpenCoreAdapters_RefusesLegacyPrefixedIDs: a database written
+// before IDs were UUIDv4s (here, a "ws_…" workspace row) stops start-up
+// with a message naming the workspace and the upgrade doc, instead of
+// serving data every request would reject. A fresh database starts.
+func TestOpenCoreAdapters_RefusesLegacyPrefixedIDs(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	_, closeAll, err := openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("fresh database must start: %v", err)
+	}
+	closeAll()
+
+	db, err := sql.Open("sqlite", filepath.Join(cfg.Storage.DataDir, "memora.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const legacy = "ws_01HXYZABCDEFGHJKMNPQRSTVWX"
+	_, err = db.Exec(`INSERT INTO memora_workspaces (id, name, created_at, updated_at) VALUES (?, 'old', datetime('now'), datetime('now'))`, legacy)
+	_ = db.Close()
+	if err != nil {
+		t.Fatalf("insert legacy workspace: %v", err)
+	}
+
+	_, _, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err == nil || !strings.Contains(err.Error(), legacy) || !strings.Contains(err.Error(), "Upgrading from Prefixed IDs") {
+		t.Fatalf("openCoreAdapters on a legacy database = %v, want a refusal naming %s and the upgrade doc", err, legacy)
 	}
 }

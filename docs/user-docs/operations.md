@@ -172,3 +172,13 @@ Run it in three passes:
 3. **Verify** — `--verify` compares content between the metadata store and the content store. The command prints a JSON result and exits `4` when any mismatch is found, which makes this pass usable as a deployment gate.
 
 Only after a clean verification should `storage.content_driver` be pointed at the new store in the server's configuration. See [Configuration](configuration.md) for the keys, and [CLI Reference](cli.md) for the full flag list.
+
+## Upgrading from Prefixed IDs
+
+Memora identifiers are UUIDv4s, such as `3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90`. Builds before that change used prefixed ULIDs (`ws_01H…`, `mem_01H…`). Those IDs appear in every table, as vector-store keys and in content-store file paths.
+
+No tagged release has shipped with prefixed IDs, so pre-1.0 deployments are not migrated: **start the new version with an empty database**. That means a new `storage.data_dir` for SQLite, or new databases or schemas for Postgres and the content store.
+
+The server checks for this. If the metadata store contains a workspace with a prefixed ID, `memora-core serve` and `memora-core mcp` exit at start-up with an error naming that workspace. They do not serve data that every request would reject.
+
+To keep memories, read their content from the old deployment (the console's Bulk → Dump, or `memora-cli lookup`) and imprint it into the new one. The memories get new IDs. Watermark history, edges and the ledger do not carry over.

@@ -55,8 +55,10 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   Synthetic `parent_of` edges from the vibeflow shim get persisted UUIDs
   (sqlite migration 0007, `memora_synthetic_edges`) and are recognised by
   the view's `is_synthetic` column, not an `edg_synthetic_` prefix.
-  Existing prefixed data is not migrated yet (see
-  docs/dev-docs/prd-uuid-ids-federated-search.md, ID-8).
+  Existing prefixed data is not migrated: no release shipped with it,
+  so start with an empty database. `serve` and `mcp` refuse to start on
+  a metadata store holding a prefixed workspace ID (see
+  docs/user-docs/operations.md, "Upgrading from Prefixed IDs").
 - **BREAKING (identity)**: `anthropic_session`, `oauth_agent` and
   `oidc_agent` no longer require the agent ID to equal a derived string or
   token claim. They implement the new `adapter.IdentityKeyer`: the proven

@@ -55,6 +55,9 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("open metadata (driver %q): %w", cfg.Storage.MetadataDriver, err)
 	}
 	closers = append(closers, meta.Close)
+	if err := refuseLegacyIDs(ctx, meta); err != nil {
+		return nil, nil, err
+	}
 
 	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN)})
 	if err != nil {
@@ -162,6 +165,33 @@ var libpqPassword = regexp.MustCompile(`(?i)\b((?:ssl)?password\s*=\s*)('(?:[^'\
 // redactedQueryParams are URL query parameters that carry a secret; pgx and
 // libpq accept a password there as well as in the userinfo (#6034).
 var redactedQueryParams = map[string]bool{"password": true, "sslpassword": true}
+
+// refuseLegacyIDs stops start-up on a database written before Memora's
+// IDs were UUIDv4s. Pre-1.0 releases do not migrate such data (PRD ID-8,
+// docs/user-docs/operations.md "Upgrading from Prefixed IDs"): every
+// table, vector key and content path holds the old IDs, and serving them
+// would fail validation on every request. Every memory lives in a
+// workspace, so checking workspace IDs is enough. O(workspaces), once.
+func refuseLegacyIDs(ctx context.Context, meta adapter.MetadataStore) error {
+	cursor := ""
+	for {
+		page, next, err := meta.ListWorkspacesPaged(ctx, cursor, 500)
+		if err != nil {
+			return fmt.Errorf("check workspace IDs: %w", err)
+		}
+		for _, w := range page {
+			if _, err := types.ParseID("workspace_id", w.ID); err != nil {
+				return fmt.Errorf("metadata store holds workspace %q from before IDs were UUIDv4s; "+
+					"this release does not migrate it. Start with an empty database "+
+					"(see docs/user-docs/operations.md, \"Upgrading from Prefixed IDs\")", w.ID)
+			}
+		}
+		if next == "" {
+			return nil
+		}
+		cursor = next
+	}
+}
 
 // redactDSN masks the passwords in a URL DSN (postgres://user:pw@host/db,
 // ?password=pw) or a libpq keyword DSN (password=pw, password='p w') so it
