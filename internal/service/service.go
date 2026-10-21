@@ -25,6 +25,7 @@ import (
 	"github.com/axiom-studio/memora/internal/autolink"
 	"github.com/axiom-studio/memora/internal/chunker"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/rank"
 	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -46,6 +47,9 @@ type Service struct {
 	// results (see cmd/memora-core resolveNode).
 	NodeID   string
 	NodeName string
+	// Federation, when set, serves Search requests with federated: true
+	// by fanning out to this node's peers. nil = federation off.
+	Federation *federation.Searcher
 	// Pool, when set, takes cell embedding off the write path: writes
 	// queue vectorless cells and the pool flips recall_ready once they
 	// are all embedded (`embedding.async`). nil = embed inline.
@@ -624,7 +628,65 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 //
 // Both sides are single store queries over the scope: the full-text
 // index for keyword, the vector store for vector.
+//
+// With req.Federated it also fans out to this node's peers (F-4): the
+// local search runs first, then every selected peer is asked in
+// parallel. A peer that fails, times out or is rate-limited is listed in
+// failed_peers and never fails the search.
 func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	if !req.Federated {
+		if len(req.Peers) > 0 || req.PerPeerK != 0 || req.TimeoutMS != 0 {
+			return nil, fmt.Errorf("%w: peers, per_peer_k and timeout_ms need federated: true", types.ErrInvalidInput)
+		}
+		return s.localSearch(ctx, req)
+	}
+	return s.federatedSearch(ctx, req)
+}
+
+func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	start := time.Now()
+	switch {
+	case s.Federation == nil:
+		return nil, fmt.Errorf("%w: federation is not enabled on this node", types.ErrInvalidInput)
+	case len(req.WorkspaceIDs) > 0:
+		return nil, fmt.Errorf("%w: workspace_ids cannot be combined with federated: peers search their whole node", types.ErrInvalidInput)
+	case req.PerPeerK < 0 || req.TimeoutMS < 0:
+		return nil, fmt.Errorf("%w: per_peer_k and timeout_ms must not be negative", types.ErrInvalidInput)
+	}
+	local, err := s.localSearch(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	for i := range local.Results {
+		local.Results[i].NodeID, local.Results[i].NodeName = s.NodeID, s.NodeName
+	}
+	k := req.K
+	if k <= 0 {
+		k = 5
+	}
+	perPeerK := req.PerPeerK
+	if perPeerK == 0 {
+		perPeerK = k
+	}
+	fr, err := s.Federation.Fanout(ctx, local, api.FederationSearchRequest{
+		Query: req.Query, Mode: req.Mode, K: perPeerK,
+		IncludeContent: req.IncludeContent, MaxContentBytes: req.MaxContentBytes,
+	}, federation.SearchOpts{Peers: req.Peers, Timeout: time.Duration(req.TimeoutMS) * time.Millisecond})
+	if err != nil {
+		return nil, err
+	}
+	// F-5 replaces this score merge with rank fusion.
+	resp := federation.Aggregate(fr, federation.AggregateOpts{K: k, LocalInstanceID: s.NodeID})
+	resp.Degraded = local.Degraded
+	resp.PartialSuccess = fr.PartialSuccess
+	resp.FailedPeers = fr.FailedPeers
+	resp.PeerLatencyMS = fr.PeerLatencyMS
+	resp.LatencyMS = int(time.Since(start).Milliseconds())
+	return &resp, nil
+}
+
+// localSearch is Search on this node only.
+func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
 	start := time.Now()
 	if strings.TrimSpace(req.Query) == "" {
 		return nil, fmt.Errorf("%w: query is required", types.ErrInvalidInput)

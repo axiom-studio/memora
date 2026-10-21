@@ -13,9 +13,9 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-// TestIntegration_ThreePeerRecall simulates a full federation recall
+// TestIntegration_ThreePeerSearch simulates a full federation recall
 // across 3 peers (2 remote + local) with dedup and aggregation.
-func TestIntegration_ThreePeerRecall(t *testing.T) {
+func TestIntegration_ThreePeerSearch(t *testing.T) {
 	peer1Resp := api.RecallResponse{
 		Results: []api.RecallHit{
 			{MemoryID: "mem_shared", Score: 0.85, Text: "shared content"},
@@ -63,14 +63,7 @@ func TestIntegration_ThreePeerRecall(t *testing.T) {
 		testPeerClient(srv2, "eu-central"),
 	}
 
-	fr, err := FanoutRecall(
-		context.Background(),
-		localResult,
-		peers,
-		"ws_test",
-		api.RecallRequest{Query: "test query", K: 10},
-		"fed_local",
-	)
+	fr, err := FanoutSearch(context.Background(), localResult, peers, api.FederationSearchRequest{Query: "test query", K: 10}, "fed_local", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +132,7 @@ func TestIntegration_OnePeerDown(t *testing.T) {
 		testPeerClient(badSrv, "crashed"),
 	}
 
-	fr, err := FanoutRecall(context.Background(), nil, peers, "ws", api.RecallRequest{}, "")
+	fr, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +217,7 @@ func TestIntegration_RegistryToPeers(t *testing.T) {
 	// Override the http client to use the test server's client (handles TLS)
 	c.httpClient = srv.Client()
 
-	resp, err := c.Recall(context.Background(), "ws_test", api.RecallRequest{Query: "test"}, "fed_main")
+	resp, err := c.Search(context.Background(), api.FederationSearchRequest{Query: "test"}, "fed_main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +239,7 @@ func TestIntegration_AllPeersFailed_Error(t *testing.T) {
 		testPeerClient(srv, "dead2"),
 	}
 
-	_, err := FanoutRecall(context.Background(), nil, peers, "ws", api.RecallRequest{}, "")
+	_, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if !errors.Is(err, ErrAllPeersFailed) {
 		t.Errorf("expected ErrAllPeersFailed, got %v", err)
 	}

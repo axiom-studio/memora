@@ -21,7 +21,7 @@ type RateLimiterPool struct {
 func NewOutboundPool(peers []Peer) *RateLimiterPool {
 	defaults := make(map[string]float64, len(peers))
 	for _, p := range peers {
-		qps := float64(p.RateLimitQPS)
+		qps := p.RateLimitQPS
 		if qps <= 0 {
 			qps = DefaultOutboundQPS
 		}

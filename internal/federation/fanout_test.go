@@ -28,13 +28,13 @@ func testPeerClient(srv *httptest.Server, name string) *PeerClient {
 	}
 }
 
-func TestFanoutRecall_LocalOnly(t *testing.T) {
+func TestFanoutSearch_LocalOnly(t *testing.T) {
 	local := &api.RecallResponse{
 		Results:                []api.RecallHit{{MemoryID: "mem_local", Score: 0.9}},
 		TotalCandidatesScanned: 5,
 		LatencyMS:              2,
 	}
-	result, err := FanoutRecall(context.Background(), local, nil, "ws", api.RecallRequest{}, "")
+	result, err := FanoutSearch(context.Background(), local, nil, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,20 +46,20 @@ func TestFanoutRecall_LocalOnly(t *testing.T) {
 	}
 }
 
-func TestFanoutRecall_AllFailed_NoLocal(t *testing.T) {
+func TestFanoutSearch_AllFailed_NoLocal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
 	peers := []*PeerClient{testPeerClient(srv, "bad-peer")}
-	_, err := FanoutRecall(context.Background(), nil, peers, "ws", api.RecallRequest{}, "")
+	_, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if !errors.Is(err, ErrAllPeersFailed) {
 		t.Fatalf("expected ErrAllPeersFailed, got %v", err)
 	}
 }
 
-func TestFanoutRecall_MergesResults(t *testing.T) {
+func TestFanoutSearch_MergesResults(t *testing.T) {
 	peerResp := api.RecallResponse{
 		Results:                []api.RecallHit{{MemoryID: "mem_peer", Score: 0.8}},
 		TotalCandidatesScanned: 3,
@@ -74,7 +74,7 @@ func TestFanoutRecall_MergesResults(t *testing.T) {
 		TotalCandidatesScanned: 5,
 	}
 	peers := []*PeerClient{testPeerClient(srv, "peer1")}
-	result, err := FanoutRecall(context.Background(), local, peers, "ws", api.RecallRequest{}, "fed_test")
+	result, err := FanoutSearch(context.Background(), local, peers, api.FederationSearchRequest{}, "fed_test", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestFanoutRecall_MergesResults(t *testing.T) {
 	}
 }
 
-func TestFanoutRecall_PartialSuccess(t *testing.T) {
+func TestFanoutSearch_PartialSuccess(t *testing.T) {
 	goodResp := api.RecallResponse{
 		Results: []api.RecallHit{{MemoryID: "mem_good", Score: 0.8}},
 	}
@@ -106,7 +106,7 @@ func TestFanoutRecall_PartialSuccess(t *testing.T) {
 		testPeerClient(goodSrv, "good-peer"),
 		testPeerClient(badSrv, "bad-peer"),
 	}
-	result, err := FanoutRecall(context.Background(), nil, peers, "ws", api.RecallRequest{}, "")
+	result, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestFanoutRecall_PartialSuccess(t *testing.T) {
 	}
 }
 
-func TestFanoutRecall_PeerLatencyTracked(t *testing.T) {
+func TestFanoutSearch_PeerLatencyTracked(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(api.RecallResponse{
 			Results: []api.RecallHit{{MemoryID: "mem_x", Score: 0.5}},
@@ -130,7 +130,7 @@ func TestFanoutRecall_PeerLatencyTracked(t *testing.T) {
 	defer srv.Close()
 
 	peers := []*PeerClient{testPeerClient(srv, "fast-peer")}
-	result, err := FanoutRecall(context.Background(), nil, peers, "ws", api.RecallRequest{}, "")
+	result, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestFanoutRecall_PeerLatencyTracked(t *testing.T) {
 	}
 }
 
-func TestFanoutRecall_ContextCancel(t *testing.T) {
+func TestFanoutSearch_ContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	slowSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-done
@@ -155,7 +155,7 @@ func TestFanoutRecall_ContextCancel(t *testing.T) {
 	peers := []*PeerClient{testPeerClient(slowSrv, "slow-peer")}
 	peers[0].peer.RequestTimeoutMS = 80
 	peers[0].httpClient.Timeout = 80 * time.Millisecond
-	result, err := FanoutRecall(ctx, nil, peers, "ws", api.RecallRequest{}, "")
+	result, err := FanoutSearch(ctx, nil, peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err == nil && result != nil && !result.PartialSuccess {
 		t.Error("expected failure or partial success on timeout")
 	}

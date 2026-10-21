@@ -32,7 +32,7 @@ type Peer struct {
 	ClientCertFile   string // our client certificate for outbound mTLS
 	ClientKeyFile    string
 	Workspaces       []string // empty = all workspaces
-	RateLimitQPS     int
+	RateLimitQPS     float64
 	RequestTimeoutMS int
 	// Revoked peers stay known but their inbound calls get 403.
 	Revoked bool
@@ -84,7 +84,7 @@ func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, err
 
 	var errs []error
 	for i, pc := range cfg.Peers {
-		p, err := parsePeer(pc, i, selfNodeID)
+		p, err := parsePeer(pc, i, selfNodeID, cfg)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -99,7 +99,13 @@ func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, err
 	return r, errors.Join(errs...)
 }
 
-func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
+// Defaults for a peer's outbound limits when neither the peer nor the
+// federation section sets them.
+const (
+	DefaultPeerTimeoutMS = 5000
+)
+
+func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.FederationConfig) (Peer, error) {
 	if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", idx), pc.NodeID); err != nil {
 		return Peer{}, err
 	}
@@ -133,8 +139,8 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
 		TLSCert:          pc.TLSCert,
 		ClientCertFile:   pc.ClientCertFile,
 		ClientKeyFile:    pc.ClientKeyFile,
-		RateLimitQPS:     50,
-		RequestTimeoutMS: 5000,
+		RateLimitQPS:     firstPositive(pc.RateLimitQPS, fc.OutboundQPS, DefaultOutboundQPS),
+		RequestTimeoutMS: int(firstPositive(float64(pc.TimeoutMS), float64(fc.PeerTimeoutMS), DefaultPeerTimeoutMS)),
 		Revoked:          pc.Revoked,
 	}
 	if pc.InboundKeySHA256 != "" {
@@ -233,3 +239,16 @@ func (p *Peer) DefaultRequestTimeout() time.Duration {
 	}
 	return time.Duration(p.RequestTimeoutMS) * time.Millisecond
 }
+
+func firstPositive(vals ...float64) float64 {
+	for _, v := range vals {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// Searchable reports whether this node queries the peer in a federated
+// search: it is not revoked and has an outbound key to present.
+func (p *Peer) Searchable() bool { return !p.Revoked && p.APIKey != "" }

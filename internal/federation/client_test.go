@@ -17,7 +17,7 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-func TestPeerClient_Recall(t *testing.T) {
+func TestPeerClient_Search(t *testing.T) {
 	want := api.RecallResponse{
 		Results: []api.RecallHit{
 			{MemoryID: "mem_abc", Score: 0.9, Text: "hello"},
@@ -29,7 +29,7 @@ func TestPeerClient_Recall(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/v1/workspaces/ws_test/recall" {
+		if r.URL.Path != "/v1/federation/search" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Header.Get(HeaderFederationID) == "" {
@@ -59,7 +59,7 @@ func TestPeerClient_Recall(t *testing.T) {
 		instanceID:   "fed_a",
 	}
 
-	got, err := pc.Recall(context.Background(), "ws_test", api.RecallRequest{Query: "hello", K: 5}, "fed_a")
+	got, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "hello", K: 5}, "fed_a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPeerClient_Recall(t *testing.T) {
 	}
 }
 
-func TestPeerClient_Recall_Error(t *testing.T) {
+func TestPeerClient_Search_Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -82,7 +82,7 @@ func TestPeerClient_Recall_Error(t *testing.T) {
 		httpClient:   srv.Client(),
 		federationID: "fed_a",
 	}
-	_, err := pc.Recall(context.Background(), "ws_test", api.RecallRequest{Query: "fail"}, "")
+	_, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "fail"}, "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -186,7 +186,7 @@ func TestPeerClient_KeyAuthenticatesAtPeer(t *testing.T) {
 				httpClient: srv.Client(),
 				instanceID: caller,
 			}
-			_, err := pc.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, "")
+			_, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "q", K: 1}, "")
 			if ok := err == nil; ok != (k == key) {
 				t.Errorf("mode %s, key %q: err = %v", mode, k, err)
 			}
@@ -256,7 +256,7 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	pc := pool.clients[callee]
-	if _, err := pc.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, ""); err != nil {
+	if _, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "q", K: 1}, ""); err != nil {
 		t.Fatalf("with client cert: %v", err)
 	}
 
@@ -266,7 +266,7 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pc2.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, ""); err == nil {
+	if _, err := pc2.Search(context.Background(), api.FederationSearchRequest{Query: "q", K: 1}, ""); err == nil {
 		t.Fatal("without client cert: want 401, got success")
 	}
 }

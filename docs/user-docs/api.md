@@ -83,7 +83,7 @@ All paths are relative to `/v1`.
 
 | Field | Value |
 |---|---|
-| `POST /search` | Search every workspace on the node, or those in `workspace_ids`. Body: `query`, `mode` (`keyword`, `vector`, or `hybrid`, the default), `k` (default 5), `workspace_ids`, `filters`, `include_content`, `max_content_bytes` (default 64 KiB, at most 1 MiB), `include_cells`. Each hit carries its `workspace_id`, `matched_text` (the full text of the matching Cell, located by `cell_id` and `cell_index`), a short `text` excerpt, `tags`, `written_by_agent_id` and `created_at`. With `include_content` it also carries the Memory's `content`, with `content_truncated` set if it was cut. Recall accepts the same three options. In `multi-tenant` mode the `X-Memora-Workspace` header is required (`400 missing_workspace` without it) and the search stays inside that workspace. |
+| `POST /search` | Search every workspace on the node, or those in `workspace_ids`. Body: `query`, `mode` (`keyword`, `vector`, or `hybrid`, the default), `k` (default 5), `workspace_ids`, `filters`, `include_content`, `max_content_bytes` (default 64 KiB, at most 1 MiB), `include_cells`. Each hit carries its `workspace_id`, `matched_text` (the full text of the matching Cell, located by `cell_id` and `cell_index`), a short `text` excerpt, `tags`, `written_by_agent_id` and `created_at`. With `include_content` it also carries the Memory's `content`, with `content_truncated` set if it was cut. Recall accepts the same three options. In `multi-tenant` mode the `X-Memora-Workspace` header is required (`400 missing_workspace` without it) and the search stays inside that workspace. With `federated: true` the node also searches its federation peers; see [Federated Search](#federated-search). |
 | `POST /workspaces/{ws}/recall` | Run a recall query. |
 | `GET /workspaces/{ws}/recall/pins` | List saved queries. |
 | `POST /workspaces/{ws}/recall/pins` | Save a query. `mode` defaults to `hybrid` and `k` to 10. |
@@ -97,6 +97,19 @@ All paths are relative to `/v1`.
 Listings are ordered by creation time, newest first, with the ID breaking ties, so pages stay stable while new records arrive: a new record appears on the first page and never shifts later pages. Cursors are opaque; a malformed one returns `400 invalid_input`. The SDK's `ListWorkspacesPage` and `ListMemoriesPage` return the next cursor; `ListWorkspaces` and `ListMemories` return the first page. The MCP list tools return the first page only.
 
 Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_id`, `op` (comma-separated), `limit`, and `since_ledger_id` for cursor paging.
+
+### Federated Search
+
+`POST /search` with `federated: true` searches this node and, in parallel, each of its peers' `POST /federation/search`. Each peer embeds the query with its own model.
+
+| Field | Value |
+|---|---|
+| `federated` | `true` to include peers. |
+| `peers` | Node IDs to ask. Default: every peer that is not `revoked` and has an `api_key`. An unknown or unusable node ID is `400`. |
+| `per_peer_k` | How many hits each peer returns. Default `k`. |
+| `timeout_ms` | Bounds every peer. Default: each peer's `timeout_ms` (see [Peer Credentials](configuration.md#peer-credentials)). At most `60000`. |
+
+Hits carry `node_id` and `node_name`, and peer hits have `via: "federation:<peer name>"`. A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed by name in `failed_peers`, and `partial_success` is `true`. `peer_latency_ms` maps each answering node ID, and `local`, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
 
 ### Federation
 

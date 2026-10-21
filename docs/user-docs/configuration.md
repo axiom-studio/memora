@@ -114,7 +114,7 @@ TOML table `[node]`. These identify this node to federation peers and in search 
 
 When `node.id` is unset, the node mints a UUIDv4 the first time it starts and stores it in the metadata store. It keeps that ID across restarts, including in containers without a config file. `memora-core node id` prints it. Set `node.id` only to pin a specific ID.
 
-`federation.inbound_qps` caps how many requests per second each peer may send to this node's peer routes. It defaults to `100`.
+`federation.inbound_qps` caps how many requests per second each peer may send to this node's peer routes. It defaults to `100`. `federation.peer_timeout_ms` (default `5000`) and `federation.outbound_qps` (default `50`) are the defaults for each peer's `timeout_ms` and `rate_limit_qps`.
 
 Federation peers are listed under `[[federation.peers]]`. Each peer needs `node_id`, which is the peer's own node ID (run `memora-core node id` on the peer), plus `name` and `url`. `federation.federation_id` is optional; if set, it is a UUIDv4 label for the cluster.
 
@@ -128,13 +128,16 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 | `inbound_key_sha256` | string (64 hex characters) | *(empty)* |
 | `client_cert_sha256` | string (64 hex characters) | *(empty)* |
 | `revoked` | bool | `false` |
+| `timeout_ms` | int | `federation.peer_timeout_ms` |
+| `rate_limit_qps` | float | `federation.outbound_qps` |
 | `tls_cert` | string (path) | *(empty)* |
 | `client_cert_file`, `client_key_file` | string (path) | *(empty)* |
 
 - **`api_key`** is the key this node sends when it calls the peer. It goes in `X-Memora-Federation-Auth: Bearer <key>`, and the node sends its node ID in `X-Memora-Local-Instance-ID`.
 - **`inbound_key_sha256`** is the SHA-256 of the key the peer sends when it calls this node. Only the hash is configured, so the key never sits in this node's config, logs or responses. The comparison runs in constant time. A peer without it cannot call this node, and the server logs a warning at startup.
 - **`client_cert_sha256`**, when set, also requires the peer to present a TLS client certificate with this SHA-256 fingerprint. It needs `server.tls`; the server refuses to start without it.
-- **`revoked = true`** keeps the peer listed but refuses its calls.
+- **`revoked = true`** keeps the peer listed but refuses its calls, and leaves it out of federated searches.
+- **`timeout_ms`** and **`rate_limit_qps`** bound this node's calls to the peer during a federated search. A search's own `timeout_ms` overrides `timeout_ms`.
 - **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
 - **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
 

@@ -261,9 +261,9 @@ func serve() {
 	if fedReg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
 		bootLog.Fatalf("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
 	}
-	// Fan-out (F-4) will use the client pool; building it now makes bad
-	// peer TLS files (CA, client cert or key) fail at boot.
-	if _, err := federation.NewClientPool(fedReg); err != nil {
+	// Builds a client per peer, so bad peer TLS files (CA, client cert
+	// or key) fail at boot.
+	if svc.Federation, err = federation.NewSearcher(fedReg); err != nil {
 		bootLog.Fatalf("federation: %v", err)
 	}
 	for _, p := range fedReg.Peers() {

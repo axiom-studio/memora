@@ -457,6 +457,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant, _ := r.Context().Value(ctxKeyWorkspace).(string)
+	if req.Federated && s.cfg.Mode == "multi-tenant" {
+		// Peers search their whole node; a tenant must not reach that.
+		s.writeError(w, 403, "federation_multi_tenant", "federated search is not available in multi-tenant mode", nil)
+		return
+	}
 	switch {
 	case tenant != "":
 		req.WorkspaceIDs = []string{tenant}

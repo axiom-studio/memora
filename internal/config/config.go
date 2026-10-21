@@ -90,8 +90,12 @@ type FederationConfig struct {
 	FederationID string `toml:"federation_id"`
 	// InboundQPS caps each peer's calls to this node's peer routes
 	// (default federation.DefaultInboundQPS).
-	InboundQPS float64      `toml:"inbound_qps"`
-	Peers      []PeerConfig `toml:"peers"`
+	InboundQPS float64 `toml:"inbound_qps"`
+	// PeerTimeoutMS and OutboundQPS are the defaults for each peer's
+	// timeout_ms and rate_limit_qps (5000 ms and 50 when unset).
+	PeerTimeoutMS int          `toml:"peer_timeout_ms"`
+	OutboundQPS   float64      `toml:"outbound_qps"`
+	Peers         []PeerConfig `toml:"peers"`
 }
 
 type PeerConfig struct {
@@ -113,8 +117,13 @@ type PeerConfig struct {
 	// ClientCertSHA256, when set, additionally requires the peer to
 	// present a TLS client certificate with this SHA-256 fingerprint.
 	ClientCertSHA256 string `toml:"client_cert_sha256"`
-	// Revoked keeps the peer known but refuses its inbound calls (403).
+	// Revoked keeps the peer known but refuses its inbound calls (403)
+	// and leaves it out of federated searches.
 	Revoked bool `toml:"revoked"`
+	// TimeoutMS and RateLimitQPS bound this node's calls to the peer;
+	// 0 takes federation.peer_timeout_ms / federation.outbound_qps.
+	TimeoutMS    int     `toml:"timeout_ms"`
+	RateLimitQPS float64 `toml:"rate_limit_qps"`
 }
 
 type TelemetryConfig struct {
@@ -289,8 +298,8 @@ func (c *Config) Validate() error {
 			errs = append(errs, err)
 		}
 	}
-	if c.Federation.InboundQPS < 0 {
-		errs = append(errs, errors.New("federation.inbound_qps must not be negative"))
+	if c.Federation.InboundQPS < 0 || c.Federation.OutboundQPS < 0 || c.Federation.PeerTimeoutMS < 0 {
+		errs = append(errs, errors.New("federation.inbound_qps, outbound_qps and peer_timeout_ms must not be negative"))
 	}
 	for i, p := range c.Federation.Peers {
 		if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", i), p.NodeID); err != nil {
@@ -298,6 +307,9 @@ func (c *Config) Validate() error {
 		}
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
+		}
+		if p.TimeoutMS < 0 || p.RateLimitQPS < 0 {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: timeout_ms and rate_limit_qps must not be negative", i))
 		}
 		if (p.ClientCertFile == "") != (p.ClientKeyFile == "") {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_file and client_key_file must be set together", i))

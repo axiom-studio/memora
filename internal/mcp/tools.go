@@ -134,7 +134,7 @@ func toolCatalog() []Tool {
 		},
 		{
 			Name:        "memora_search",
-			Description: "Search Memories across every workspace on this node (or workspace_ids). mode = keyword | vector | hybrid (default). Each hit carries its workspace_id and memory_id; fetch the full Memory with memora_lookup.",
+			Description: "Search Memories across every workspace on this node (or workspace_ids). mode = keyword | vector | hybrid (default). Each hit carries its workspace_id and memory_id; fetch the full Memory with memora_lookup. federated: true also searches this node's federation peers (optionally only the node IDs in peers); hits from a peer carry its node_id, and peers that did not answer are listed in failed_peers.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -142,6 +142,10 @@ func toolCatalog() []Tool {
 					"mode":          map[string]any{"type": "string", "enum": []string{"keyword", "vector", "hybrid"}, "default": "hybrid"},
 					"k":             intP(1, 100, 5),
 					"workspace_ids": map[string]any{"type": "array", "items": stringP()},
+					"federated":     map[string]any{"type": "boolean", "default": false},
+					"peers":         map[string]any{"type": "array", "items": stringP()},
+					"per_peer_k":    intP(1, 100, 5),
+					"timeout_ms":    intP(1, 60000, 5000),
 				},
 				"required": []string{"query"},
 			},

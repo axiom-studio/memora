@@ -170,6 +170,14 @@ type SearchRequest struct {
 	IncludeContent  bool `json:"include_content,omitempty"`
 	MaxContentBytes int  `json:"max_content_bytes,omitempty"`
 	IncludeCells    bool `json:"include_cells,omitempty"`
+	// Federated also searches this node's peers. Peers restricts it to
+	// those node IDs (default: every peer that is not revoked and has an
+	// api_key); PerPeerK is each peer's k (default K); TimeoutMS bounds
+	// every peer (default: each peer's timeout_ms; at most 60000).
+	Federated bool     `json:"federated,omitempty"`
+	Peers     []string `json:"peers,omitempty"`
+	PerPeerK  int      `json:"per_peer_k,omitempty"`
+	TimeoutMS int      `json:"timeout_ms,omitempty"`
 }
 
 // FederationSearchRequest is POST /v1/federation/search, sent by a peer.

@@ -186,6 +186,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Federated search (F-4, #4364): `POST /v1/search` (and MCP
+  `memora_search`) with `federated: true` searches this node plus each
+  peer's `/v1/federation/search` in parallel, sending the path header
+  with this node's ID. Options: `peers` (node IDs), `per_peer_k` and
+  `timeout_ms`. Peers get per-peer `timeout_ms` and `rate_limit_qps`,
+  with defaults from `federation.peer_timeout_ms` and
+  `federation.outbound_qps`; these replace the fixed 5 s and 50 QPS. A
+  failed, slow or rate-limited peer is listed in `failed_peers` with
+  `partial_success: true` and does not fail the search. Peer clients no
+  longer call the workspace-scoped `/v1/workspaces/{ws}/recall` on
+  peers. Merging is still the score-based `Aggregate` until F-5.
 - `POST /v1/federation/search` (F-2, #4363): an authenticated peer
   searches every workspace on this node. The query arrives as text and
   is embedded by this node's own embedder. Hits carry `node_id` and

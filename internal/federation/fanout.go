@@ -13,7 +13,7 @@ import (
 // ErrAllPeersFailed is returned when every peer (including local) fails.
 var ErrAllPeersFailed = errors.New("federation: all peers failed")
 
-// PeerResult captures one peer's recall response or error.
+// PeerResult captures one peer's search response or error.
 type PeerResult struct {
 	PeerID    string
 	PeerName  string
@@ -22,26 +22,39 @@ type PeerResult struct {
 	LatencyMS int
 }
 
-// FanoutResult is the merged output of a federated recall.
+// PeerFailure is a peer that did not contribute to a federated search.
+type PeerFailure struct {
+	NodeID string
+	Name   string
+	Err    error
+}
+
+// FanoutResult is the collected output of a federated search: the local
+// hits followed by each answering peer's, unmerged.
 type FanoutResult struct {
 	Results        []api.RecallHit
 	PartialSuccess bool
-	FailedPeers    []string
-	PeerLatencyMS  map[string]int
+	FailedPeers    []string // names, as the existing response field
+	Failures       []PeerFailure
+	PeerLatencyMS  map[string]int // keyed by node ID ("local" for this node)
 	TotalScanned   int
 }
 
-// FanoutRecall sends the recall request to all peers in parallel,
-// collects results within the ctx deadline, and returns the merged
-// FanoutResult. localResult is the already-completed local query
-// (nil if local failed). peers are the PeerClients to fan out to.
-func FanoutRecall(
+// FanoutSearch sends req to every peer in parallel, each bounded by its
+// own timeout (or timeout, when positive) and admitted by its outbound
+// limiter (when limiter is non-nil), and collects the answers. A slow,
+// failed or rate-limited peer never fails the search; it is recorded in
+// Failures. localResult is the completed local search (nil when it
+// failed). Peer hits are tagged Via "federation:<name>" and keep the
+// node_id/node_name the peer stamped.
+func FanoutSearch(
 	ctx context.Context,
 	localResult *api.RecallResponse,
 	peers []*PeerClient,
-	wsID string,
-	req api.RecallRequest,
+	req api.FederationSearchRequest,
 	federationPath string,
+	timeout time.Duration,
+	limiter *RateLimiterPool,
 ) (*FanoutResult, error) {
 	out := &FanoutResult{
 		PeerLatencyMS: make(map[string]int, len(peers)+1),
@@ -53,48 +66,46 @@ func FanoutRecall(
 		out.PeerLatencyMS["local"] = localResult.LatencyMS
 	}
 
-	if len(peers) == 0 {
-		if localResult == nil {
-			return nil, ErrAllPeersFailed
-		}
-		return out, nil
-	}
-
 	resultCh := make(chan PeerResult, len(peers))
 	var wg sync.WaitGroup
-
 	for _, pc := range peers {
 		wg.Add(1)
 		go func(c *PeerClient) {
 			defer wg.Done()
+			if limiter != nil && !limiter.Allow(c.PeerID()) {
+				resultCh <- PeerResult{PeerID: c.PeerID(), PeerName: c.PeerName(), Err: ErrOutboundRateLimited}
+				return
+			}
+			d := c.RequestTimeout()
+			if timeout > 0 {
+				d = timeout
+			}
 			start := time.Now()
-			peerCtx, cancel := context.WithTimeout(ctx, c.RequestTimeout())
+			peerCtx, cancel := context.WithTimeout(ctx, d)
 			defer cancel()
-
-			resp, err := c.Recall(peerCtx, wsID, req, federationPath)
-			latency := int(time.Since(start).Milliseconds())
+			resp, err := c.Search(peerCtx, req, federationPath)
 			resultCh <- PeerResult{
 				PeerID:    c.PeerID(),
 				PeerName:  c.PeerName(),
 				Response:  resp,
 				Err:       err,
-				LatencyMS: latency,
+				LatencyMS: int(time.Since(start).Milliseconds()),
 			}
 		}(pc)
 	}
-
 	go func() {
 		wg.Wait()
 		close(resultCh)
 	}()
 
 	for pr := range resultCh {
-		out.PeerLatencyMS[pr.PeerID] = pr.LatencyMS
 		if pr.Err != nil {
 			out.FailedPeers = append(out.FailedPeers, pr.PeerName)
+			out.Failures = append(out.Failures, PeerFailure{NodeID: pr.PeerID, Name: pr.PeerName, Err: pr.Err})
 			out.PartialSuccess = true
 			continue
 		}
+		out.PeerLatencyMS[pr.PeerID] = pr.LatencyMS
 		if pr.Response != nil {
 			for i := range pr.Response.Results {
 				pr.Response.Results[i].Via = "federation:" + pr.PeerName
@@ -104,12 +115,15 @@ func FanoutRecall(
 		}
 	}
 
-	if len(out.Results) == 0 && localResult == nil {
+	if localResult == nil && len(out.Failures) == len(peers) {
 		return nil, ErrAllPeersFailed
 	}
-
 	return out, nil
 }
+
+// ErrOutboundRateLimited marks a peer skipped because this node's
+// outbound limit for it was exhausted.
+var ErrOutboundRateLimited = errors.New("federation: outbound rate limit for peer exhausted")
 
 // FanoutLookup queries peers in parallel, returning the first
 // successful (non-nil) memory. Returns nil if all peers return 404.

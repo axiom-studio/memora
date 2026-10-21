@@ -72,7 +72,9 @@ func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 		peer: p,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   p.DefaultRequestTimeout(),
+			// A ceiling only: each call's context carries the peer's
+			// timeout or the request's timeout_ms, which may be longer.
+			Timeout: MaxFederatedTimeout,
 		},
 		federationID: federationID,
 		instanceID:   nodeID,
@@ -116,13 +118,15 @@ func (c *PeerClient) setHeaders(req *http.Request, path string) {
 	req.Header.Set("Content-Type", "application/json")
 }
 
-// Recall sends a recall query to this peer and returns the response.
-func (c *PeerClient) Recall(ctx context.Context, wsID string, recallReq api.RecallRequest, federationPath string) (*api.RecallResponse, error) {
-	body, err := json.Marshal(recallReq)
+// Search sends a node-wide search to the peer's POST /v1/federation/search
+// and returns its hits. The peer embeds the query text itself. A non-200
+// answer is a *PeerError carrying the peer's status and error_code.
+func (c *PeerClient) Search(ctx context.Context, searchReq api.FederationSearchRequest, federationPath string) (*api.RecallResponse, error) {
+	body, err := json.Marshal(searchReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal recall request: %w", err)
+		return nil, fmt.Errorf("marshal search request: %w", err)
 	}
-	url := fmt.Sprintf("%s/v1/workspaces/%s/recall", strings.TrimRight(c.peer.Endpoint, "/"), wsID)
+	url := strings.TrimRight(c.peer.Endpoint, "/") + "/v1/federation/search"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -131,18 +135,35 @@ func (c *PeerClient) Recall(ctx context.Context, wsID string, recallReq api.Reca
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("peer %s recall: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s search: %w", c.peer.Name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("peer %s recall: HTTP %d", c.peer.Name, resp.StatusCode)
+		var env struct {
+			ErrorCode string `json:"error_code"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&env)
+		return nil, &PeerError{Status: resp.StatusCode, Code: env.ErrorCode}
 	}
 	var result api.RecallResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&result); err != nil {
-		return nil, fmt.Errorf("peer %s recall decode: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s search decode: %w", c.peer.Name, err)
 	}
 	return &result, nil
+}
+
+// PeerError is a peer's non-200 answer.
+type PeerError struct {
+	Status int
+	Code   string // the peer's error_code, when it sent one
+}
+
+func (e *PeerError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("peer answered HTTP %d (%s)", e.Status, e.Code)
+	}
+	return fmt.Sprintf("peer answered HTTP %d", e.Status)
 }
 
 // Lookup fetches a single memory from this peer.
