@@ -34,6 +34,12 @@ func (s *MetadataStore) Open(ctx context.Context, cfg adapter.MetadataConfig) er
 		return err
 	}
 	s.pool = pool
+	// Before any migration or seeding: a database from before UUIDv4 IDs
+	// is refused untouched, so the old release can still open it.
+	if err := s.refuseLegacyIDs(ctx); err != nil {
+		pool.Close()
+		return err
+	}
 	if err := runMigrations(ctx, pool); err != nil {
 		pool.Close()
 		return fmt.Errorf("postgres: migrate: %w", err)
@@ -1284,4 +1290,28 @@ func (s *MetadataStore) DeletePin(ctx context.Context, workspaceID, pinID string
 		return types.ErrNotFound
 	}
 	return nil
+}
+
+// refuseLegacyIDs reads, without writing, whether an existing database
+// holds a workspace whose id is not a UUID (adapter.ErrLegacyIDs).
+func (s *MetadataStore) refuseLegacyIDs(ctx context.Context) error {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT to_regclass('memora_workspaces') IS NOT NULL`).Scan(&exists); err != nil || !exists {
+		return err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM memora_workspaces`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if _, err := types.ParseID("workspace_id", id); err != nil {
+			return adapter.LegacyIDsError(id)
+		}
+	}
+	return rows.Err()
 }

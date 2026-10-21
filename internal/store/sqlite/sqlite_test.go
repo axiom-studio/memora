@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -729,5 +730,61 @@ func TestGraphTraverse_FilterPrunes_DescendantsExplored(t *testing.T) {
 	}
 	if !foundC {
 		t.Errorf("descendant C of pruned B was not explored")
+	}
+}
+
+// TestOpen_LegacyIDsRefusedReadOnly (#4377): a database holding a
+// pre-UUID workspace is refused before any migration or seeding, so the
+// refusal leaves it byte-for-byte the schema and rows it had.
+func TestOpen_LegacyIDsRefusedReadOnly(t *testing.T) {
+	ctx := context.Background()
+	dsn := filepath.Join(t.TempDir(), "legacy.db")
+	s := &Store{}
+	if err := s.Open(ctx, adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	// Make it look like an older release's database: the last two
+	// migrations not applied yet, a legacy workspace, no seeded agents.
+	for _, q := range []string{
+		`DELETE FROM memora_schema_migrations WHERE version IN ('0011_federation_peers.sql', '0012_peer_inbound_qps.sql')`,
+		`DROP TABLE memora_federation_peers`,
+		`INSERT INTO memora_workspaces (id, name, created_at, updated_at) VALUES ('ws_01HXYZABCDEFGHJKMNPQRSTVWX', 'old', datetime('now'), datetime('now'))`,
+		`DELETE FROM memora_agents`,
+	} {
+		if _, err := s.db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	_ = s.Close()
+
+	snapshot := func() string {
+		t.Helper()
+		db, err := sql.Open("sqlite", dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var out strings.Builder
+		for _, q := range []string{
+			`SELECT group_concat(name || ':' || sql, '|') FROM (SELECT name, sql FROM sqlite_master ORDER BY name)`,
+			`SELECT group_concat(version, ',') FROM (SELECT version FROM memora_schema_migrations ORDER BY version)`,
+			`SELECT count(*) FROM memora_agents`,
+		} {
+			var v sql.NullString
+			if err := db.QueryRowContext(ctx, q).Scan(&v); err != nil {
+				t.Fatal(err)
+			}
+			out.WriteString(v.String + "\n")
+		}
+		return out.String()
+	}
+	before := snapshot()
+
+	err := (&Store{}).Open(ctx, adapter.MetadataConfig{DSN: dsn})
+	if !errors.Is(err, adapter.ErrLegacyIDs) || !strings.Contains(err.Error(), "ws_01HXYZABCDEFGHJKMNPQRSTVWX") {
+		t.Fatalf("Open on a legacy database = %v, want ErrLegacyIDs naming the workspace", err)
+	}
+	if after := snapshot(); after != before {
+		t.Fatalf("the refused Open changed the database:\nbefore %s\nafter  %s", before, after)
 	}
 }

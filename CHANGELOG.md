@@ -65,6 +65,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The start-up refusal of a database with pre-UUID IDs is now read-only
+  (#4377). SQLite and Postgres check before any migration or seeding, so
+  the refused database keeps its schema and rows and the old build can
+  still open it. Before, the refused start had already applied new
+  migrations and seeded agents. The upgrade guide now says to securely
+  retire the old stores once the new deployment is verified.
 - Every service write checks that its agent is a UUID (#4378). That
   covers imprint, update, patch, append, forget, link, unlink and
   cascade-forget, and pins check their creator. Callers that bypass

@@ -225,9 +225,7 @@ func refuseLegacyIDs(ctx context.Context, meta adapter.MetadataStore) error {
 		}
 		for _, w := range page {
 			if _, err := types.ParseID("workspace_id", w.ID); err != nil {
-				return fmt.Errorf("metadata store holds workspace %q from before IDs were UUIDv4s; "+
-					"this release does not migrate it. Start with an empty database "+
-					"(see docs/user-docs/operations.md, \"Upgrading from Prefixed IDs\")", w.ID)
+				return adapter.LegacyIDsError(w.ID)
 			}
 		}
 		if next == "" {

@@ -202,6 +202,8 @@ Memora identifiers are UUIDv4s, such as `3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90`. 
 
 No tagged release has shipped with prefixed IDs, so pre-1.0 deployments are not migrated: **start the new version with an empty database**. That means a new `storage.data_dir` for SQLite, or new databases or schemas for Postgres and the content store.
 
-The server checks for this. If the metadata store contains a workspace with a prefixed ID, `memora-core serve` and `memora-core mcp` exit at start-up with an error naming that workspace. They do not serve data that every request would reject.
+The server checks for this. If the metadata store contains a workspace with a prefixed ID, `memora-core serve` and `memora-core mcp` exit at start-up with an error naming that workspace. They do not serve data that every request would reject. The check runs before any migration, so a refused start leaves the old database exactly as it was, and the old build can still open it.
 
 To keep memories, read their content from the old deployment (the console's Bulk → Dump, or `memora-cli lookup`) and imprint it into the new one. The memories get new IDs. Watermark history, edges and the ledger do not carry over.
+
+Once the new deployment holds what you need, securely delete the old `storage.data_dir`, databases and content store. They still contain every memory body, vector and ledger row, and keeping them past their use works against storage-limitation and disposal duties (GDPR Art. 5(1)(e); SOC 2 C1.2).
