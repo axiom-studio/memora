@@ -50,6 +50,10 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- `memora-cli` subcommands accept their flags anywhere among their
+  arguments (`search NVDA --mode keyword --k 1`). Before, a flag after
+  the first argument was silently folded into the query or ignored
+  (#6161). `--` ends flag parsing.
 - Agents are registered per workspace: `memora_agents` is keyed
   `(workspace_id, agent_id)` (sqlite migration 0009, postgres 0006), so
   the reserved agents (auto-link, legacy shim, console) and any shared

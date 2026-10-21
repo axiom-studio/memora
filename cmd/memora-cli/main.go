@@ -413,16 +413,15 @@ func cmdLookup(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdUpdate(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "update <mem_id> --text|--from-file ... --if-match <wmk>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	text := fs.String("text", "", "new content")
 	fromFile := fs.String("from-file", "", "load content from file")
 	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "update <mem_id> --text|--from-file ... --if-match <wmk>")
+		os.Exit(exitUsage)
+	}
 	content, err := loadContent(*text, *fromFile)
 	die(err)
 	resp, err := c.Update(ctx, g.Workspace, memID, *ifMatch, api.UpdateRequest{Content: content, ExpectedWatermark: *ifMatch})
@@ -432,16 +431,15 @@ func cmdUpdate(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdPatch(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "patch <mem_id> --patch '[{...}]' --if-match <wmk>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("patch", flag.ExitOnError)
 	patchJSON := fs.String("patch", "", "inline patch JSON: [{\"old_string\":...,\"new_string\":...}]")
 	patchFile := fs.String("patch-file", "", "read patch ops from file")
 	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "patch <mem_id> --patch '[{...}]' --if-match <wmk>")
+		os.Exit(exitUsage)
+	}
 	raw := *patchJSON
 	if *patchFile != "" {
 		b, err := os.ReadFile(*patchFile)
@@ -471,15 +469,14 @@ func cmdPatch(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdAppend(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
+	fs := flag.NewFlagSet("append", flag.ExitOnError)
+	text := fs.String("text", "", "content to append (use - for stdin)")
+	ifMatch := fs.String("if-match", "", "expected head watermark")
+	memID := positional(parseArgs(fs, g.Args), 0)
 	if memID == "" {
 		fmt.Fprintln(os.Stderr, "append <mem_id> --text ... [--if-match <wmk>]")
 		os.Exit(exitUsage)
 	}
-	fs := flag.NewFlagSet("append", flag.ExitOnError)
-	text := fs.String("text", "", "content to append (use - for stdin)")
-	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
 	content, err := loadContent(*text, "")
 	die(err)
 	resp, err := c.Append(ctx, g.Workspace, memID, *ifMatch, api.AppendRequest{Content: content, ExpectedWatermark: *ifMatch})
@@ -511,28 +508,12 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	depth := fs.Int("neighbor-depth", 0, "graph_expansion.depth (0 = no expansion)")
 	edgeTypes := fs.String("edge-types", "", "comma-separated edge_types for expansion")
 
-	// Extract flags before and after positional argument (allow interspersed flags)
-	var flagsBefore []string
-	var queryAndFlags []string
-	foundQuery := false
-	for i := 0; i < len(g.Args); i++ {
-		arg := g.Args[i]
-		if !foundQuery && strings.HasPrefix(arg, "-") {
-			flagsBefore = append(flagsBefore, arg)
-		} else if !foundQuery {
-			foundQuery = true
-			queryAndFlags = append(queryAndFlags, arg)
-		} else {
-			queryAndFlags = append(queryAndFlags, arg)
-		}
-	}
-
-	_ = fs.Parse(append(flagsBefore, queryAndFlags...))
-	if len(fs.Args()) == 0 {
+	args := parseArgs(fs, g.Args)
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "recall <query>")
 		os.Exit(exitUsage)
 	}
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(args, " ")
 	req := api.RecallRequest{
 		Query:   query,
 		Mode:    api.RecallMode(*mode),
@@ -578,12 +559,12 @@ func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
 	mode := fs.String("mode", "hybrid", "keyword|vector|hybrid")
 	k := fs.Int("k", 5, "max results")
 	workspaces := fs.String("workspaces", "", "comma-separated workspace IDs to search (default: all)")
-	_ = fs.Parse(g.Args)
-	if len(fs.Args()) == 0 {
+	args := parseArgs(fs, g.Args)
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]")
 		os.Exit(exitUsage)
 	}
-	req := api.SearchRequest{Query: strings.Join(fs.Args(), " "), Mode: api.RecallMode(*mode), K: *k}
+	req := api.SearchRequest{Query: strings.Join(args, " "), Mode: api.RecallMode(*mode), K: *k}
 	if *workspaces != "" {
 		req.WorkspaceIDs = strings.Split(*workspaces, ",")
 	}
@@ -635,15 +616,14 @@ func cmdWatermarks(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdLink(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	pos, rest := popTwoPositionals(g.Args)
+	fs := flag.NewFlagSet("link", flag.ExitOnError)
+	edgeType := fs.String("type", "references", "parent_of|derived_from|supersedes|references|session_of|mentions")
+	props := fs.String("properties", "", "optional JSON object of free-form properties")
+	pos := parseArgs(fs, g.Args)
 	if len(pos) < 2 {
 		fmt.Fprintln(os.Stderr, "link <source_mem_id> <target_mem_id> --type <edge_type>")
 		os.Exit(exitUsage)
 	}
-	fs := flag.NewFlagSet("link", flag.ExitOnError)
-	edgeType := fs.String("type", "references", "parent_of|derived_from|supersedes|references|session_of|mentions")
-	props := fs.String("properties", "", "optional JSON object of free-form properties")
-	_ = fs.Parse(rest)
 	var p map[string]any
 	if *props != "" {
 		die(json.Unmarshal([]byte(*props), &p))
@@ -673,16 +653,15 @@ func cmdUnlink(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdNeighbors(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "neighbors <mem_id>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("neighbors", flag.ExitOnError)
 	direction := fs.String("direction", "both", "out|in|both")
 	edgeTypes := fs.String("types", "", "comma-separated edge_types")
 	k := fs.Int("k", 50, "max neighbors")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "neighbors <mem_id>")
+		os.Exit(exitUsage)
+	}
 	req := api.NeighborsRequest{
 		MemoryID:  memID,
 		Direction: api.GraphDirection(*direction),
@@ -698,16 +677,15 @@ func cmdNeighbors(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdTraverse(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	seedID, rest := popPositional(g.Args)
-	if seedID == "" {
-		fmt.Fprintln(os.Stderr, "traverse <seed_mem_id>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("traverse", flag.ExitOnError)
 	depth := fs.Int("depth", 1, "BFS depth (max 3 in OSS)")
 	direction := fs.String("direction", "out", "out|in|both")
 	edgeTypes := fs.String("types", "", "comma-separated edge_types")
-	_ = fs.Parse(rest)
+	seedID := positional(parseArgs(fs, g.Args), 0)
+	if seedID == "" {
+		fmt.Fprintln(os.Stderr, "traverse <seed_mem_id>")
+		os.Exit(exitUsage)
+	}
 	req := api.TraverseRequest{
 		SeedMemoryID: seedID,
 		Depth:        *depth,
@@ -927,33 +905,37 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// popPositional pulls the first non-flag arg off the front of args and
-// returns it plus the remainder (suitable for fs.Parse). Returns ""
-// if no positional is present.
-func popPositional(args []string) (string, []string) {
+// parseArgs parses args into fs and returns the positional arguments in
+// order. Unlike fs.Parse, which stops at the first positional, flags may
+// come before, between or after positionals, as the usage lines show. A
+// literal "--" ends flag parsing; everything after it is positional, so a
+// query can contain text that starts with "-".
+func parseArgs(fs *flag.FlagSet, args []string) []string {
+	var tail []string
 	for i, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		out := append([]string{}, args[:i]...)
-		out = append(out, args[i+1:]...)
-		return a, out
-	}
-	return "", args
-}
-
-func popTwoPositionals(args []string) ([]string, []string) {
-	var pos []string
-	rest := args
-	for len(pos) < 2 {
-		p, r := popPositional(rest)
-		if p == "" {
+		if a == "--" {
+			args, tail = args[:i], args[i+1:]
 			break
 		}
-		pos = append(pos, p)
-		rest = r
 	}
-	return pos, rest
+	var pos []string
+	for {
+		_ = fs.Parse(args) // ExitOnError: a bad flag exits with usage
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return append(pos, tail...)
+		}
+		pos = append(pos, rest[0])
+		args = rest[1:]
+	}
+}
+
+// positional returns pos[i], or "" when there are fewer positionals.
+func positional(pos []string, i int) string {
+	if i < len(pos) {
+		return pos[i]
+	}
+	return ""
 }
 
 type repeatable struct{ values []string }

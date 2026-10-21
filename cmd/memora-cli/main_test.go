@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"strings"
 	"testing"
 )
 
@@ -151,45 +153,29 @@ func TestExtractCommand_CommandOnly(t *testing.T) {
 	}
 }
 
-func TestPopPositional(t *testing.T) {
-	pos, rest := popPositional([]string{"abc", "--flag", "val"})
-	if pos != "abc" {
-		t.Errorf("popPositional pos = %q, want %q", pos, "abc")
+func TestParseArgs_FlagsAnywhere(t *testing.T) {
+	cases := map[string][]string{
+		"flags first":  {"--mode", "keyword", "--k", "1", "NVDA", "chips"},
+		"flags last":   {"NVDA", "chips", "--mode", "keyword", "--k", "1"},
+		"interspersed": {"NVDA", "--mode", "keyword", "chips", "--k", "1"},
+		"equals form":  {"NVDA", "--mode=keyword", "chips", "-k=1"},
 	}
-	if len(rest) != 2 || rest[0] != "--flag" {
-		t.Errorf("popPositional rest = %v, want [--flag val]", rest)
+	for name, args := range cases {
+		fs := flag.NewFlagSet(name, flag.ContinueOnError)
+		mode := fs.String("mode", "hybrid", "")
+		k := fs.Int("k", 5, "")
+		pos := parseArgs(fs, args)
+		if *mode != "keyword" || *k != 1 || strings.Join(pos, " ") != "NVDA chips" {
+			t.Errorf("%s: mode=%q k=%d positionals=%q", name, *mode, *k, pos)
+		}
 	}
-}
-
-func TestPopPositional_Empty(t *testing.T) {
-	pos, rest := popPositional(nil)
-	if pos != "" {
-		t.Errorf("popPositional empty = %q, want empty", pos)
+	fs := flag.NewFlagSet("dashdash", flag.ContinueOnError)
+	k := fs.Int("k", 5, "")
+	if pos := parseArgs(fs, []string{"-k", "2", "--", "-not-a-flag", "--k"}); *k != 2 || strings.Join(pos, " ") != "-not-a-flag --k" {
+		t.Errorf("after --: k=%d positionals=%q", *k, pos)
 	}
-	if len(rest) != 0 {
-		t.Errorf("popPositional empty rest = %v, want nil", rest)
-	}
-}
-
-func TestPopPositional_FlagsOnly(t *testing.T) {
-	// popPositional skips dash-prefixed args; "val" is not dash-prefixed
-	// so it's treated as a positional even after --flag.
-	pos, rest := popPositional([]string{"--flag", "val"})
-	if pos != "val" {
-		t.Errorf("popPositional flags-only = %q, want %q", pos, "val")
-	}
-	if len(rest) != 1 || rest[0] != "--flag" {
-		t.Errorf("rest = %v, want [--flag]", rest)
-	}
-}
-
-func TestPopTwoPositionals(t *testing.T) {
-	pos, rest := popTwoPositionals([]string{"a", "b", "--flag"})
-	if len(pos) != 2 || pos[0] != "a" || pos[1] != "b" {
-		t.Errorf("popTwoPositionals = %v, want [a b]", pos)
-	}
-	if len(rest) != 1 || rest[0] != "--flag" {
-		t.Errorf("popTwoPositionals rest = %v, want [--flag]", rest)
+	if positional(nil, 0) != "" || positional([]string{"a"}, 1) != "" || positional([]string{"a"}, 0) != "a" {
+		t.Error("positional bounds")
 	}
 }
 

@@ -8,7 +8,7 @@
 memora-cli [global-flags] <command> [args...]
 ```
 
-Global flags may appear before or after the command name. Most commands operate inside a workspace and fail with a usage error when none is set, either through `--workspace` or `MEMORA_WORKSPACE`.
+Global flags may appear before or after the command name. A command's own flags may appear before, between or after its arguments: `search NVDA --mode keyword` and `search --mode keyword NVDA` are the same. Everything after a literal `--` is an argument, so `search -- --odd query` searches for `--odd query`. Most commands operate inside a workspace and fail with a usage error when none is set, either through `--workspace` or `MEMORA_WORKSPACE`.
 
 ## Global Flags
 
