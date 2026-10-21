@@ -24,6 +24,7 @@ import (
 	"github.com/axiom-studio/memora/internal/autolink"
 	"github.com/axiom-studio/memora/internal/chunker"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
+	"github.com/axiom-studio/memora/internal/rank"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -539,6 +540,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	}
 	var seeds []api.RecallHit
 	var totalScanned int
+	var degraded []string
 	switch mode {
 	case api.RecallModeLookup:
 		for _, id := range req.MemoryIDs {
@@ -566,10 +568,11 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		seeds = hits
 		totalScanned = len(hits)
 	case api.RecallModeHybrid:
-		kw, _ := s.keywordSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
-		vec, _ := s.vectorSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
-		seeds = hybridMerge(kw, vec, req.Weights, k)
-		totalScanned = len(kw) + len(vec)
+		hits, scanned, deg, err := s.hybridSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
+		if err != nil {
+			return nil, err
+		}
+		seeds, totalScanned, degraded = hits, scanned, deg
 	default:
 		return nil, fmt.Errorf("%w: unknown recall mode %q", types.ErrInvalidInput, mode)
 	}
@@ -597,6 +600,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	}
 	return &api.RecallResponse{
 		Results:                results,
+		Degraded:               degraded,
 		TotalCandidatesScanned: totalScanned,
 		GraphNodesExpanded:     graphExpanded,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
@@ -632,6 +636,7 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 
 	var hits []api.RecallHit
 	var scanned int
+	var degraded []string
 	switch mode {
 	case api.RecallModeKeyword:
 		kw, err := s.keywordSearch(ctx, scope, recallReq, k)
@@ -646,9 +651,10 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 		}
 		hits, scanned = vec, len(vec)
 	case api.RecallModeHybrid:
-		kw, _ := s.keywordSearch(ctx, scope, recallReq, k)
-		vec, _ := s.vectorSearch(ctx, scope, recallReq, k)
-		hits, scanned = hybridMerge(kw, vec, req.Weights, k), len(kw)+len(vec)
+		var err error
+		if hits, scanned, degraded, err = s.hybridSearch(ctx, scope, recallReq, k); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("%w: search mode must be keyword, vector or hybrid, got %q", types.ErrInvalidInput, mode)
 	}
@@ -658,6 +664,7 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 	}
 	return &api.RecallResponse{
 		Results:                hits,
+		Degraded:               degraded,
 		TotalCandidatesScanned: scanned,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
 	}, nil
@@ -828,22 +835,32 @@ func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, 
 // vectorSearch embeds the query and searches the vector store within
 // scope, which carries only the workspace scope fields of a VectorQuery.
 func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
-	if s.Embedder == nil {
-		return nil, nil
+	if s.Embedder == nil || s.Vector == nil {
+		return nil, fmt.Errorf("%w: vector search: no embedder or vector store configured", types.ErrCapability)
 	}
 	vecs, err := s.Embedder.Embed(ctx, []string{req.Query})
-	if err != nil || len(vecs) == 0 {
-		return nil, nil //nolint:nilerr // embedding failure degrades recall to keyword results by design
+	if err != nil {
+		return nil, fmt.Errorf("%w: vector search: embed query: %v", types.ErrCapability, err)
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("%w: vector search: embedder returned no vector", types.ErrCapability)
 	}
 	scope.Embedding = vecs[0]
-	scope.K = k
+	// Hits are cells; over-fetch so that k distinct memories survive the
+	// collapse to one (best) cell per memory below.
+	scope.K = min(k*cellsPerMemoryOverfetch, maxVectorCandidates)
 	scope.Filter = adapter.VectorFilter{CollectionID: req.Filters.CollectionID}
 	res, err := s.Vector.Query(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]api.RecallHit, 0, len(res))
-	for _, v := range res {
+	out := make([]api.RecallHit, 0, k)
+	seen := make(map[string]bool, k)
+	for _, v := range res { // best first, so the first cell seen per memory is its best
+		if seen[v.Key.MemoryID] || len(out) == k {
+			continue
+		}
+		seen[v.Key.MemoryID] = true
 		m, err := s.Metadata.GetMemory(ctx, v.Key.MemoryID)
 		if err != nil {
 			continue
@@ -939,36 +956,39 @@ func excerpt(content, query string, max int) string {
 	return content[start:end]
 }
 
-func hybridMerge(kw, vec []api.RecallHit, w api.RecallWeights, k int) []api.RecallHit {
-	wv := w.Vector
-	wk := w.Keyword
+// Vector hits are cells; a query asks for this many cells per wanted
+// memory, capped, so that collapsing to one cell per memory still leaves k.
+const (
+	cellsPerMemoryOverfetch = 4
+	maxVectorCandidates     = 400
+)
+
+// hybridSearch runs keyword and vector search over scope and fuses the
+// two rankings by weighted reciprocal rank fusion (rank.Fuse), so BM25 and
+// cosine scores never mix. req.Weights scale each source's votes (default
+// equal). A failing source is logged and reported in degraded instead of
+// failing the search; both failing is an error.
+func (s *Service) hybridSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) (hits []api.RecallHit, scanned int, degraded []string, err error) {
+	kw, kwErr := s.keywordSearch(ctx, scope, req, k)
+	vec, vecErr := s.vectorSearch(ctx, scope, req, k)
+	if kwErr != nil && vecErr != nil {
+		return nil, 0, nil, fmt.Errorf("hybrid search: both sources failed: %w", errors.Join(kwErr, vecErr))
+	}
+	if kwErr != nil {
+		slog.Default().Warn("hybrid search degraded: keyword side failed", "err", kwErr)
+		degraded = append(degraded, api.DegradedKeyword)
+	}
+	if vecErr != nil {
+		slog.Default().Warn("hybrid search degraded: vector side failed", "err", vecErr)
+		degraded = append(degraded, api.DegradedVector)
+	}
+	wv, wk := req.Weights.Vector, req.Weights.Keyword
 	if wv == 0 && wk == 0 {
-		wv, wk = 0.7, 0.3
+		wv, wk = 1, 1
 	}
-	merged := map[string]api.RecallHit{}
-	for _, h := range vec {
-		h.Score = wv * h.Score
-		merged[h.MemoryID] = h
-	}
-	for _, h := range kw {
-		if existing, ok := merged[h.MemoryID]; ok {
-			existing.Score += wk * h.Score
-			existing.KeywordScore = h.KeywordScore
-			merged[h.MemoryID] = existing
-		} else {
-			h.Score = wk * h.Score
-			merged[h.MemoryID] = h
-		}
-	}
-	out := make([]api.RecallHit, 0, len(merged))
-	for _, h := range merged {
-		out = append(out, h)
-	}
-	sortHits(out)
-	if len(out) > k {
-		out = out[:k]
-	}
-	return out
+	hits = rank.Fuse([]rank.List{{Hits: vec, Weight: wv}, {Hits: kw, Weight: wk}},
+		func(h api.RecallHit) string { return h.MemoryID }, k)
+	return hits, len(kw) + len(vec), degraded, nil
 }
 
 func sortHits(h []api.RecallHit) {

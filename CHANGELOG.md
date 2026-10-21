@@ -41,6 +41,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Hybrid recall and search fuse the keyword and vector rankings by
+  reciprocal rank fusion (`internal/rank`, k=60) instead of
+  `0.7·cosine + 0.3·keyword`. `weights` now scale each ranking's votes
+  (default equal). Vector results list each Memory once, with its best
+  cell (before, the last matching cell won). A failing side is reported
+  in the new `degraded` response field (`vector_unavailable`,
+  `keyword_unavailable`) instead of being swallowed. Pure vector mode
+  returns an error, not an empty list, when it cannot embed the query.
 - Keyword recall and search use a full-text index: SQLite FTS5 with BM25
   ranking, and Postgres `tsvector` + GIN with `ts_rank` (postgres
   migration 0005). The index covers every Memory, replacing the

@@ -75,7 +75,7 @@ The `written_by_agent_id` is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` because that
 ./bin/memora-cli recall enterprise
 ```
 
-Recall defaults to `hybrid` mode and returns the top 5 hits. Hybrid runs both a keyword scan and a vector search and merges them by weighted score, weighting vector results `0.7` against keyword results `0.3`.
+Recall defaults to `hybrid` mode and returns the top 5 hits. Hybrid runs both a keyword search and a vector search and merges their rankings by reciprocal rank fusion, weighting the two equally by default.
 
 > **The default embedding provider is a stub.** Out of the box the embedding model is `noop:default`, so vector and hybrid recall return results with no semantic meaning — a keyword match is doing all the real work above. Set a real provider before drawing any conclusion about recall quality. See [Adapters](adapters.md) for the available providers.
 

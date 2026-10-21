@@ -119,7 +119,7 @@ Recall takes a query and returns ranked hits. Four modes are available; `hybrid`
 | `lookup` | Fetch specific Memories by ID. No scoring. |
 | `keyword` | Full-text search over the Workspace's Memories, ranked by relevance (BM25 on SQLite, `ts_rank` on Postgres). A Memory matching more of the query's words ranks higher. |
 | `vector` | Embed the query and run a nearest-neighbour search over Cell vectors. |
-| `hybrid` | Run both and merge by weighted score. Default weights are `0.7` vector and `0.3` keyword. |
+| `hybrid` | Run both and merge their rankings by reciprocal rank fusion: a Memory scores `Σ weight / (60 + rank)` over the two lists, so the keyword and vector score scales never mix. `weights.vector` and `weights.keyword` scale each list's votes; they default to equal. If one side fails, the results come from the other and the response lists it in `degraded` (`vector_unavailable` or `keyword_unavailable`). Each Memory appears once, with its best-matching Cell. |
 
 ```text
 query → mode ─ lookup  ─> fetch by ID ──┐

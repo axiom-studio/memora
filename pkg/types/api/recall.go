@@ -87,7 +87,10 @@ type RecallHit struct {
 
 // RecallResponse is the full search result envelope.
 type RecallResponse struct {
-	Results                []RecallHit    `json:"results"`
+	Results []RecallHit `json:"results"`
+	// Degraded lists the hybrid sources that failed (DegradedVector,
+	// DegradedKeyword); results came from the other source alone.
+	Degraded               []string       `json:"degraded,omitempty"`
 	TotalCandidatesScanned int            `json:"total_candidates_scanned"`
 	GraphNodesExpanded     int            `json:"graph_nodes_expanded,omitempty"`
 	LatencyMS              int            `json:"latency_ms"`
@@ -141,3 +144,9 @@ type SearchRequest struct {
 	Filters      RecallFilters `json:"filters,omitempty"`
 	Weights      RecallWeights `json:"weights,omitempty"`
 }
+
+// Degraded-mode markers reported in RecallResponse.Degraded.
+const (
+	DegradedVector  = "vector_unavailable"
+	DegradedKeyword = "keyword_unavailable"
+)
