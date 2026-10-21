@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/internal/rank"
-	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -216,58 +215,3 @@ func (NoopReranker) Rerank(_ context.Context, _ string, hits []api.RecallHit) ([
 // ErrOutboundRateLimited marks a peer skipped because this node's
 // outbound limit for it was exhausted.
 var ErrOutboundRateLimited = errors.New("federation: outbound rate limit for peer exhausted")
-
-// FanoutLookup queries peers in parallel, returning the first
-// successful (non-nil) memory. Returns nil if all peers return 404.
-func FanoutLookup(
-	ctx context.Context,
-	peers []*PeerClient,
-	wsID, memoryID, federationPath string,
-) (*LookupResult, error) {
-	if len(peers) == 0 {
-		return nil, nil
-	}
-
-	type result struct {
-		peer   string
-		memory *api.MemoryEnvelope
-		err    error
-	}
-
-	resultCh := make(chan result, len(peers))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	for _, pc := range peers {
-		go func(c *PeerClient) {
-			mem, err := c.Lookup(ctx, wsID, memoryID, federationPath)
-			var env *api.MemoryEnvelope
-			if mem != nil {
-				env = &api.MemoryEnvelope{Memory: mem}
-			}
-			resultCh <- result{peer: c.PeerName(), memory: env, err: err}
-		}(pc)
-	}
-
-	var firstErr error
-	for range peers {
-		r := <-resultCh
-		if r.err != nil {
-			if firstErr == nil {
-				firstErr = r.err
-			}
-			continue
-		}
-		if r.memory != nil {
-			cancel()
-			return &LookupResult{Memory: r.memory.Memory, PeerName: r.peer}, nil
-		}
-	}
-	return nil, firstErr
-}
-
-// LookupResult wraps a found memory with the peer that served it.
-type LookupResult struct {
-	Memory   *types.Memory
-	PeerName string
-}

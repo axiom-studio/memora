@@ -98,6 +98,28 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			return nil, fmt.Errorf("memory %q in workspace %q: %w", in.MemoryID, in.WorkspaceID, types.ErrNotFound)
 		}
 		return m, nil
+	case "memora_fetch":
+		var in struct {
+			MemoryID    string `json:"memory_id"`
+			NodeID      string `json:"node_id"`
+			WorkspaceID string `json:"workspace_id"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		remote := in.NodeID != "" && in.NodeID != s.svc.NodeID
+		if s.multiTenant && (remote || in.WorkspaceID == "") {
+			// Fail closed: peers are trusted per node, not per tenant.
+			return nil, fmt.Errorf("%w: multi-tenant mode needs workspace_id and cannot fetch from peers", types.ErrInvalidInput)
+		}
+		env, err := s.svc.FetchMemoryFrom(ctx, in.NodeID, in.MemoryID)
+		if err != nil {
+			return nil, err
+		}
+		if in.WorkspaceID != "" && !remote && env.WorkspaceID != in.WorkspaceID {
+			return nil, fmt.Errorf("memory %q in workspace %q: %w", in.MemoryID, in.WorkspaceID, types.ErrNotFound)
+		}
+		return env, nil
 	case "memora_update":
 		var in struct {
 			WorkspaceID       string `json:"workspace_id"`

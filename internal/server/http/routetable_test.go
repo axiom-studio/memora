@@ -3,6 +3,8 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -114,6 +116,12 @@ func plant(body map[string]any, path string, bad any) map[string]any {
 	return out
 }
 
+// The route test server's one peer, whose credentials the walk presents
+// on peer routes so they reach their ID checks.
+const routeTestPeerKey = "route-test-peer-key-0123456789"
+
+var routeTestPeer = types.NewID()
+
 func routeTestServer(t *testing.T) (*httptest.Server, string, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -141,7 +149,10 @@ func routeTestServer(t *testing.T) (*httptest.Server, string, string, string) {
 	t.Cleanup(func() { _ = led.Close() })
 	emb, _ := embedding.Open("hash:default")
 	self := types.NewID()
-	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, self)
+	sum := sha256.Sum256([]byte(routeTestPeerKey))
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{{
+		NodeID: routeTestPeer, Name: "peer", URL: "http://127.0.0.1:1", InboundKeySHA256: hex.EncodeToString(sum[:]),
+	}}}, self)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +207,10 @@ func TestRouteTable_RejectsNonUUIDIDs(t *testing.T) {
 		req, _ := http.NewRequest(method, ts.URL+path, rd)
 		for k, v := range headers {
 			req.Header.Set(k, v)
+		}
+		if federation.IsPeerRoute(path) {
+			req.Header.Set(federation.HeaderLocalInstanceID, routeTestPeer)
+			req.Header.Set(federation.HeaderFederationAuth, "Bearer "+routeTestPeerKey)
 		}
 		resp, err := ts.Client().Do(req)
 		if err != nil {

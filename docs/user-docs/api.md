@@ -116,12 +116,25 @@ This node's list and each peer's list are merged by reciprocal rank fusion: rank
 
 A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed in `failed_peers` as `{node_id, name, error_code}`, where `error_code` is `timeout`, `unreachable`, `outbound_rate_limited`, `bad_response`, the peer's own error code (for example `federation_unauthorized`), or `http_<status>`; `partial_success` is then `true`. `peer_latency_ms` maps each answering node ID, this node's included, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
 
+### Fetching a Memory From Its Node
+
+`GET /memories/{memory_id}` returns a full Memory with its Cells, `workspace_id`, `node_id` and `node_name`, looked up across every workspace on this node. With `?node={node_id}` naming a peer, this node fetches it from that peer with the peer's key and timeout. That is how to read a whole hit from a federated search. `node` set to this node's ID is the same as omitting it.
+
+| Status | Error code | Cause |
+|---|---|---|
+| `404` | `not_found` | The memory is not on that node, or was forgotten. |
+| `404` | `unknown_node` | `node` is not a peer of this node, is `revoked`, or has no `api_key`. |
+| `502` | `timeout`, `unreachable`, the peer's error code, … | The peer did not answer. The code is classified as for `failed_peers`. |
+
+In `multi-tenant` mode the `X-Memora-Workspace` header is required, only that workspace's memories are returned, and `node` cannot name a peer (`403 federation_multi_tenant`). The SDK's `FetchMemory` and the MCP `memora_fetch` tool do the same.
+
 ### Federation
 
 Other nodes call these routes. They take peer credentials, not the API key; see [Peer Credentials](configuration.md#peer-credentials).
 
 | Field | Value |
 |---|---|
+| `GET /federation/memories/{memory_id}` | A peer reads a full Memory, with its Cells, from any workspace on this node. `404` if it is not here. |
 | `POST /federation/search` | A peer searches every workspace on this node. Body: `query`, `mode`, `k`, `include_content`, `max_content_bytes`, with the same meanings as `POST /search`. Any other field, including `workspace_ids`, is refused with `400`. This node embeds the query text with its own embedder, so peers can use different models. Hits are those of `POST /search` plus `node_id` and `node_name`, which identify this node. The node does not forward the query to its own peers. |
 
 A peer that sends more than `federation.inbound_qps` requests per second (default 100) gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
@@ -139,13 +152,13 @@ These are ordinary non-`/ui` paths, so they require the bearer token when an API
 
 ## The MCP Server
 
-`memora-core mcp` speaks JSON-RPC 2.0 over stdio. Setting `mcp_enable` on a running server additionally mounts a WebSocket endpoint at `/mcp`. The server advertises protocol version `2024-11-05` and implements `tools/list` and `tools/call`. Twenty-five tools are exposed.
+`memora-core mcp` speaks JSON-RPC 2.0 over stdio. Setting `mcp_enable` on a running server additionally mounts a WebSocket endpoint at `/mcp`. The server advertises protocol version `2024-11-05` and implements `tools/list` and `tools/call`. Twenty-seven tools are exposed.
 
 | Section | Description |
 |---|---|
 | Workspaces | `memora_create_workspace`, `memora_get_workspace`, `memora_list_workspaces`, `memora_update_workspace`, `memora_delete_workspace` |
 | Collections | `memora_create_collection`, `memora_list_collections`, `memora_delete_collection` |
-| Memories | `memora_imprint`, `memora_lookup`, `memora_update`, `memora_patch`, `memora_append`, `memora_forget`, `memora_list_memories`, `memora_get_watermark_history` |
+| Memories | `memora_imprint`, `memora_lookup`, `memora_fetch`, `memora_update`, `memora_patch`, `memora_append`, `memora_forget`, `memora_list_memories`, `memora_get_watermark_history` |
 | Recall | `memora_search`, `memora_recall`, `memora_pin`, `memora_unpin` |
 | Graph | `memora_link`, `memora_unlink`, `memora_neighbors`, `memora_traverse` |
 | Agents | `memora_register_agent`, `memora_list_agents` |

@@ -72,9 +72,9 @@ func TestPeerRouteAuth(t *testing.T) {
 		wantCode        string
 	}{
 		{name: "peer key, no API key", apiKey: testAPIKey, path: "/v1/federation/search", node: testPeerNode, key: testPeerKey, want: 200},
-		// Not routed until F-6/F-7: the route table's 404 comes after
-		// auth, so reaching it shows the credential was accepted.
-		{name: "memory fetch route", apiKey: testAPIKey, path: "/v1/federation/memories/" + types.NewID(), node: testPeerNode, key: testPeerKey, want: 404, wantCode: "not_found"},
+		{name: "memory fetch route", apiKey: testAPIKey, path: "/v1/federation/memories/" + types.NewID(), node: testPeerNode, key: testPeerKey, want: 200},
+		// Not routed until F-7: the route table's 404 comes after auth,
+		// so reaching it shows the API key was accepted.
 		{name: "wrong peer key", apiKey: testAPIKey, path: "/v1/federation/search", node: testPeerNode, key: "wrong-key", want: 401, wantCode: "federation_unauthorized"},
 		{name: "unknown node", apiKey: testAPIKey, path: "/v1/federation/search", node: types.NewID(), key: testPeerKey, want: 401, wantCode: "federation_unauthorized"},
 		{name: "revoked peer", apiKey: testAPIKey, path: "/v1/federation/search", node: testRevokedNode, key: testRevoKey, want: 403, wantCode: "federation_peer_revoked"},

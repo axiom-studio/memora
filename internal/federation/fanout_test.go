@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -158,49 +157,5 @@ func TestFanoutSearch_ContextCancel(t *testing.T) {
 	result, err := FanoutSearch(ctx, nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err == nil && result != nil && !result.PartialSuccess() {
 		t.Error("expected failure or partial success on timeout")
-	}
-}
-
-func TestFanoutLookup_FirstWins(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.MemoryEnvelope{
-			Memory: &types.Memory{ID: "mem_found"},
-		})
-	}))
-	defer srv.Close()
-
-	peers := []*PeerClient{testPeerClient(srv, "peer1")}
-	result, err := FanoutLookup(context.Background(), peers, "ws", "mem_found", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result == nil || result.Memory.ID != "mem_found" {
-		t.Error("expected found memory")
-	}
-}
-
-func TestFanoutLookup_AllNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	peers := []*PeerClient{testPeerClient(srv, "peer1")}
-	result, err := FanoutLookup(context.Background(), peers, "ws", "mem_missing", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != nil {
-		t.Error("expected nil for all-404")
-	}
-}
-
-func TestFanoutLookup_Empty(t *testing.T) {
-	result, err := FanoutLookup(context.Background(), nil, "ws", "mem", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != nil {
-		t.Error("expected nil for no peers")
 	}
 }

@@ -32,6 +32,7 @@ stdin/stdout, and presents the 26 OSS tools to the model.
 |---|---|
 | `memora_imprint` | Create a Memory. |
 | `memora_lookup` | Fetch a Memory. |
+| `memora_fetch` | Fetch a full Memory from the node that holds it; pass a federated hit's `node_id` to reach a peer. |
 | `memora_update` / `memora_patch` / `memora_append` | Edit a Memory (CAS). |
 | `memora_forget` | Soft-delete + cascade edges. |
 | `memora_search` | Search every workspace on the node (keyword/vector/hybrid); hits carry `workspace_id`. |
@@ -65,7 +66,7 @@ memora-core mcp --data-dir=./data 2>/dev/null
 ) | memora-core mcp --data-dir=./data
 ```
 
-You'll see initialize → tools list (26 tools) → workspace created.
+You'll see initialize → tools list (27 tools) → workspace created.
 
 ## Auth
 

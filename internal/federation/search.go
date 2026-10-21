@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -88,3 +89,35 @@ func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
 	}
 	return out, nil
 }
+
+// ErrUnknownNode is a node ID that is not a usable peer of this node.
+var ErrUnknownNode = errors.New("federation: unknown node")
+
+// Fetch gets a full memory from the peer that holds it, with that peer's
+// credentials, timeout and outbound limit, and stamps the result with the
+// peer's node_id and node_name from this node's config. A node that is
+// not a searchable peer is ErrUnknownNode; a memory the peer does not
+// hold is types.ErrNotFound; other failures are returned for
+// PeerErrorCode to classify.
+func (s *Searcher) Fetch(ctx context.Context, nodeID, memoryID string) (*api.MemoryEnvelope, error) {
+	p := s.reg.Peer(nodeID)
+	if p == nil || !p.Searchable() {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownNode, nodeID)
+	}
+	if !s.outbound.Allow(nodeID) {
+		return nil, ErrOutboundRateLimited
+	}
+	c := s.pool.Client(nodeID)
+	ctx, cancel := context.WithTimeout(ctx, c.RequestTimeout())
+	defer cancel()
+	env, err := c.FetchMemory(ctx, memoryID, AppendToPath("", s.reg.NodeID))
+	if err != nil {
+		return nil, err
+	}
+	env.NodeID, env.NodeName = p.ID, p.Name
+	return env, nil
+}
+
+// PeerErrorCode classifies a peer failure for a response's error_code;
+// see api.FailedPeer.
+func PeerErrorCode(err error) string { return peerErrorCode(err) }

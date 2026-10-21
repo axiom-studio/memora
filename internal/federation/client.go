@@ -166,9 +166,11 @@ func (e *PeerError) Error() string {
 	return fmt.Sprintf("peer answered HTTP %d", e.Status)
 }
 
-// Lookup fetches a single memory from this peer.
-func (c *PeerClient) Lookup(ctx context.Context, wsID, memoryID, federationPath string) (*types.Memory, error) {
-	url := fmt.Sprintf("%s/v1/workspaces/%s/memories/%s", strings.TrimRight(c.peer.Endpoint, "/"), wsID, memoryID)
+// FetchMemory gets a full memory from the peer's
+// GET /v1/federation/memories/{id}. A memory the peer does not hold is
+// types.ErrNotFound; any other non-200 answer is a *PeerError.
+func (c *PeerClient) FetchMemory(ctx context.Context, memoryID, federationPath string) (*api.MemoryEnvelope, error) {
+	url := strings.TrimRight(c.peer.Endpoint, "/") + "/v1/federation/memories/" + memoryID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -177,21 +179,28 @@ func (c *PeerClient) Lookup(ctx context.Context, wsID, memoryID, federationPath 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("peer %s lookup: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s fetch: %w", c.peer.Name, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("peer %s lookup: HTTP %d", c.peer.Name, resp.StatusCode)
+		var env struct {
+			ErrorCode string `json:"error_code"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&env)
+		if resp.StatusCode == http.StatusNotFound && env.ErrorCode == "not_found" {
+			return nil, fmt.Errorf("%w: memory %s is not on node %s", types.ErrNotFound, memoryID, c.peer.ID)
+		}
+		return nil, &PeerError{Status: resp.StatusCode, Code: env.ErrorCode}
 	}
 	var envelope api.MemoryEnvelope
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("peer %s lookup decode: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s fetch decode: %w", c.peer.Name, err)
 	}
-	return envelope.Memory, nil
+	if envelope.Memory == nil || envelope.Memory.ID != memoryID {
+		return nil, fmt.Errorf("peer %s fetch: answered with a different memory", c.peer.Name)
+	}
+	return &envelope, nil
 }
 
 // Client returns the PeerClient for a given peer ID, or nil.

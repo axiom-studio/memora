@@ -1394,3 +1394,41 @@ func validateRecallIDs(f api.RecallFilters, memoryIDs []string) error {
 	}
 	return nil
 }
+
+// FetchMemory returns a memory with its cells by ID alone, from any
+// workspace on this node, stamped with this node's node_id and name.
+// Deleted and unknown memories are types.ErrNotFound.
+func (s *Service) FetchMemory(ctx context.Context, memoryID string) (*api.MemoryEnvelope, error) {
+	if _, err := types.ParseID("memory_id", memoryID); err != nil {
+		return nil, err
+	}
+	m, err := s.Metadata.GetMemory(ctx, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	cells, err := s.Metadata.GetCells(ctx, m.WorkspaceID, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	return &api.MemoryEnvelope{Memory: m, Cells: cells, NodeID: s.NodeID, NodeName: s.NodeName}, nil
+}
+
+// FetchMemoryFrom returns a memory from the node that holds it: this
+// node when nodeID is empty or this node's ID, otherwise the peer with
+// that node ID (F-6). A node that is not a usable peer is
+// federation.ErrUnknownNode; a peer failure is returned for
+// federation.PeerErrorCode to classify.
+func (s *Service) FetchMemoryFrom(ctx context.Context, nodeID, memoryID string) (*api.MemoryEnvelope, error) {
+	if nodeID == "" || nodeID == s.NodeID {
+		return s.FetchMemory(ctx, memoryID)
+	}
+	for _, f := range [...][2]string{{"node", nodeID}, {"memory_id", memoryID}} {
+		if _, err := types.ParseID(f[0], f[1]); err != nil {
+			return nil, err
+		}
+	}
+	if s.Federation == nil {
+		return nil, fmt.Errorf("%w: %s (federation is not enabled)", federation.ErrUnknownNode, nodeID)
+	}
+	return s.Federation.Fetch(ctx, nodeID, memoryID)
+}

@@ -32,6 +32,8 @@ type routeSpec struct {
 var routeTable = []routeSpec{
 	{Methods: []string{"POST"}, Pattern: "/v1/search", Bodies: map[string]any{"POST": api.SearchRequest{}}},
 	{Methods: []string{"POST"}, Pattern: "/v1/federation/search", Bodies: map[string]any{"POST": api.FederationSearchRequest{}}},
+	{Methods: []string{"GET"}, Pattern: "/v1/federation/memories/{memory_id}"},
+	{Methods: []string{"GET"}, Pattern: "/v1/memories/{memory_id}", QueryIDs: []string{"node"}},
 	{Methods: []string{"GET", "POST"}, Pattern: "/v1/workspaces", Bodies: map[string]any{"POST": api.CreateWorkspaceRequest{}}},
 	{Methods: []string{"GET", "PUT", "DELETE"}, Pattern: "/v1/workspaces/{workspace_id}", Bodies: map[string]any{"PUT": api.CreateWorkspaceRequest{}}},
 	{Methods: []string{"GET", "POST"}, Pattern: "/v1/workspaces/{workspace_id}/collections", Bodies: map[string]any{"POST": api.CreateCollectionRequest{}}},

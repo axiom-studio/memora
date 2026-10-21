@@ -24,6 +24,8 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("/v1/search", s.handleSearch)
 	s.mux.HandleFunc("/v1/federation/search", s.handleFederationSearch)
+	s.mux.HandleFunc("/v1/federation/memories/", s.handleFederationMemory)
+	s.mux.HandleFunc("/v1/memories/", s.handleNodeMemory)
 	s.mux.HandleFunc("/v1/workspaces", s.handleWorkspaces)
 	s.mux.HandleFunc("/v1/workspaces/", s.handleWorkspacePath)
 }
@@ -967,4 +969,73 @@ func (s *Server) inboundRetryAfter() string {
 		qps = federation.DefaultInboundQPS
 	}
 	return strconv.Itoa(int(math.Max(1, math.Ceil(1/qps))))
+}
+
+// handleNodeMemory is GET /v1/memories/{memory_id}?node={node_id}: the
+// full memory from the node that holds it. Without node, or with this
+// node's ID, it is looked up across this node's workspaces; otherwise it
+// is fetched from that peer with the peer's credentials (F-6).
+func (s *Server) handleNodeMemory(w http.ResponseWriter, r *http.Request) {
+	memID := strings.TrimPrefix(r.URL.Path, "/v1/memories/")
+	node := r.URL.Query().Get("node")
+	if node != "" && !s.validID(w, "node", node) {
+		return
+	}
+	remote := node != "" && node != s.cfg.Service.NodeID
+	tenant, _ := r.Context().Value(ctxKeyWorkspace).(string)
+	if s.cfg.Mode == "multi-tenant" {
+		if remote {
+			s.writeError(w, 403, "federation_multi_tenant", "fetching from a peer is not available in multi-tenant mode", nil)
+			return
+		}
+		if tenant == "" {
+			s.writeError(w, 400, "missing_workspace", "X-Memora-Workspace is required in multi-tenant mode", nil)
+			return
+		}
+	}
+	env, err := s.cfg.Service.FetchMemoryFrom(r.Context(), node, memID)
+	switch {
+	case err == nil:
+	case errors.Is(err, federation.ErrUnknownNode):
+		s.writeError(w, 404, "unknown_node", "node is not a peer of this node", map[string]any{"node": node})
+		return
+	case remote && !errors.Is(err, types.ErrNotFound) && !errors.Is(err, types.ErrInvalidInput):
+		s.writeError(w, 502, federation.PeerErrorCode(err), "the owning node did not answer", map[string]any{"node": node})
+		return
+	default:
+		s.writeErrorFromService(w, err)
+		return
+	}
+	if tenant != "" && env.WorkspaceID != tenant {
+		s.writeError(w, 404, "not_found", "memory not found", nil)
+		return
+	}
+	s.writeJSON(w, 200, env)
+}
+
+// handleFederationMemory is GET /v1/federation/memories/{memory_id},
+// called by an authenticated peer: the full memory, looked up across
+// this node's workspaces (F-6).
+func (s *Server) handleFederationMemory(w http.ResponseWriter, r *http.Request) {
+	peer := peerFrom(r.Context())
+	if peer == nil { // unreachable: the middleware authenticates this route
+		s.writeError(w, 401, "federation_unauthorized", "peer authentication required", nil)
+		return
+	}
+	if s.cfg.Mode == "multi-tenant" {
+		s.writeError(w, 403, "federation_multi_tenant", "federation is not available in multi-tenant mode", nil)
+		return
+	}
+	if !s.inbound.Allow(peer.PeerID) {
+		s.ledgerRejected(r, peer.PeerID, "rate_limited")
+		w.Header().Set("Retry-After", s.inboundRetryAfter())
+		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
+		return
+	}
+	env, err := s.cfg.Service.FetchMemory(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/federation/memories/"))
+	if err != nil {
+		s.writeErrorFromService(w, err)
+		return
+	}
+	s.writeJSON(w, 200, env)
 }

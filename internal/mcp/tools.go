@@ -1,6 +1,6 @@
 package mcp
 
-// toolCatalog returns the 25 OSS MCP tools, in display order. Schemas
+// toolCatalog returns the 27 OSS MCP tools, in display order. Schemas
 // are JSON Schema draft-07 fragments with the smallest precise set of
 // constraints — the LLM-facing description is what drives correct
 // usage, validation is best-effort.
@@ -35,6 +35,15 @@ func toolCatalog() []Tool {
 				"type":       "object",
 				"properties": map[string]any{"workspace_id": stringP(), "memory_id": stringP()},
 				"required":   []string{"workspace_id", "memory_id"},
+			},
+		},
+		{
+			Name:        "memora_fetch",
+			Description: "Fetch a full Memory, with its cells, from the node that holds it. Pass node_id from a memora_search hit to fetch a peer's memory; omit it for this node. In multi-tenant mode workspace_id is required and peers cannot be reached.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"memory_id": stringP(), "node_id": stringP(), "workspace_id": stringP()},
+				"required":   []string{"memory_id"},
 			},
 		},
 		{

@@ -414,3 +414,19 @@ func (c *Client) LedgerQuery(ctx context.Context, ws string, q api.LedgerQueryRe
 	}
 	return &out, nil
 }
+
+// FetchMemory returns a full memory, with its cells, from the node that
+// holds it: this node when node is "", otherwise the peer with that node
+// ID (GET /v1/memories/{id}?node=). The envelope's NodeID names the
+// holder.
+func (c *Client) FetchMemory(ctx context.Context, memoryID, node string) (*api.MemoryEnvelope, error) {
+	u := "/v1/memories/" + memoryID
+	if node != "" {
+		u += "?node=" + url.QueryEscape(node)
+	}
+	var out api.MemoryEnvelope
+	if err := c.do(ctx, http.MethodGet, u, nil, &out, ""); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

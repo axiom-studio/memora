@@ -214,6 +214,18 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Fetching a memory from its owning node (F-6, #4366):
+  - `GET /v1/memories/{id}` reads a full memory with its cells across
+    this node's workspaces.
+  - With `?node={node_id}` it proxies to that peer's new
+    peer-authenticated `GET /v1/federation/memories/{id}`, using the
+    peer's key and timeout. Results carry `node_id` and `node_name`.
+  - Errors: an unknown node is `404 unknown_node`; a peer that does not
+    answer is `502` with the same codes as `failed_peers`.
+  - Multi-tenant nodes keep the fetch inside the tenant and refuse
+    peers.
+  - New SDK `FetchMemory` and MCP tool `memora_fetch`.
+  - The workspace-scoped peer `Lookup`/`FanoutLookup` is removed.
 - Federated search (F-4, #4364): `POST /v1/search` (and MCP
   `memora_search`) with `federated: true` searches this node plus each
   peer's `/v1/federation/search` in parallel, sending the path header

@@ -9,42 +9,8 @@ import (
 	"testing"
 
 	"github.com/axiom-studio/memora/internal/config"
-	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
-
-// TestIntegration_ThreePeerSearch simulates a full federation recall
-// TestIntegration_LookupFanout simulates lookup across 2 peers where
-// the second has the memory.
-func TestIntegration_LookupFanout(t *testing.T) {
-	srv404 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv404.Close()
-
-	srvFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.MemoryEnvelope{
-			Memory: &types.Memory{ID: "mem_federated", WorkspaceID: "ws_test"},
-		})
-	}))
-	defer srvFound.Close()
-
-	peers := []*PeerClient{
-		testPeerClient(srv404, "peer-empty"),
-		testPeerClient(srvFound, "peer-has-it"),
-	}
-
-	result, err := FanoutLookup(context.Background(), peers, "ws_test", "mem_federated", "fed_local")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result == nil {
-		t.Fatal("expected lookup result")
-	}
-	if result.Memory.ID != "mem_federated" {
-		t.Errorf("expected mem_federated, got %s", result.Memory.ID)
-	}
-}
 
 // TestIntegration_RegistryToPeers verifies the full path from config →
 // registry → client pool → fanout.

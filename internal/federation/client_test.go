@@ -13,7 +13,6 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
-	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -85,54 +84,6 @@ func TestPeerClient_Search_Error(t *testing.T) {
 	_, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "fail"}, "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
-	}
-}
-
-func TestPeerClient_Lookup(t *testing.T) {
-	want := api.MemoryEnvelope{Memory: &types.Memory{ID: "mem_found", WorkspaceID: "ws_test"}}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("expected GET, got %s", r.Method)
-		}
-		if r.URL.Path != "/v1/workspaces/ws_test/memories/mem_found" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(want)
-	}))
-	defer srv.Close()
-
-	pc := &PeerClient{
-		peer:         Peer{ID: "peer1", Name: "test-peer", Endpoint: srv.URL},
-		httpClient:   srv.Client(),
-		federationID: "fed_a",
-	}
-	got, err := pc.Lookup(context.Background(), "ws_test", "mem_found", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.ID != "mem_found" {
-		t.Errorf("unexpected result: %+v", got)
-	}
-}
-
-func TestPeerClient_Lookup_NotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	pc := &PeerClient{
-		peer:         Peer{ID: "peer1", Name: "test-peer", Endpoint: srv.URL},
-		httpClient:   srv.Client(),
-		federationID: "fed_a",
-	}
-	got, err := pc.Lookup(context.Background(), "ws_test", "mem_missing", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Error("expected nil for 404")
 	}
 }
 

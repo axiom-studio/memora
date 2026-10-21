@@ -357,3 +357,114 @@ func TestFederatedSearch_E2E_RerankHook(t *testing.T) {
 		t.Fatalf("failing reranker: status=%d order=%v, want 200 and the fused order %v", status, order(failed), f)
 	}
 }
+
+func (n *meshNode) get(t *testing.T, path string, headers map[string]string) (int, map[string]any) {
+	t.Helper()
+	return doJSON(t, n.ts.Client(), jsonReq(t, "GET", n.ts.URL+path, nil, headers))
+}
+
+// TestFetchMemory_E2E (F-6): GET /v1/memories/{id} serves this node's
+// memories node-wide and proxies ?node=<peer> to the owning peer with
+// that peer's key; failures map to 404 unknown_node, 404 not_found and
+// 502; the peer route itself refuses unauthenticated callers.
+func TestFetchMemory_E2E(t *testing.T) {
+	nodes := newMesh(t, []string{"a", "b"}, nil)
+	a, b := nodes[0], nodes[1]
+	memA := a.seed(t, "local lighthouse log\n\nsecond paragraph")
+	memB := b.seed(t, "remote tide gauge")
+
+	for _, path := range []string{"/v1/memories/" + memA, "/v1/memories/" + memA + "?node=" + a.id} {
+		status, env := a.get(t, path, nil)
+		cells, _ := env["cells"].([]any)
+		if status != 200 || env["id"] != memA || env["content"] != "local lighthouse log\n\nsecond paragraph" ||
+			env["node_id"] != a.id || env["node_name"] != "a" || env["workspace_id"] == "" || len(cells) == 0 {
+			t.Fatalf("GET %s: %d %v, want a's memory with cells, attributed to a", path, status, env)
+		}
+	}
+
+	before := len(b.receivedPaths())
+	status, env := a.get(t, "/v1/memories/"+memB+"?node="+b.id, nil)
+	if status != 200 || env["id"] != memB || env["content"] != "remote tide gauge" || env["node_id"] != b.id || env["node_name"] != "b" {
+		t.Fatalf("remote fetch: %d %v, want b's memory attributed to b", status, env)
+	}
+	if paths := b.receivedPaths(); len(paths) != before+1 || paths[len(paths)-1] != a.id {
+		t.Fatalf("b received paths %v, want one more with a's node ID", paths)
+	}
+
+	if status, env := a.get(t, "/v1/memories/"+types.NewID()+"?node="+b.id, nil); status != 404 || env["error_code"] != "not_found" {
+		t.Fatalf("memory not on b: %d %v, want 404 not_found", status, env)
+	}
+	if status, env := a.get(t, "/v1/memories/"+memB, nil); status != 404 || env["error_code"] != "not_found" {
+		t.Fatalf("b's memory without node: %d %v, want 404 (not on a)", status, env)
+	}
+	if status, env := a.get(t, "/v1/memories/"+memB+"?node="+types.NewID(), nil); status != 404 || env["error_code"] != "unknown_node" {
+		t.Fatalf("unknown node: %d %v, want 404 unknown_node", status, env)
+	}
+	if status, env := a.get(t, "/v1/memories/"+memB+"?node=node_1", nil); status != 400 || env["error_code"] != "invalid_input" {
+		t.Fatalf("malformed node: %d %v, want 400", status, env)
+	}
+
+	// A forgotten memory is gone from the owning node's fetch too.
+	m, err := b.svc.Metadata.GetMemory(context.Background(), memB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.svc.Metadata.ForgetMemory(context.Background(), m.WorkspaceID, memB); err != nil {
+		t.Fatal(err)
+	}
+	if status, env := a.get(t, "/v1/memories/"+memB+"?node="+b.id, nil); status != 404 {
+		t.Fatalf("forgotten on b: %d %v, want 404", status, env)
+	}
+
+	// The peer route needs b's key for a: none, or a wrong one, is 401.
+	for _, h := range []map[string]string{
+		nil,
+		{federation.HeaderLocalInstanceID: a.id, federation.HeaderFederationAuth: "Bearer wrong"},
+	} {
+		if status, env := b.get(t, "/v1/federation/memories/"+memB, h); status != 401 || env["error_code"] != "federation_unauthorized" {
+			t.Fatalf("direct peer route with %v: %d %v, want 401", h, status, env)
+		}
+	}
+
+	// b goes down: the fetch is a 502 naming why.
+	b.ts.Close()
+	if status, env := a.get(t, "/v1/memories/"+types.NewID()+"?node="+b.id, nil); status != 502 || env["error_code"] != "unreachable" {
+		t.Fatalf("peer down: %d %v, want 502 unreachable", status, env)
+	}
+}
+
+// TestFetchMemory_E2E_MultiTenant: a tenant fetches only its own
+// memories and never from a peer.
+func TestFetchMemory_E2E_MultiTenant(t *testing.T) {
+	nodes := newMesh(t, []string{"a", "b"}, nil)
+	a := nodes[0]
+	memA := a.seed(t, "tenant memory")
+	m, err := a.svc.Metadata.GetMemory(context.Background(), memA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mt := httptest.NewServer(httpserver.New(httpserver.Config{
+		Service: a.svc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		MaxBodyBytes: httpserver.DefaultMaxBodyBytes, Mode: "multi-tenant",
+	}).Handler())
+	defer mt.Close()
+	get := func(path string, tenant string) (int, map[string]any) {
+		h := map[string]string{}
+		if tenant != "" {
+			h["X-Memora-Workspace"] = tenant
+		}
+		return doJSON(t, mt.Client(), jsonReq(t, "GET", mt.URL+path, nil, h))
+	}
+	if status, env := get("/v1/memories/"+memA, m.WorkspaceID); status != 200 || env["id"] != memA {
+		t.Fatalf("own tenant: %d %v, want 200", status, env)
+	}
+	if status, _ := get("/v1/memories/"+memA, types.NewID()); status != 404 {
+		t.Fatalf("other tenant: %d, want 404", status)
+	}
+	if status, env := get("/v1/memories/"+memA, ""); status != 400 || env["error_code"] != "missing_workspace" {
+		t.Fatalf("no tenant: %d %v, want 400 missing_workspace", status, env)
+	}
+	if status, env := get("/v1/memories/"+memA+"?node="+nodes[1].id, m.WorkspaceID); status != 403 || env["error_code"] != "federation_multi_tenant" {
+		t.Fatalf("remote in multi-tenant: %d %v, want 403", status, env)
+	}
+}
