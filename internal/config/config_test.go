@@ -135,6 +135,12 @@ func TestValidate_NodeAndPeerIDs(t *testing.T) {
 		"peer prefixed node_id": func(c *Config) {
 			c.Federation.Peers = []PeerConfig{{NodeID: "fed_p", Name: "p", URL: "http://p:7777"}}
 		},
+		"inbound_key_sha256 not hex": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a", Name: "p", URL: "http://p:7777", InboundKeySHA256: "plaintext-key"}}
+		},
+		"client_cert_sha256 too short": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a", Name: "p", URL: "http://p:7777", ClientCertSHA256: "abcd"}}
+		},
 		"bad node.id":       func(c *Config) { c.Node.ID = "node-1" },
 		"bad federation_id": func(c *Config) { c.Federation.FederationID = "fed_cluster" },
 	} {

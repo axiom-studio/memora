@@ -5,7 +5,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/mcp"
 	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
@@ -97,6 +100,7 @@ Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
   memora-core node id [--config f] print this node's ID and name (minted on first use)
+  memora-core node peer-key       generate a federation peer key and its SHA-256
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -250,6 +254,20 @@ func serve() {
 		logger.Info("orphan content GC started")
 	}
 
+	fedReg, err := federation.NewRegistry(cfg.Federation, svc.NodeID)
+	if err != nil {
+		bootLog.Fatalf("federation: %v", err)
+	}
+	if fedReg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
+		bootLog.Fatalf("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
+	}
+	for _, p := range fedReg.Peers() {
+		if !p.AcceptsInbound() {
+			logger.Warn("federation peer has no inbound_key_sha256 and cannot call this node",
+				"peer", p.Name, "node_id", p.ID)
+		}
+	}
+
 	var uiFederation *ui.FederationInfo
 	if cfg.Federation.Enabled {
 		uiFederation = &ui.FederationInfo{
@@ -306,6 +324,7 @@ func serve() {
 			TelemetryLogFormat: cfg.Telemetry.LogFormat,
 		},
 		UIFederation: uiFederation,
+		Federation:   fedReg,
 	})
 
 	if cfg.Server.MCPEnable {
@@ -523,8 +542,19 @@ func runInitCert() {
 // serve would use, minting and persisting the ID if this is the first
 // start. Peers list this ID as their node_id for this node.
 func runNode() {
+	if len(os.Args) >= 2 && os.Args[1] == "peer-key" {
+		key, hash, err := newPeerKey()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Key:    %s\nSHA256: %s\n\n", key, hash)
+		fmt.Println("Give the key to the calling node as its peer api_key for this node,")
+		fmt.Println("and set inbound_key_sha256 to the SHA256 line in this node's entry for it.")
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "id" {
-		fmt.Fprintln(os.Stderr, "usage: memora-core node id [--config <file>]")
+		fmt.Fprintln(os.Stderr, "usage: memora-core node id [--config <file>] | memora-core node peer-key")
 		os.Exit(1)
 	}
 	fs := flag.NewFlagSet("node-id", flag.ExitOnError)
@@ -544,6 +574,18 @@ func runNode() {
 	}
 	defer closeAdapters()
 	fmt.Printf("Node ID:   %s\nNode name: %s\n", svc.NodeID, svc.NodeName)
+}
+
+// newPeerKey returns a fresh federation peer key (32 random bytes,
+// base64url) and the hex SHA-256 the receiving node configures.
+func newPeerKey() (key, hash string, err error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", "", err
+	}
+	key = base64.RawURLEncoding.EncodeToString(b[:])
+	sum := sha256.Sum256([]byte(key))
+	return key, hex.EncodeToString(sum[:]), nil
 }
 
 func runPrintConfig() {

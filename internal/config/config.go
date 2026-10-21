@@ -2,6 +2,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -90,11 +92,22 @@ type FederationConfig struct {
 }
 
 type PeerConfig struct {
-	NodeID  string `toml:"node_id"` // the peer's [node] id (UUIDv4)
-	Name    string `toml:"name"`
-	URL     string `toml:"url"`
+	NodeID string `toml:"node_id"` // the peer's [node] id (UUIDv4)
+	Name   string `toml:"name"`
+	URL    string `toml:"url"`
+	// APIKey is the outbound credential: the key this node presents to
+	// the peer in X-Memora-Federation-Auth.
 	APIKey  string `toml:"api_key"`
 	TLSCert string `toml:"tls_cert"`
+	// InboundKeySHA256 is the hex SHA-256 of the key the peer presents
+	// to this node. Only the hash is configured, so the key itself never
+	// sits in this node's config. Empty means the peer cannot call in.
+	InboundKeySHA256 string `toml:"inbound_key_sha256"`
+	// ClientCertSHA256, when set, additionally requires the peer to
+	// present a TLS client certificate with this SHA-256 fingerprint.
+	ClientCertSHA256 string `toml:"client_cert_sha256"`
+	// Revoked keeps the peer known but refuses its inbound calls (403).
+	Revoked bool `toml:"revoked"`
 }
 
 type TelemetryConfig struct {
@@ -270,9 +283,21 @@ func (c *Config) Validate() error {
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
 		}
+		if p.InboundKeySHA256 != "" && !isSHA256Hex(p.InboundKeySHA256) {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: inbound_key_sha256 must be 64 hex characters", i))
+		}
+		if p.ClientCertSHA256 != "" && !isSHA256Hex(p.ClientCertSHA256) {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_sha256 must be 64 hex characters", i))
+		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// isSHA256Hex reports whether s is a hex-encoded SHA-256 digest.
+func isSHA256Hex(s string) bool {
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == sha256.Size
 }
 
 // ResolveAPIKey resolves the API key from either the inline value or

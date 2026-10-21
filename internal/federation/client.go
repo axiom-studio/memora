@@ -97,7 +97,7 @@ func (c *PeerClient) setHeaders(req *http.Request, path string) {
 	if path != "" {
 		req.Header.Set(HeaderFederationPath, path)
 	}
-	if c.peer.TrustMode == TrustAPIKey && c.peer.APIKey != "" {
+	if c.peer.APIKey != "" {
 		req.Header.Set(HeaderFederationAuth, "Bearer "+c.peer.APIKey)
 	}
 	req.Header.Set("Content-Type", "application/json")

@@ -3,6 +3,7 @@
 package federation
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -31,9 +32,23 @@ type Peer struct {
 	Workspaces       []string // empty = all workspaces
 	RateLimitQPS     int
 	RequestTimeoutMS int
+	// Revoked peers stay known but their inbound calls get 403.
+	Revoked bool
+
+	// inboundKeyHash is the SHA-256 of the key the peer presents to us;
+	// hasInboundKey is false when the peer is outbound-only.
+	inboundKeyHash [32]byte
+	hasInboundKey  bool
+	// clientCertHash pins the peer's TLS client certificate when set.
+	clientCertHash [32]byte
+	hasClientCert  bool
 
 	workspaceSet map[string]bool
 }
+
+// AcceptsInbound reports whether the peer has an inbound credential and
+// so can call this node's peer routes.
+func (p *Peer) AcceptsInbound() bool { return p.hasInboundKey }
 
 // Registry holds the set of validated federation peers and provides
 // lookup methods used by the fanout engine and inbound auth.
@@ -116,8 +131,47 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string) (Peer, error) {
 		TLSCert:          pc.TLSCert,
 		RateLimitQPS:     50,
 		RequestTimeoutMS: 5000,
+		Revoked:          pc.Revoked,
+	}
+	if pc.InboundKeySHA256 != "" {
+		h, err := decodeSHA256(pc.InboundKeySHA256)
+		if err != nil {
+			return Peer{}, fmt.Errorf("federation.peers[%d] (%s): inbound_key_sha256: %w", idx, pc.Name, err)
+		}
+		p.inboundKeyHash, p.hasInboundKey = h, true
+	}
+	if pc.ClientCertSHA256 != "" {
+		h, err := decodeSHA256(pc.ClientCertSHA256)
+		if err != nil {
+			return Peer{}, fmt.Errorf("federation.peers[%d] (%s): client_cert_sha256: %w", idx, pc.Name, err)
+		}
+		p.clientCertHash, p.hasClientCert = h, true
 	}
 	return p, nil
+}
+
+func decodeSHA256(s string) ([32]byte, error) {
+	var h [32]byte
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != len(h) {
+		return h, errors.New("must be 64 hex characters")
+	}
+	copy(h[:], b)
+	return h, nil
+}
+
+// RequiresClientCerts reports whether any peer pins a TLS client
+// certificate, so the server must ask clients for one.
+func (r *Registry) RequiresClientCerts() bool {
+	if r == nil {
+		return false
+	}
+	for i := range r.peers {
+		if r.peers[i].hasClientCert {
+			return true
+		}
+	}
+	return false
 }
 
 // Peers returns all registered peers.

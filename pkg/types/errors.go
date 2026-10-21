@@ -22,7 +22,10 @@ var (
 	ErrNotEmpty       = errors.New("memora: container has live children")
 	ErrFederationLoop = errors.New("memora: federation loop detected")
 	ErrFederationAuth = errors.New("memora: federation peer not authorized")
-	ErrFederationDown = errors.New("memora: all federation peers failed")
+	// ErrFederationRevoked is a known peer presenting a valid credential
+	// whose access has been revoked (403, not 401: retrying will not help).
+	ErrFederationRevoked = errors.New("memora: federation peer revoked")
+	ErrFederationDown    = errors.New("memora: all federation peers failed")
 )
 
 func errEmpty(field string) error {

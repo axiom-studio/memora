@@ -14,6 +14,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Federation peers authenticate with per-peer keys (F-3, #4362). The
+  routes peers call (`POST /v1/federation/search`,
+  `GET /v1/federation/memories/{id}`) take
+  `X-Memora-Federation-Auth: Bearer <key>` and the caller's node ID
+  instead of the server API key. They need these credentials even in
+  no-auth mode. Each peer entry stores only `inbound_key_sha256`, and
+  the check runs in constant time. An unknown node or wrong key gets
+  `401`. A peer marked `revoked` gets `403`. `client_cert_sha256`
+  optionally pins a TLS client certificate.
+  `memora-core node peer-key` generates a key and its hash. The
+  outbound key is now sent in mTLS trust mode too. Before this, nothing
+  checked a peer's key: inbound calls were matched only by the claimed
+  node ID.
 - The Gemini embedding provider sent its API key as a URL query parameter
   (`?key=`), and Go transport errors print the full URL. The key could
   reach vector-search error responses (HTTP and MCP), server logs, and

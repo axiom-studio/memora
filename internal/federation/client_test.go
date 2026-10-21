@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -144,5 +145,46 @@ func TestNewClientPool_NilRegistry(t *testing.T) {
 	}
 	if pool != nil {
 		t.Error("expected nil pool for nil registry")
+	}
+}
+
+// TestPeerClient_KeyAuthenticatesAtPeer round-trips a peer key: the
+// calling node's client presents its api_key for the peer, and the peer
+// authenticates it against the inbound_key_sha256 it holds. The key is
+// sent in mTLS mode too, where it is checked alongside the certificate.
+func TestPeerClient_KeyAuthenticatesAtPeer(t *testing.T) {
+	const key = "round-trip-peer-key-0123456789"
+	caller, callee := nid("caller"), nid("callee")
+	calleeReg, err := NewRegistry(config.FederationConfig{
+		Enabled: true,
+		Peers: []config.PeerConfig{
+			{NodeID: caller, Name: "caller", URL: "https://caller.example.com", InboundKeySHA256: sha256Hex(key)},
+		},
+	}, callee)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := AuthenticatePeer(r, calleeReg); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(api.RecallResponse{})
+	}))
+	defer srv.Close()
+
+	for _, mode := range []TrustMode{TrustAPIKey, TrustMTLS} {
+		for _, k := range []string{key, "wrong-key"} {
+			pc := &PeerClient{
+				peer:       Peer{ID: callee, Name: "callee", Endpoint: srv.URL, TrustMode: mode, APIKey: k},
+				httpClient: srv.Client(),
+				instanceID: caller,
+			}
+			_, err := pc.Recall(context.Background(), "ws", api.RecallRequest{Query: "q", K: 1}, "")
+			if ok := err == nil; ok != (k == key) {
+				t.Errorf("mode %s, key %q: err = %v", mode, k, err)
+			}
+		}
 	}
 }

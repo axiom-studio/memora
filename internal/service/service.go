@@ -1228,6 +1228,12 @@ func HTTPStatus(err error) int {
 		return 400
 	case errors.Is(err, types.ErrCapability):
 		return 501
+	case errors.Is(err, types.ErrFederationRevoked):
+		return 403
+	case errors.Is(err, types.ErrFederationAuth):
+		return 401
+	case errors.Is(err, types.ErrFederationLoop):
+		return 508
 	default:
 		return 500
 	}
@@ -1258,6 +1264,12 @@ func ErrorCode(err error) string {
 		return "not_empty"
 	case errors.Is(err, types.ErrInvalidInput):
 		return "invalid_input"
+	case errors.Is(err, types.ErrFederationRevoked):
+		return "federation_peer_revoked"
+	case errors.Is(err, types.ErrFederationAuth):
+		return "federation_unauthorized"
+	case errors.Is(err, types.ErrFederationLoop):
+		return "federation_loop"
 	default:
 		return "internal_error"
 	}

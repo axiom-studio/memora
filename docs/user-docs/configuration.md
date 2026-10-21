@@ -116,6 +116,35 @@ When `node.id` is unset, the node mints a UUIDv4 the first time it starts and st
 
 Federation peers are listed under `[[federation.peers]]`. Each peer needs `node_id`, which is the peer's own node ID (run `memora-core node id` on the peer), plus `name` and `url`. `federation.federation_id` is optional; if set, it is a UUIDv4 label for the cluster.
 
+### Peer Credentials
+
+Each direction between two nodes has its own key. The routes a peer calls, `POST /v1/federation/search` and `GET /v1/federation/memories/{memory_id}`, take that peer's key instead of the server API key. All other routes, including the peer-management routes under `/v1/federation/peers`, keep the API key.
+
+| Key | Type | Default |
+|---|---|---|
+| `api_key` | string | *(empty)* |
+| `inbound_key_sha256` | string (64 hex characters) | *(empty)* |
+| `client_cert_sha256` | string (64 hex characters) | *(empty)* |
+| `revoked` | bool | `false` |
+| `tls_cert` | string (path) | *(empty)* |
+
+- **`api_key`** is the key this node sends when it calls the peer. It goes in `X-Memora-Federation-Auth: Bearer <key>`, and the node sends its node ID in `X-Memora-Local-Instance-ID`.
+- **`inbound_key_sha256`** is the SHA-256 of the key the peer sends when it calls this node. Only the hash is configured, so the key never sits in this node's config, logs or responses. The comparison runs in constant time. A peer without it cannot call this node, and the server logs a warning at startup.
+- **`client_cert_sha256`**, when set, also requires the peer to present a TLS client certificate with this SHA-256 fingerprint. It needs `server.tls`; the server refuses to start without it.
+- **`revoked = true`** keeps the peer listed but refuses its calls.
+- **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
+
+`memora-core node peer-key` prints a new random key and its SHA-256. Put the key in the calling node's `api_key` for this peer, and the hash in this node's `inbound_key_sha256` for the caller.
+
+| Status | Error code | Cause |
+|---|---|---|
+| `401` | `federation_unauthorized` | Unknown node ID, missing or wrong key, or missing or wrong client certificate. These causes are not distinguished. |
+| `403` | `federation_peer_revoked` | The peer presented a valid key, but `revoked` is set. |
+| `404` | `federation_disabled` | Federation is not enabled on this node. |
+| `508` | `federation_loop` | This node is already in the request's federation path. |
+
+Peer routes need peer credentials even when the server runs without an API key.
+
 ## Telemetry Keys
 
 TOML table `[telemetry]`.

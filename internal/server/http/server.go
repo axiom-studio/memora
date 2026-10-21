@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/internal/certgen"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/internal/ui"
@@ -55,6 +56,9 @@ type Config struct {
 	TLS            TLSConfig
 	UISettings     *ui.SettingsInfo   // optional; nil = settings page shows empty state
 	UIFederation   *ui.FederationInfo // optional; nil = federation page shows disabled
+	// Federation authenticates the routes peers call (federation.IsPeerRoute),
+	// which take peer credentials instead of APIKey. nil = federation off.
+	Federation *federation.Registry
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -152,6 +156,12 @@ func New(cfg Config) *Server {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       cfg.Timeout,
 		WriteTimeout:      cfg.Timeout + 5*time.Second,
+	}
+	if cfg.TLS.Enabled && cfg.Federation.RequiresClientCerts() {
+		// Ask for, but do not chain-verify, client certificates: a peer's
+		// certificate is pinned by fingerprint in AuthenticatePeer, and
+		// clients without one (API callers, the console) still connect.
+		s.srv.TLSConfig = &tls.Config{ClientAuth: tls.RequestClientCert}
 	}
 	return s
 }
@@ -286,9 +296,23 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 		}
 
-		// Auth: API key (skipped for /ui/ paths — UI has its own session auth;
-		// skipped when no key configured — local-dev mode).
-		if s.cfg.APIKey != "" && r.URL.Path != "/ui" && !strings.HasPrefix(r.URL.Path, "/ui/") {
+		// Auth: the routes peers call take peer credentials, never the API
+		// key, and are refused even in no-auth local-dev mode. Everything
+		// else takes the API key (skipped for /ui/ paths — UI has its own
+		// session auth; skipped when no key configured — local-dev mode).
+		var peer *federation.InboundAuthResult
+		if federation.IsPeerRoute(r.URL.Path) {
+			if s.cfg.Federation == nil {
+				s.writeError(w, http.StatusNotFound, "federation_disabled", "federation is not enabled on this node", nil)
+				return
+			}
+			res, err := federation.AuthenticatePeer(r, s.cfg.Federation)
+			if err != nil {
+				s.writeErrorFromService(w, err)
+				return
+			}
+			peer = res
+		} else if s.cfg.APIKey != "" && r.URL.Path != "/ui" && !strings.HasPrefix(r.URL.Path, "/ui/") {
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") {
 				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
@@ -305,6 +329,9 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		ctx := r.Context()
 		ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 		defer cancel()
+		if peer != nil {
+			ctx = context.WithValue(ctx, ctxKeyPeer, peer)
+		}
 
 		// Multi-tenant: resolve workspace from header when in multi-tenant mode.
 		if s.cfg.Mode == "multi-tenant" {
@@ -373,7 +400,14 @@ type ctxKey int
 const (
 	ctxKeyAgent ctxKey = iota
 	ctxKeyWorkspace
+	ctxKeyPeer
 )
+
+// peerFrom returns the authenticated calling peer on a peer route, or nil.
+func peerFrom(ctx context.Context) *federation.InboundAuthResult {
+	v, _ := ctx.Value(ctxKeyPeer).(*federation.InboundAuthResult)
+	return v
+}
 
 func agentFrom(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyAgent).(string)
@@ -413,6 +447,10 @@ func isWriteVerb(method, path string) bool {
 		return false
 	}
 	if strings.HasPrefix(path, "/healthz") || strings.HasPrefix(path, "/readyz") || strings.HasPrefix(path, "/metrics") {
+		return false
+	}
+	// Peer routes are reads made by another node, not an agent.
+	if federation.IsPeerRoute(path) {
 		return false
 	}
 	// Workspace / collection / agent CRUD: no agent_id required.
