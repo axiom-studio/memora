@@ -72,14 +72,16 @@ func TestPeerRouteAuth(t *testing.T) {
 		wantCode        string
 	}{
 		{name: "peer key, no API key", apiKey: testAPIKey, path: "/v1/federation/search", node: testPeerNode, key: testPeerKey, want: 200},
-		{name: "memory fetch route", apiKey: testAPIKey, path: "/v1/federation/memories/" + types.NewID(), node: testPeerNode, key: testPeerKey, want: 200},
+		// Not routed until F-6/F-7: the route table's 404 comes after
+		// auth, so reaching it shows the credential was accepted.
+		{name: "memory fetch route", apiKey: testAPIKey, path: "/v1/federation/memories/" + types.NewID(), node: testPeerNode, key: testPeerKey, want: 404, wantCode: "not_found"},
 		{name: "wrong peer key", apiKey: testAPIKey, path: "/v1/federation/search", node: testPeerNode, key: "wrong-key", want: 401, wantCode: "federation_unauthorized"},
 		{name: "unknown node", apiKey: testAPIKey, path: "/v1/federation/search", node: types.NewID(), key: testPeerKey, want: 401, wantCode: "federation_unauthorized"},
 		{name: "revoked peer", apiKey: testAPIKey, path: "/v1/federation/search", node: testRevokedNode, key: testRevoKey, want: 403, wantCode: "federation_peer_revoked"},
 		{name: "API key does not open a peer route", apiKey: testAPIKey, path: "/v1/federation/search", bearer: testAPIKey, want: 401, wantCode: "federation_unauthorized"},
 		{name: "no-auth mode still needs peer credentials", path: "/v1/federation/search", want: 401, wantCode: "federation_unauthorized"},
 		{name: "peer key does not open an operator route", apiKey: testAPIKey, path: "/v1/federation/peers", node: testPeerNode, key: testPeerKey, want: 401, wantCode: "unauthorized"},
-		{name: "operator route takes the API key", apiKey: testAPIKey, path: "/v1/federation/peers", bearer: testAPIKey, want: 200},
+		{name: "operator route takes the API key", apiKey: testAPIKey, path: "/v1/federation/peers", bearer: testAPIKey, want: 404, wantCode: "not_found"},
 		{name: "federation disabled", apiKey: testAPIKey, noFederation: true, path: "/v1/federation/search", node: testPeerNode, key: testPeerKey, want: 404, wantCode: "federation_disabled"},
 	}
 	for _, c := range cases {

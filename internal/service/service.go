@@ -536,6 +536,9 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 // Recall dispatches to keyword / vector / hybrid / lookup.
 func (s *Service) Recall(ctx context.Context, workspaceID string, req api.RecallRequest) (*api.RecallResponse, error) {
 	start := time.Now()
+	if err := validateRecallIDs(req.Filters, req.MemoryIDs); err != nil {
+		return nil, err
+	}
 	mode := req.Mode
 	if mode == "" {
 		mode = api.RecallModeHybrid
@@ -695,6 +698,9 @@ func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.
 		if _, err := types.ParseID("workspace_ids", id); err != nil {
 			return nil, err
 		}
+	}
+	if err := validateRecallIDs(req.Filters, nil); err != nil {
+		return nil, err
 	}
 	mode := req.Mode
 	if mode == "" {
@@ -1335,4 +1341,30 @@ func ErrorCode(err error) string {
 	default:
 		return "internal_error"
 	}
+}
+
+// validateRecallIDs rejects a recall or search filter, or a lookup
+// memory_ids entry, that is not a UUID, naming the field. Empty values
+// are "not set".
+func validateRecallIDs(f api.RecallFilters, memoryIDs []string) error {
+	for _, c := range []struct {
+		field string
+		ids   []string
+	}{
+		{"collection_id", []string{f.CollectionID}},
+		{"agent_id", []string{f.AgentID}},
+		{"agent_id_in", f.AgentIDIn},
+		{"agent_id_not_in", f.AgentIDNotIn},
+		{"memory_ids", memoryIDs},
+	} {
+		for _, id := range c.ids {
+			if id == "" {
+				continue
+			}
+			if _, err := types.ParseID(c.field, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -65,6 +65,21 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Non-UUID IDs are rejected everywhere (ID-9, #4353).
+  - HTTP: the `/v1` routes are declared in one table that the
+    middleware enforces. An unknown path is `404`, an unsupported method
+    is `405` with `Allow`, and every ID path segment is validated before
+    any handler runs. A test walks the table and plants legacy,
+    uppercase and garbage IDs into every ID path segment, body field
+    and query parameter (231 cases).
+  - MCP: every argument named `*_id`, `*_ids` or `peers` is validated
+    (`types.IDField`), replacing a hand-kept list. A test walks the tool
+    catalog.
+  - The walk found gaps, now closed: recall and search filter IDs and
+    lookup `memory_ids`, the ledger's `agent_id` and `edge_id`, and
+    edge-batch items. A malformed edge-batch ID now fails the whole
+    batch with `400`.
+  - Docs and README examples use UUIDs.
 - Workspace and memory listings are ordered newest first by
   `(created_at, id)` and page with an opaque `cursor`/`next_cursor`
   (ID-6, #4350). `GET /v1/workspaces` used to return a `next_cursor` it

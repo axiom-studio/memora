@@ -247,12 +247,16 @@ func TestRecall_LookupMode_SkipsUnknownIDs(t *testing.T) {
 	ws := newTestWorkspace(t, s)
 	id := imprint(t, s, ws, "lookup me")
 
-	r, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{"mem_missing", id}})
+	r, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{types.NewID(), id}})
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
 	if len(r.Results) != 1 || r.Results[0].MemoryID != id || r.Results[0].Text != "lookup me" {
 		t.Fatalf("lookup results = %+v, want only %s with full content", r.Results, id)
+	}
+	// Unknown is skipped; malformed is the caller's error.
+	if _, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{"mem_missing", id}}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("malformed memory_ids: err = %v, want ErrInvalidInput", err)
 	}
 }
 

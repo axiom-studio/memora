@@ -9,12 +9,14 @@ Request and response bodies are JSON. Errors use one envelope shape across every
 ```json
 {
   "error_code": "cas_conflict",
-  "message": "expected watermark wmk_… but head is wmk_…",
+  "message": "expected watermark b2c9e4f1-… but head is e6a1d3b8-…",
   "details": {}
 }
 ```
 
 Unknown fields in a request body are rejected rather than ignored, so a misspelled key surfaces as `400 invalid_input` instead of being silently dropped.
+
+Every identifier is a lowercase UUIDv4: path segments, `*_id` and `*_ids` body fields, recall and search filters (`collection_id`, `agent_id`, `agent_id_in`, `agent_id_not_in`), `memory_ids`, `peers`, and the ledger's ID query parameters. Anything else, such as a legacy prefixed ID, an uppercase UUID or free text, is `400 invalid_input` with a message naming the field (`memory_id must be a UUID`). A well-formed UUID that matches nothing is `404`. A malformed ID in `POST /workspaces/{ws}/edges:batch` fails the whole batch with `400` instead of being reported per edge. A `/v1` path that is not an endpoint is `404 not_found`, and a method an endpoint does not support is `405 method_not_allowed` with an `Allow` header.
 
 ### Headers
 

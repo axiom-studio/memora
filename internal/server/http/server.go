@@ -334,6 +334,12 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 		}
 
+		// Route table: unknown /v1 routes, wrong methods and malformed
+		// ID path parameters stop here (routetable.go).
+		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.checkRoute(w, r) {
+			return
+		}
+
 		// Per-request timeout from Config.Timeout.
 		ctx := r.Context()
 		ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)

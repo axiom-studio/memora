@@ -162,7 +162,7 @@ Schema changes ship as versioned SQL files applied by each store. Moving Memory 
 The command opens the metadata and content stores directly rather than going through the API, so it runs on a host with access to the data directory:
 
 ```bash
-memora-cli migrate content --workspace ws_XXXX \
+memora-cli migrate content --workspace 3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90 \
     --content-driver file --content-dsn ./data/content \
     --dry-run
 ```

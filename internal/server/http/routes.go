@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -657,6 +658,16 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
 		}
+		// A malformed ID is a client bug, so it fails the whole batch;
+		// per-edge results are for edges that are well-formed.
+		for i, e := range req.Edges {
+			for _, f := range [...][2]string{{"source_memory_id", e.SourceMemoryID}, {"target_memory_id", e.TargetMemoryID}} {
+				if _, err := types.ParseID(f[0], f[1]); err != nil {
+					s.writeError(w, 400, "invalid_input", fmt.Sprintf("edges[%d]: %v", i, err), nil)
+					return
+				}
+			}
+		}
 		agent := agentFrom(r.Context())
 		edges := make([]types.Edge, len(req.Edges))
 		for i, e := range req.Edges {
@@ -825,7 +836,9 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 		return
 	}
 	if !s.validOptionalID(w, "memory_id", r.URL.Query().Get("memory_id")) ||
-		!s.validOptionalID(w, "since_ledger_id", r.URL.Query().Get("since_ledger_id")) {
+		!s.validOptionalID(w, "since_ledger_id", r.URL.Query().Get("since_ledger_id")) ||
+		!s.validOptionalID(w, "agent_id", r.URL.Query().Get("agent_id")) ||
+		!s.validOptionalID(w, "edge_id", r.URL.Query().Get("edge_id")) {
 		return
 	}
 	if s.cfg.Service.Ledger == nil {

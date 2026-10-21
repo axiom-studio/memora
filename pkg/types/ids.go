@@ -8,6 +8,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -29,4 +30,25 @@ func ParseID(field, id string) (string, error) {
 		return "", fmt.Errorf("%w: %s must be a UUID, got %q", ErrInvalidInput, field, id)
 	}
 	return id, nil
+}
+
+// notIDFields end in "_id" but are not UUIDs: chunker_id names a
+// chunker, request_id is a client correlation token, and api_key_id and
+// user_id come from outside Memora.
+var notIDFields = map[string]bool{"chunker_id": true, "request_id": true, "api_key_id": true, "user_id": true}
+
+// IDField reports whether a JSON field or argument name carries Memora
+// UUIDs: one when the name ends in "_id", a list when it ends in "_ids",
+// "_id_in" or "_id_not_in" (filter sets) or is "peers" (node IDs). Boundaries validate every field named this
+// way, so a new ID field is covered by naming it so.
+func IDField(name string) (isID, isList bool) {
+	switch {
+	case notIDFields[name]:
+		return false, false
+	case strings.HasSuffix(name, "_id"):
+		return true, false
+	case strings.HasSuffix(name, "_ids"), strings.HasSuffix(name, "_id_in"), strings.HasSuffix(name, "_id_not_in"), name == "peers":
+		return true, true
+	}
+	return false, false
 }

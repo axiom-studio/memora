@@ -20,27 +20,32 @@ func agentFrom(ctx context.Context) string {
 	return v
 }
 
-// idArgs are the top-level tool arguments that carry Memora IDs.
-var idArgs = []string{
-	"workspace_id", "collection_id", "memory_id", "pin_id", "agent_id", "edge_id",
-	"source_memory_id", "target_memory_id", "seed_memory_id",
-}
-
-// validateIDArgs rejects any present, non-empty ID argument that is not
-// a UUID. Missing or non-string values are left to the tool's own decode
-// and required-field checks.
+// validateIDArgs rejects any present, non-empty top-level ID argument
+// (types.IDField) that is not a UUID. Missing values and values of the wrong
+// JSON type are left to the tool's own decode and required-field checks.
 func validateIDArgs(args json.RawMessage) error {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(args, &m); err != nil {
 		return nil // the tool's decode reports malformed arguments
 	}
-	for _, k := range idArgs {
-		var id string
-		if json.Unmarshal(m[k], &id) != nil || id == "" {
+	for k, raw := range m {
+		isID, isList := types.IDField(k)
+		if !isID {
 			continue
 		}
-		if _, err := types.ParseID(k, id); err != nil {
-			return err
+		var ids []string
+		if isList {
+			_ = json.Unmarshal(raw, &ids)
+		} else {
+			var id string
+			if json.Unmarshal(raw, &id) == nil && id != "" {
+				ids = []string{id}
+			}
+		}
+		for _, id := range ids {
+			if _, err := types.ParseID(k, id); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
