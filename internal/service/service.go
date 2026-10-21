@@ -552,7 +552,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 			})
 		}
 	case api.RecallModeKeyword:
-		hits, err := s.keywordSearch(ctx, workspaceID, req, k)
+		hits, err := s.keywordSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		if err != nil {
 			return nil, err
 		}
@@ -566,7 +566,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		seeds = hits
 		totalScanned = len(hits)
 	case api.RecallModeHybrid:
-		kw, _ := s.keywordSearch(ctx, workspaceID, req, k)
+		kw, _ := s.keywordSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		vec, _ := s.vectorSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		seeds = hybridMerge(kw, vec, req.Weights, k)
 		totalScanned = len(kw) + len(vec)
@@ -607,9 +607,8 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 // on the node, or the subset in req.WorkspaceIDs, and returns the top k
 // hits, each carrying its workspace_id.
 //
-// The vector side is one node-wide store query. The keyword side is one
-// scan per workspace in scope — O(workspaces) — until it moves to the
-// store's full-text index (S-2).
+// Both sides are single store queries over the scope: the full-text
+// index for keyword, the vector store for vector.
 func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
 	start := time.Now()
 	if strings.TrimSpace(req.Query) == "" {
@@ -635,7 +634,7 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 	var scanned int
 	switch mode {
 	case api.RecallModeKeyword:
-		kw, err := s.keywordSearchScope(ctx, req.WorkspaceIDs, recallReq, k)
+		kw, err := s.keywordSearch(ctx, scope, recallReq, k)
 		if err != nil {
 			return nil, err
 		}
@@ -647,7 +646,7 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 		}
 		hits, scanned = vec, len(vec)
 	case api.RecallModeHybrid:
-		kw, _ := s.keywordSearchScope(ctx, req.WorkspaceIDs, recallReq, k)
+		kw, _ := s.keywordSearch(ctx, scope, recallReq, k)
 		vec, _ := s.vectorSearch(ctx, scope, recallReq, k)
 		hits, scanned = hybridMerge(kw, vec, req.Weights, k), len(kw)+len(vec)
 	default:
@@ -662,39 +661,6 @@ func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.Recal
 		TotalCandidatesScanned: scanned,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
 	}, nil
-}
-
-// keywordSearchScope runs keywordSearch in each workspace of workspaceIDs,
-// or every workspace when it is empty, and keeps the overall top k.
-func (s *Service) keywordSearchScope(ctx context.Context, workspaceIDs []string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
-	if len(workspaceIDs) == 0 {
-		for cursor := ""; ; {
-			page, next, err := s.Metadata.ListWorkspacesPaged(ctx, cursor, 500)
-			if err != nil {
-				return nil, fmt.Errorf("list workspaces for search: %w", err)
-			}
-			for _, w := range page {
-				workspaceIDs = append(workspaceIDs, w.ID)
-			}
-			if next == "" {
-				break
-			}
-			cursor = next
-		}
-	}
-	var hits []api.RecallHit
-	for _, ws := range workspaceIDs {
-		wsHits, err := s.keywordSearch(ctx, ws, req, k)
-		if err != nil {
-			return nil, fmt.Errorf("keyword search in workspace %s: %w", ws, err)
-		}
-		hits = append(hits, wsHits...)
-	}
-	sortHits(hits)
-	if len(hits) > k {
-		hits = hits[:k]
-	}
-	return hits, nil
 }
 
 // markRecallReady persists recall_ready once every cell of the memory has a
@@ -817,21 +783,31 @@ func max(a, b int) int {
 
 // keywordSearch hits the FTS5 virtual table on the SQLite MetadataStore.
 // Adapter-specific; falls back to a substring scan for adapters without FTS.
-func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
-	// SQLite-specific FTS query exposed via a typed Querier interface
-	// would be cleaner. v0.1 lives without it by scanning ListMemories.
-	mems, err := s.Metadata.ListMemories(ctx, workspaceID, req.Filters.CollectionID, 500)
+// keywordSearch ranks memories in scope against the store's full-text
+// index (one query, node-wide or scoped) and turns the top k into hits.
+// scope carries only workspace scope fields; WorkspaceID is mapped onto
+// the keyword query's list form. Filters other than collection run after
+// ranking (S-4 pushes them down); each hit costs one memory load (S-5
+// batches them).
+func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
+	kq := adapter.KeywordQuery{
+		WorkspaceIDs:  scope.WorkspaceIDs,
+		AllWorkspaces: scope.AllWorkspaces,
+		Query:         req.Query,
+		CollectionID:  req.Filters.CollectionID,
+		K:             k,
+	}
+	if scope.WorkspaceID != "" {
+		kq.WorkspaceIDs = []string{scope.WorkspaceID}
+	}
+	ranked, err := s.Metadata.SearchKeyword(ctx, kq)
 	if err != nil {
 		return nil, err
 	}
-	var hits []api.RecallHit
-	q := strings.ToLower(req.Query)
-	for _, m := range mems {
-		if !passesFilter(m, req.Filters) {
-			continue
-		}
-		text := strings.ToLower(m.Content)
-		if !strings.Contains(text, q) {
+	hits := make([]api.RecallHit, 0, len(ranked))
+	for _, r := range ranked {
+		m, err := s.Metadata.GetMemory(ctx, r.MemoryID)
+		if err != nil || !passesFilter(*m, req.Filters) {
 			continue
 		}
 		hits = append(hits, api.RecallHit{
@@ -841,14 +817,10 @@ func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api
 			Tags:             m.Tags,
 			Watermark:        m.HeadWatermark,
 			WrittenByAgentID: m.WrittenByAgentID,
-			KeywordScore:     keywordScore(text, q),
-			Score:            keywordScore(text, q),
+			KeywordScore:     r.Score,
+			Score:            r.Score,
 			Via:              "seed",
 		})
-	}
-	sortHits(hits)
-	if len(hits) > k {
-		hits = hits[:k]
 	}
 	return hits, nil
 }
@@ -965,17 +937,6 @@ func excerpt(content, query string, max int) string {
 		end = len(content)
 	}
 	return content[start:end]
-}
-
-func keywordScore(content, q string) float64 {
-	if content == "" || q == "" {
-		return 0
-	}
-	c := float64(strings.Count(content, q))
-	if c == 0 {
-		return 0
-	}
-	return c / (1 + float64(len(content))/1000.0)
 }
 
 func hybridMerge(kw, vec []api.RecallHit, w api.RecallWeights, k int) []api.RecallHit {

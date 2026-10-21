@@ -108,25 +108,6 @@ func TestUpdate_LeavesRecallReadyTrue(t *testing.T) {
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
-func TestKeywordScore(t *testing.T) {
-	cases := []struct {
-		name, content, q string
-		want             float64
-	}{
-		{"empty content", "", "go", 0},
-		{"empty query", "go", "", 0},
-		{"no match", "rust", "go", 0},
-		{"one match, short doc", "go", "go", 1 / (1 + 2.0/1000)},
-		{"two matches", "go go", "go", 2 / (1 + 5.0/1000)},
-		{"length dampens", "go" + string(make([]byte, 998)), "go", 1 / (1 + 1000.0/1000)},
-	}
-	for _, c := range cases {
-		if got := keywordScore(c.content, c.q); !approx(got, c.want) {
-			t.Errorf("%s: keywordScore = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
 func TestPow(t *testing.T) {
 	cases := []struct {
 		base float64

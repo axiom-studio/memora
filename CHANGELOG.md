@@ -41,6 +41,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Keyword recall and search use a full-text index: SQLite FTS5 with BM25
+  ranking, and Postgres `tsvector` + GIN with `ts_rank` (postgres
+  migration 0005). The index covers every Memory, replacing the
+  substring scan of the 500 newest. Matching is by word, with English
+  stemming; query punctuation and operators are plain text. New
+  `MetadataStore.SearchKeyword` (adapter API).
 - **BREAKING (IDs)**: new workspaces, collections, memories, cells, edges,
   watermarks, ledger entries and pins get canonical lowercase UUIDv4 IDs
   instead of prefixed ULIDs (`mem_01H…`). The API, MCP and type validators

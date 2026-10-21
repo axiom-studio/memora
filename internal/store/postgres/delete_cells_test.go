@@ -39,3 +39,13 @@ func TestEnsureNodeID_Postgres(t *testing.T) {
 	defer ms.Close()
 	compliance.EnsureNodeIDContract(t, ms)
 }
+
+func TestKeywordSearch_Postgres(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	ms := &MetadataStore{}
+	if err := ms.Open(context.Background(), adapter.MetadataConfig{DSN: dsn}); err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	compliance.KeywordSearchContract(t, ms)
+}

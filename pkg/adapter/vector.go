@@ -67,25 +67,31 @@ type VectorQuery struct {
 // Scope validates the query scope and returns the workspaces to search;
 // nil means every workspace on the node.
 func (q VectorQuery) Scope() ([]string, error) {
+	return searchScope("vector", q.WorkspaceID, q.WorkspaceIDs, q.AllWorkspaces)
+}
+
+// searchScope enforces "exactly one scope" for a search query and returns
+// the workspaces to search, nil meaning every workspace on the node.
+func searchScope(kind, workspaceID string, workspaceIDs []string, all bool) ([]string, error) {
 	set := 0
-	if q.WorkspaceID != "" {
+	if workspaceID != "" {
 		set++
 	}
-	if len(q.WorkspaceIDs) > 0 {
+	if len(workspaceIDs) > 0 {
 		set++
 	}
-	if q.AllWorkspaces {
+	if all {
 		set++
 	}
 	switch {
 	case set != 1:
-		return nil, fmt.Errorf("%w: vector query needs exactly one of WorkspaceID, WorkspaceIDs or AllWorkspaces", types.ErrInvalidInput)
-	case q.WorkspaceID != "":
-		return []string{q.WorkspaceID}, nil
-	case q.AllWorkspaces:
+		return nil, fmt.Errorf("%w: %s query needs exactly one scope (one workspace, a workspace list, or all workspaces)", types.ErrInvalidInput, kind)
+	case workspaceID != "":
+		return []string{workspaceID}, nil
+	case all:
 		return nil, nil
 	}
-	return q.WorkspaceIDs, nil
+	return workspaceIDs, nil
 }
 
 // VectorHit is one row of Query output.

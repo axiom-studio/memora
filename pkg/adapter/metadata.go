@@ -107,6 +107,13 @@ type MetadataStore interface {
 	// the key is new. Concurrent calls for one key all get the same ID.
 	ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error)
 
+	// --- Full-text search ---
+
+	// SearchKeyword ranks live memories by full-text relevance to
+	// q.Query (any of its KeywordTerms), best first, at most q.K. A query
+	// with no terms returns no hits.
+	SearchKeyword(ctx context.Context, q KeywordQuery) ([]KeywordHit, error)
+
 	// --- Node identity ---
 
 	// EnsureNodeID returns this node's persisted ID, storing candidateID

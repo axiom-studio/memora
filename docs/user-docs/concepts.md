@@ -117,13 +117,13 @@ Recall takes a query and returns ranked hits. Four modes are available; `hybrid`
 | Status | Description |
 |---|---|
 | `lookup` | Fetch specific Memories by ID. No scoring. |
-| `keyword` | Case-insensitive substring match over the Workspace's Memories. |
+| `keyword` | Full-text search over the Workspace's Memories, ranked by relevance (BM25 on SQLite, `ts_rank` on Postgres). A Memory matching more of the query's words ranks higher. |
 | `vector` | Embed the query and run a nearest-neighbour search over Cell vectors. |
 | `hybrid` | Run both and merge by weighted score. Default weights are `0.7` vector and `0.3` keyword. |
 
 ```text
 query → mode ─ lookup  ─> fetch by ID ──┐
-             ├ keyword ─> substring scan ┤
+             ├ keyword ─> full-text index┤
              ├ vector  ─> vector search  ├─> seed hits ─> graph expansion? ─ no ─> sort, truncate
              └ hybrid  ─> both, merged  ─┘                       │
                                                                 yes
@@ -137,7 +137,7 @@ Expansion scores a hit as `weight × decay^layer × seed score`, with expansion 
 
 Filters apply to both seeds and expansion: collection, writing agent (a single value, an `in` list, or a `not_in` list), creation-time range, and tag key/value.
 
-> **Keyword search is a substring scan, not a full-text index.** It lists up to 500 Memories in the Workspace and filters them in memory. It does not rank by term frequency, and on a Workspace larger than 500 Memories it does not see past that window. Vector and hybrid recall are the modes that scale.
+> **Keyword search matches words, not substrings.** The query is split into words, and a Memory matches if it contains any of them, after English stemming (`running` matches `run`). Punctuation and full-text operators such as quotes, `*`, `NEAR` or `-` are treated as plain text. Searching for part of a word (`roadm` for `roadmap`) finds nothing. Use vector or hybrid mode for that.
 
 ## The Audit Ledger
 

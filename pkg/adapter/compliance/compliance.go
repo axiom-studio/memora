@@ -111,6 +111,10 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		ResolveIdentityKeyContract(t, factory(t))
 	})
 
+	t.Run("keyword_search", func(t *testing.T) {
+		KeywordSearchContract(t, factory(t))
+	})
+
 	t.Run("ensure_node_id", func(t *testing.T) {
 		EnsureNodeIDContract(t, factory(t))
 	})
@@ -412,5 +416,107 @@ func EnsureNodeIDContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if again, err := s.EnsureNodeID(ctx, types.NewID()); err != nil || again != first {
 		t.Fatalf("second EnsureNodeID = %q, %v; want the stored %q", again, err, first)
+	}
+}
+
+// KeywordSearchContract checks MetadataStore.SearchKeyword: memories
+// matching more query terms rank higher; full-text operator characters
+// in the query are plain text; the whole store is searched, not just
+// recent memories; forgotten memories drop out; and the workspace and
+// collection scopes hold.
+func KeywordSearchContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	agent := types.NewID()
+	newWS := func(name string) string {
+		t.Helper()
+		ws := &types.Workspace{Name: name + "-" + types.NewID()}
+		if err := s.CreateWorkspace(ctx, ws); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+		return ws.ID
+	}
+	imprint := func(ws, coll, content string) string {
+		t.Helper()
+		m := &types.Memory{WorkspaceID: ws, CollectionID: coll, Content: content, WrittenByAgentID: agent}
+		if _, err := s.ImprintMemory(ctx, m); err != nil {
+			t.Fatalf("ImprintMemory: %v", err)
+		}
+		return m.ID
+	}
+	search := func(q adapter.KeywordQuery) []adapter.KeywordHit {
+		t.Helper()
+		if q.K == 0 {
+			q.K = 50
+		}
+		hits, err := s.SearchKeyword(ctx, q)
+		if err != nil {
+			t.Fatalf("SearchKeyword(%q): %v", q.Query, err)
+		}
+		return hits
+	}
+	ids := func(hits []adapter.KeywordHit) map[string]bool {
+		out := map[string]bool{}
+		for _, h := range hits {
+			out[h.MemoryID] = true
+		}
+		return out
+	}
+
+	wsA, wsB := newWS("kw-a"), newWS("kw-b")
+	coll := &types.Collection{WorkspaceID: wsA, Name: "kw-coll"}
+	if err := s.CreateCollection(ctx, coll); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	// "zircon" is unique to this run's corpus, so other contracts sharing a
+	// database cannot match.
+	both := imprint(wsA, coll.ID, "zircon quarry report and quarry logistics")
+	one := imprint(wsA, "", "zircon prices only")
+	other := imprint(wsB, "", "zircon quarry in another workspace")
+	imprint(wsA, "", "unrelated grocery list")
+
+	ranked := search(adapter.KeywordQuery{WorkspaceIDs: []string{wsA}, Query: "zircon quarry"})
+	if len(ranked) != 2 || ranked[0].MemoryID != both || ranked[1].MemoryID != one {
+		t.Fatalf("ranking = %+v, want %s (both terms) then %s (one term)", ranked, both, one)
+	}
+	if ranked[0].Score <= ranked[1].Score {
+		t.Fatalf("scores %v <= %v; higher must be better", ranked[0].Score, ranked[1].Score)
+	}
+
+	for _, q := range []string{`zircon "quarry`, `zircon*`, `zircon NEAR quarry`, `-zircon`, `(zircon) AND OR`, `zircon: quarry^`} {
+		if got := ids(search(adapter.KeywordQuery{WorkspaceIDs: []string{wsA}, Query: q})); !got[both] {
+			t.Errorf("query %q: hits %v, want %s (operators must be literal)", q, got, both)
+		}
+	}
+	if hits := search(adapter.KeywordQuery{AllWorkspaces: true, Query: `"" * - ()`}); len(hits) != 0 {
+		t.Errorf("a query with no terms returned %d hits", len(hits))
+	}
+
+	if got := ids(search(adapter.KeywordQuery{AllWorkspaces: true, Query: "zircon"})); !got[both] || !got[one] || !got[other] {
+		t.Errorf("node-wide hits %v, want memories from both workspaces", got)
+	}
+	if got := ids(search(adapter.KeywordQuery{WorkspaceIDs: []string{wsA}, CollectionID: coll.ID, Query: "zircon"})); len(got) != 1 || !got[both] {
+		t.Errorf("collection-scoped hits %v, want only %s", got, both)
+	}
+	if _, err := s.SearchKeyword(ctx, adapter.KeywordQuery{Query: "zircon"}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Errorf("unscoped query err = %v, want ErrInvalidInput", err)
+	}
+
+	if err := s.ForgetMemory(ctx, wsA, one); err != nil {
+		t.Fatalf("ForgetMemory: %v", err)
+	}
+	if got := ids(search(adapter.KeywordQuery{WorkspaceIDs: []string{wsA}, Query: "zircon"})); got[one] {
+		t.Errorf("forgotten memory %s still matches", one)
+	}
+
+	// The old keyword path scanned only the 500 newest memories; the index
+	// must find an older one.
+	wsC := newWS("kw-depth")
+	old := imprint(wsC, "", "basalt column survey")
+	for i := 0; i < 510; i++ {
+		imprint(wsC, "", "filler memory text")
+	}
+	if got := ids(search(adapter.KeywordQuery{WorkspaceIDs: []string{wsC}, Query: "basalt"})); !got[old] {
+		t.Errorf("memory older than the newest 500 not found")
 	}
 }
