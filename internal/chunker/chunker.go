@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 	"sync"
 
 	"github.com/axiom-studio/memora/pkg/types"
@@ -94,7 +95,8 @@ func ApproxTokens(s string) int {
 
 // DefaultChunker splits on paragraph boundaries first, then on sentence
 // boundaries when a paragraph exceeds the token target. ~512 token
-// target with ~64 token overlap.
+// target with ~64 token overlap. Zero fields take those defaults; a
+// negative OverlapTokens means no overlap.
 type DefaultChunker struct {
 	TargetTokens  int
 	OverlapTokens int
@@ -106,7 +108,7 @@ func (c *DefaultChunker) Chunk(_ context.Context, content string) ([]types.Cell,
 	if c.TargetTokens <= 0 {
 		c.TargetTokens = 512
 	}
-	if c.OverlapTokens < 0 {
+	if c.OverlapTokens == 0 {
 		c.OverlapTokens = 64
 	}
 	if strings.TrimSpace(content) == "" {
@@ -173,11 +175,22 @@ func mkCell(seq int, text string) types.Cell {
 	}
 }
 
+// tailOverlap returns the last n bytes of s, moved forward to a rune
+// boundary, to repeat at the start of the next cell; "" when n <= 0. It
+// must never return all of s for a long s: the next cell would then
+// carry every earlier cell (#6164).
 func tailOverlap(s string, n int) string {
-	if n <= 0 || len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
 		return s
 	}
-	return s[len(s)-n:]
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }
 
 func splitLong(p string, target int) []string {
@@ -194,12 +207,20 @@ func splitLong(p string, target int) []string {
 	if cur.Len() > 0 {
 		out = append(out, strings.TrimSpace(cur.String()))
 	}
-	// If still too long, force-split on target bytes.
+	// If still too long, force-split at about target bytes, on a rune
+	// boundary so no cell holds half a UTF-8 character.
 	var final []string
 	for _, s := range out {
 		for len(s) > target {
-			final = append(final, s[:target])
-			s = s[target:]
+			cut := target
+			for cut > 0 && !utf8.RuneStart(s[cut]) {
+				cut--
+			}
+			if cut == 0 {
+				cut = target
+			}
+			final = append(final, s[:cut])
+			s = s[cut:]
 		}
 		if s != "" {
 			final = append(final, s)

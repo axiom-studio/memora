@@ -50,6 +50,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The default chunker (also used by `markdown` and `code-go`) produced
+  cumulative cells on long paragraphs: each cell repeated everything
+  before it, so the last cell was the whole document. That stored and
+  embedded several times the text (#6164). Cells are now bounded windows
+  with the documented 64-token overlap, which never applied before
+  because the registered chunker is a zero value. Splits fall on UTF-8
+  boundaries. Existing memories keep their cells until they are next
+  edited.
 - `memora-cli` subcommands accept their flags anywhere among their
   arguments (`search NVDA --mode keyword --k 1`). Before, a flag after
   the first argument was silently folded into the query or ignored
