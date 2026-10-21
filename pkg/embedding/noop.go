@@ -2,10 +2,10 @@ package embedding
 
 import "context"
 
-// NoopProvider returns deterministic zero-norm vectors derived from a
-// stable hash of the input text. Use during local dev when no API
-// key is configured — keyword + FTS recall still works; vector / hybrid
-// recall returns no relevant matches but doesn't crash the pipeline.
+// NoopProvider returns deterministic vectors derived from the bytes of
+// the input text. They carry no similarity, so Searchable reports false:
+// vector search is unavailable and hybrid falls back to keyword. Use
+// hash:default for offline vector search.
 type NoopProvider struct {
 	model string
 	dim   int

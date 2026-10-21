@@ -77,7 +77,7 @@ The `written_by_agent_id` is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` because that
 
 Recall defaults to `hybrid` mode and returns the top 5 hits. Hybrid runs both a keyword search and a vector search and merges their rankings by reciprocal rank fusion, weighting the two equally by default.
 
-> **The default embedding provider is a stub.** Out of the box the embedding model is `noop:default`, so vector and hybrid recall return results with no semantic meaning — a keyword match is doing all the real work above. Set a real provider before drawing any conclusion about recall quality. See [Adapters](adapters.md) for the available providers.
+> **The default embedding provider produces no vectors.** Out of the box the embedding model is `noop:default`, so hybrid recall answers from keywords alone (the response says `degraded: ["vector_unavailable"]`) and vector recall is unavailable. Set `hash:default` for offline lexical vectors, or a semantic provider, before judging recall quality. See [Adapters](adapters.md) for the available providers.
 
 ## Patching It
 

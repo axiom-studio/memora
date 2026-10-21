@@ -16,7 +16,7 @@ graph_driver = "none"
 content_driver = "postgres"
 
 [embedding]
-model = "noop:default"
+model = "hash:default"  # offline lexical vectors; set a semantic model for real deployments
 
 [node]
 id = "2f7b9c02-4d3e-4b8a-8e61-000000000001"

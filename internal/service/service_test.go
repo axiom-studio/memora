@@ -49,7 +49,7 @@ func newTestServiceIn(t *testing.T, dir string) *Service {
 	}
 	t.Cleanup(func() { _ = graph.Close() })
 
-	emb, err := embedding.Open("noop:default")
+	emb, err := embedding.Open("hash:default")
 	if err != nil {
 		t.Fatalf("open embedding: %v", err)
 	}

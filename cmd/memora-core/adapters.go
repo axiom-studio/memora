@@ -76,6 +76,10 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("open embedding (model %q): %w", cfg.Embedding.Model, err)
 	}
 	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
+	if !embedding.Searchable(embedProvider) {
+		logger.Warn("embedding model produces no searchable vectors: vector search is unavailable and hybrid search uses keywords only; set embedding.model (e.g. hash:default offline)",
+			"model", embedProvider.ModelID())
+	}
 
 	// The vector store sizes its column from Dim, so the embedder opens
 	// first and dictates it (Issue #4375).

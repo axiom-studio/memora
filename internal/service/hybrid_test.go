@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -155,5 +156,31 @@ func TestHybrid_TopKIsPrefixStableAndBothSidesWin(t *testing.T) {
 		if !keywordMatches[id] {
 			t.Fatalf("position %d is a vector-only memory, ranked above a memory both sides rank", i)
 		}
+	}
+}
+
+// TestNoopEmbedder_VectorUnavailable (S-6): the noop embedder's vectors
+// are noise, so vector mode refuses with ErrCapability and hybrid falls
+// back to keyword, reporting vector_unavailable.
+func TestNoopEmbedder_VectorUnavailable(t *testing.T) {
+	s := newTestService(t)
+	ws := newTestWorkspace(t, s)
+	id := imprint(t, s, ws, "noop keeps keyword search alive")
+	noop, err := embedding.Open("noop:default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Embedder = noop
+
+	_, err = s.Search(context.Background(), api.SearchRequest{Query: "keyword search", Mode: api.RecallModeVector})
+	if !errors.Is(err, types.ErrCapability) || !strings.Contains(err.Error(), "noop:default") {
+		t.Fatalf("vector mode with noop: err = %v, want ErrCapability naming the model", err)
+	}
+	r, err := s.Search(context.Background(), api.SearchRequest{Query: "keyword search"})
+	if err != nil {
+		t.Fatalf("hybrid with noop: %v", err)
+	}
+	if len(r.Results) != 1 || r.Results[0].MemoryID != id || len(r.Degraded) != 1 || r.Degraded[0] != api.DegradedVector {
+		t.Fatalf("hybrid with noop: results=%+v degraded=%v; want the keyword hit and [vector_unavailable]", r.Results, r.Degraded)
 	}
 }

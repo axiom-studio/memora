@@ -842,6 +842,10 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 	if s.Embedder == nil || s.Vector == nil {
 		return nil, fmt.Errorf("%w: vector search: no embedder or vector store configured", types.ErrCapability)
 	}
+	if !embedding.Searchable(s.Embedder) {
+		return nil, fmt.Errorf("%w: vector search unavailable: embedding model %s produces no searchable vectors; configure a real model (e.g. hash:default offline, or openai/voyage/gemini/local)",
+			types.ErrCapability, s.Embedder.ModelID())
+	}
 	vecs, err := s.Embedder.Embed(ctx, []string{req.Query})
 	if err != nil {
 		// Provider error text can carry provider internals (and once

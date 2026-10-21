@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -377,5 +378,24 @@ func TestOpenCoreAdapters_NodeIdentity(t *testing.T) {
 	defer closeAll()
 	if svc.NodeID != cfg.Node.ID || svc.NodeName != "edge-1" {
 		t.Fatalf("node = %q/%q, want configured %q/edge-1", svc.NodeID, svc.NodeName, cfg.Node.ID)
+	}
+}
+
+// TestOpenCoreAdapters_WarnsOnPlaceholderEmbedder (S-6): booting with the
+// default noop model logs a warning that vector search is unavailable;
+// a searchable model does not.
+func TestOpenCoreAdapters_WarnsOnPlaceholderEmbedder(t *testing.T) {
+	for model, wantWarn := range map[string]bool{"noop:default": true, "hash:default": false} {
+		cfg := testAdapterConfig(t)
+		cfg.Embedding.Model = model
+		var buf bytes.Buffer
+		_, closeAll, err := openCoreAdapters(context.Background(), cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+		if err != nil {
+			t.Fatalf("%s: %v", model, err)
+		}
+		closeAll()
+		if got := strings.Contains(buf.String(), "vector search is unavailable"); got != wantWarn {
+			t.Errorf("%s: warning logged = %v, want %v", model, got, wantWarn)
+		}
 	}
 }

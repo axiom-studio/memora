@@ -1550,7 +1550,7 @@ func TestWorkspaceEditForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", EmbeddingModel: "noop:default"},
+			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", EmbeddingModel: "hash:default"},
 			Region:           "us-east-1",
 			ChunkerID:        "default",
 		},

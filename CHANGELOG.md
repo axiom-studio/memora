@@ -50,6 +50,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The `noop` embedding model (the default) no longer feeds vector
+  search with byte-histogram noise. Vector recall and search return
+  `501 capability_unavailable`, and hybrid uses keywords only with
+  `degraded: ["vector_unavailable"]`. The server warns at start-up. New
+  `hash:default` provider: offline lexical vectors that need no network
+  or model (the federation demo configs use it). `axiomstudio` fails at
+  start-up instead of on every embed.
 - The SQLite ledger stores `ts` in a fixed-width UTC layout, so audit
   order and `since`/`until` filters are chronological within a second
   (#6155). Before, `RFC3339Nano` text put `…05.1Z` after `…05.12Z`.

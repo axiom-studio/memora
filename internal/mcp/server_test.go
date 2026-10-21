@@ -43,7 +43,7 @@ func newTestService(t *testing.T) *service.Service {
 	}
 	t.Cleanup(func() { _ = vec.Close() })
 
-	embedProvider, err := embedding.Open("noop:default")
+	embedProvider, err := embedding.Open("hash:default")
 	if err != nil {
 		t.Fatalf("open embedding: %v", err)
 	}

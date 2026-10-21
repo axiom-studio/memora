@@ -38,7 +38,7 @@ func newTestService(t *testing.T) *service.Service {
 	}
 	t.Cleanup(func() { _ = vec.Close() })
 
-	embedProvider, _ := embedding.Open("noop:default")
+	embedProvider, _ := embedding.Open("hash:default")
 	return &service.Service{
 		Metadata: primary,
 		Vector:   vec,
