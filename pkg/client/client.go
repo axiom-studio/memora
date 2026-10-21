@@ -248,6 +248,15 @@ func (c *Client) Recall(ctx context.Context, ws string, req api.RecallRequest) (
 	return &out, nil
 }
 
+// Search runs a node-wide search (POST /v1/search).
+func (c *Client) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	var out api.RecallResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/search", req, &out, ""); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ---- Recall Pins ----
 
 func (c *Client) CreatePin(ctx context.Context, ws string, req api.PinRequest) (*api.PinResponse, error) {

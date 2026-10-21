@@ -148,9 +148,18 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 		q.K = 5
 	}
 
-	where := []string{"workspace_id = $1"}
-	args := []any{q.WorkspaceID}
-	argN := 2
+	workspaces, err := q.Scope()
+	if err != nil {
+		return nil, err
+	}
+	where := []string{"TRUE"}
+	var args []any
+	argN := 1
+	if workspaces != nil {
+		where = append(where, fmt.Sprintf("workspace_id = ANY($%d)", argN))
+		args = append(args, workspaces)
+		argN++
+	}
 
 	if q.Filter.CollectionID != "" {
 		where = append(where, fmt.Sprintf("collection_id = $%d", argN))

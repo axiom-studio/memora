@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/adapter/compliance"
 	"github.com/axiom-studio/memora/pkg/types"
 )
 
@@ -206,4 +207,8 @@ func TestStore_Query_SkipsRowsOfAnotherWidth(t *testing.T) {
 	if len(hits) != 1 || hits[0].Key.CellID != "c_new" {
 		t.Fatalf("hits = %+v, want only the current-width row", hits)
 	}
+}
+
+func TestStore_QueryScope(t *testing.T) {
+	compliance.VectorScopeContract(t, openStore(t))
 }

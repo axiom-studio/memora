@@ -64,7 +64,7 @@ Attach via MCP (Claude Code, etc.):
 
 ```bash
 ./bin/memora-core mcp --data-dir=./data
-# JSON-RPC 2.0 over stdio; 25 OSS tools.
+# JSON-RPC 2.0 over stdio; 26 OSS tools.
 ```
 
 ## Docker Compose Setups

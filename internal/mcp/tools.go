@@ -133,6 +133,20 @@ func toolCatalog() []Tool {
 			},
 		},
 		{
+			Name:        "memora_search",
+			Description: "Search Memories across every workspace on this node (or workspace_ids). mode = keyword | vector | hybrid (default). Each hit carries its workspace_id and memory_id; fetch the full Memory with memora_lookup.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":         stringP(),
+					"mode":          map[string]any{"type": "string", "enum": []string{"keyword", "vector", "hybrid"}, "default": "hybrid"},
+					"k":             intP(1, 100, 5),
+					"workspace_ids": map[string]any{"type": "array", "items": stringP()},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
 			Name:        "memora_pin",
 			Description: "Save a Recall query as a pin. watermark is optional and stored as given (not validated); pass a real head_watermark from memora_lookup, never an invented one.",
 			InputSchema: map[string]any{

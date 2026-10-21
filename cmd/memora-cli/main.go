@@ -95,6 +95,8 @@ func main() {
 		cmdForget(ctx, c, g)
 	case "recall":
 		cmdRecall(ctx, c, g)
+	case "search":
+		cmdSearch(ctx, c, g)
 	case "list":
 		cmdList(ctx, c, g)
 	case "watermarks":
@@ -569,6 +571,38 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	}
 }
 
+// cmdSearch is `search <query>`: node-wide search, every workspace unless
+// --workspaces narrows it. --workspace is ignored.
+func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
+	fs := flag.NewFlagSet("search", flag.ExitOnError)
+	mode := fs.String("mode", "hybrid", "keyword|vector|hybrid")
+	k := fs.Int("k", 5, "max results")
+	workspaces := fs.String("workspaces", "", "comma-separated workspace IDs to search (default: all)")
+	_ = fs.Parse(g.Args)
+	if len(fs.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]")
+		os.Exit(exitUsage)
+	}
+	req := api.SearchRequest{Query: strings.Join(fs.Args(), " "), Mode: api.RecallMode(*mode), K: *k}
+	if *workspaces != "" {
+		req.WorkspaceIDs = strings.Split(*workspaces, ",")
+	}
+	resp, err := c.Search(ctx, req)
+	die(err)
+	if g.Output != "text" {
+		emit(g, resp)
+		return
+	}
+	if len(resp.Results) == 0 {
+		fmt.Println("(no results)")
+		return
+	}
+	for i, h := range resp.Results {
+		fmt.Printf("[%d] score=%.4f ws=%s mem=%s\n    %s\n", i+1, h.Score, h.WorkspaceID, h.MemoryID, truncate(h.Text, 140))
+	}
+	fmt.Printf("(%d results, %d candidates, %dms)\n", len(resp.Results), resp.TotalCandidatesScanned, resp.LatencyMS)
+}
+
 func cmdList(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
@@ -952,6 +986,7 @@ Commands:
   list [--collection <id>] [--limit N]
   watermarks <mem_id>
   link <src_mem_id> <tgt_mem_id> --type references|...
+  search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]
   unlink <edge_id>
   neighbors <mem_id> [--direction out|in|both] [--types ...] [--k N]
   traverse <seed_mem_id> [--depth 1..3] [--direction ...] [--types ...]

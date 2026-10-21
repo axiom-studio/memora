@@ -83,6 +83,7 @@ All paths are relative to `/v1`.
 
 | Field | Value |
 |---|---|
+| `POST /search` | Search every workspace on the node, or those in `workspace_ids`. Body: `query`, `mode` (`keyword`, `vector`, or `hybrid`, the default), `k` (default 5), `workspace_ids`, `filters`. Each hit carries its `workspace_id`. In `multi-tenant` mode the search stays inside the `X-Memora-Workspace` tenant. |
 | `POST /workspaces/{ws}/recall` | Run a recall query. |
 | `GET /workspaces/{ws}/recall/pins` | List saved queries. |
 | `POST /workspaces/{ws}/recall/pins` | Save a query. `mode` defaults to `hybrid` and `k` to 10. |
@@ -115,7 +116,7 @@ These are ordinary non-`/ui` paths, so they require the bearer token when an API
 | Workspaces | `memora_create_workspace`, `memora_get_workspace`, `memora_list_workspaces`, `memora_update_workspace`, `memora_delete_workspace` |
 | Collections | `memora_create_collection`, `memora_list_collections`, `memora_delete_collection` |
 | Memories | `memora_imprint`, `memora_lookup`, `memora_update`, `memora_patch`, `memora_append`, `memora_forget`, `memora_list_memories`, `memora_get_watermark_history` |
-| Recall | `memora_recall`, `memora_pin`, `memora_unpin` |
+| Recall | `memora_search`, `memora_recall`, `memora_pin`, `memora_unpin` |
 | Graph | `memora_link`, `memora_unlink`, `memora_neighbors`, `memora_traverse` |
 | Agents | `memora_register_agent`, `memora_list_agents` |
 

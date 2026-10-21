@@ -555,7 +555,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		seeds = hits
 		totalScanned = len(hits)
 	case api.RecallModeVector:
-		hits, err := s.vectorSearch(ctx, workspaceID, req, k)
+		hits, err := s.vectorSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		if err != nil {
 			return nil, err
 		}
@@ -563,7 +563,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		totalScanned = len(hits)
 	case api.RecallModeHybrid:
 		kw, _ := s.keywordSearch(ctx, workspaceID, req, k)
-		vec, _ := s.vectorSearch(ctx, workspaceID, req, k)
+		vec, _ := s.vectorSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		seeds = hybridMerge(kw, vec, req.Weights, k)
 		totalScanned = len(kw) + len(vec)
 	default:
@@ -597,6 +597,100 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 		GraphNodesExpanded:     graphExpanded,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
 	}, nil
+}
+
+// Search runs a keyword, vector or hybrid query across every workspace
+// on the node, or the subset in req.WorkspaceIDs, and returns the top k
+// hits, each carrying its workspace_id.
+//
+// The vector side is one node-wide store query. The keyword side is one
+// scan per workspace in scope — O(workspaces) — until it moves to the
+// store's full-text index (S-2).
+func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	start := time.Now()
+	if strings.TrimSpace(req.Query) == "" {
+		return nil, fmt.Errorf("%w: query is required", types.ErrInvalidInput)
+	}
+	for _, id := range req.WorkspaceIDs {
+		if _, err := types.ParseID("workspace_ids", id); err != nil {
+			return nil, err
+		}
+	}
+	mode := req.Mode
+	if mode == "" {
+		mode = api.RecallModeHybrid
+	}
+	k := req.K
+	if k <= 0 {
+		k = 5
+	}
+	recallReq := api.RecallRequest{Query: req.Query, Mode: mode, K: k, Filters: req.Filters, Weights: req.Weights}
+	scope := adapter.VectorQuery{WorkspaceIDs: req.WorkspaceIDs, AllWorkspaces: len(req.WorkspaceIDs) == 0}
+
+	var hits []api.RecallHit
+	var scanned int
+	switch mode {
+	case api.RecallModeKeyword:
+		kw, err := s.keywordSearchScope(ctx, req.WorkspaceIDs, recallReq, k)
+		if err != nil {
+			return nil, err
+		}
+		hits, scanned = kw, len(kw)
+	case api.RecallModeVector:
+		vec, err := s.vectorSearch(ctx, scope, recallReq, k)
+		if err != nil {
+			return nil, err
+		}
+		hits, scanned = vec, len(vec)
+	case api.RecallModeHybrid:
+		kw, _ := s.keywordSearchScope(ctx, req.WorkspaceIDs, recallReq, k)
+		vec, _ := s.vectorSearch(ctx, scope, recallReq, k)
+		hits, scanned = hybridMerge(kw, vec, req.Weights, k), len(kw)+len(vec)
+	default:
+		return nil, fmt.Errorf("%w: search mode must be keyword, vector or hybrid, got %q", types.ErrInvalidInput, mode)
+	}
+	sortHits(hits)
+	if len(hits) > k {
+		hits = hits[:k]
+	}
+	return &api.RecallResponse{
+		Results:                hits,
+		TotalCandidatesScanned: scanned,
+		LatencyMS:              int(time.Since(start).Milliseconds()),
+	}, nil
+}
+
+// keywordSearchScope runs keywordSearch in each workspace of workspaceIDs,
+// or every workspace when it is empty, and keeps the overall top k.
+func (s *Service) keywordSearchScope(ctx context.Context, workspaceIDs []string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
+	if len(workspaceIDs) == 0 {
+		for cursor := ""; ; {
+			page, next, err := s.Metadata.ListWorkspacesPaged(ctx, cursor, 500)
+			if err != nil {
+				return nil, fmt.Errorf("list workspaces for search: %w", err)
+			}
+			for _, w := range page {
+				workspaceIDs = append(workspaceIDs, w.ID)
+			}
+			if next == "" {
+				break
+			}
+			cursor = next
+		}
+	}
+	var hits []api.RecallHit
+	for _, ws := range workspaceIDs {
+		wsHits, err := s.keywordSearch(ctx, ws, req, k)
+		if err != nil {
+			return nil, fmt.Errorf("keyword search in workspace %s: %w", ws, err)
+		}
+		hits = append(hits, wsHits...)
+	}
+	sortHits(hits)
+	if len(hits) > k {
+		hits = hits[:k]
+	}
+	return hits, nil
 }
 
 // markRecallReady persists recall_ready once every cell of the memory has a
@@ -738,6 +832,7 @@ func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api
 		}
 		hits = append(hits, api.RecallHit{
 			MemoryID:         m.ID,
+			WorkspaceID:      m.WorkspaceID,
 			Text:             excerpt(m.Content, req.Query, 240),
 			Tags:             m.Tags,
 			Watermark:        m.HeadWatermark,
@@ -754,7 +849,9 @@ func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api
 	return hits, nil
 }
 
-func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
+// vectorSearch embeds the query and searches the vector store within
+// scope, which carries only the workspace scope fields of a VectorQuery.
+func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
 	if s.Embedder == nil {
 		return nil, nil
 	}
@@ -762,14 +859,10 @@ func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.
 	if err != nil || len(vecs) == 0 {
 		return nil, nil //nolint:nilerr // embedding failure degrades recall to keyword results by design
 	}
-	res, err := s.Vector.Query(ctx, adapter.VectorQuery{
-		WorkspaceID: workspaceID,
-		Embedding:   vecs[0],
-		K:           k,
-		Filter: adapter.VectorFilter{
-			CollectionID: req.Filters.CollectionID,
-		},
-	})
+	scope.Embedding = vecs[0]
+	scope.K = k
+	scope.Filter = adapter.VectorFilter{CollectionID: req.Filters.CollectionID}
+	res, err := s.Vector.Query(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -784,6 +877,7 @@ func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.
 		}
 		out = append(out, api.RecallHit{
 			MemoryID:         m.ID,
+			WorkspaceID:      m.WorkspaceID,
 			CellID:           v.Key.CellID,
 			Score:            v.Score,
 			VectorScore:      v.Score,

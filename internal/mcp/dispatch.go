@@ -167,6 +167,12 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		_ = json.Unmarshal(args, &wrapper)
 		return s.svc.Recall(ctx, wrapper.WorkspaceID, in)
+	case "memora_search":
+		var in api.SearchRequest
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		return s.svc.Search(ctx, in)
 	case "memora_pin":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`

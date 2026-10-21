@@ -183,3 +183,29 @@ func TestDispatch_PinSchemaRequiredMatchesHandler(t *testing.T) {
 		t.Fatalf("memora_pin without watermark = %v, want a pin with an empty watermark", pin)
 	}
 }
+
+// TestDispatch_Search_NodeWide: memora_search finds memories in every
+// workspace and tags each hit with its workspace_id.
+func TestDispatch_Search_NodeWide(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	agent := types.NewID()
+	var wsIDs []string
+	for _, name := range []string{"mcp-search-a", "mcp-search-b"} {
+		ws := createWorkspace(t, s, map[string]any{"name": name})
+		if _, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": ws, "agent_id": agent, "content": "mcp search phrase"}); err != nil {
+			t.Fatalf("imprint: %v", err)
+		}
+		wsIDs = append(wsIDs, ws)
+	}
+	out, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "mcp search phrase", "mode": "keyword"})
+	if err != nil {
+		t.Fatalf("memora_search: %v", err)
+	}
+	got := map[string]bool{}
+	for _, r := range out["results"].([]any) {
+		got[r.(map[string]any)["workspace_id"].(string)] = true
+	}
+	if !got[wsIDs[0]] || !got[wsIDs[1]] {
+		t.Fatalf("memora_search workspaces = %v, want %v", got, wsIDs)
+	}
+}

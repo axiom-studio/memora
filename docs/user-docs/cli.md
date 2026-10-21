@@ -119,10 +119,21 @@ A `--if-match` value that no longer matches the Memory's head returns `412` and 
 
 | Section | Description |
 |---|---|
+| `search <query>` | Search every workspace on the node. |
 | `recall <query>` | Run a recall query. |
 | `pin create --query <text>` | Save a recall query. |
 | `pin list` | List saved queries. |
 | `pin delete <pin_id>` | Delete a saved query. |
+
+### search
+
+Searches every workspace on the node, not just `--workspace`. Each result shows its workspace.
+
+| Field | Value |
+|---|---|
+| `--mode` | `hybrid`, `keyword`, or `vector`. Default `hybrid`. |
+| `--k` | Number of results. Default `5`. |
+| `--workspaces` | Comma-separated workspace IDs to search instead of all of them. |
 
 ### recall
 

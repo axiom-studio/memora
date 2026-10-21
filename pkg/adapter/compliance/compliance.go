@@ -340,3 +340,55 @@ func LedgerCursorContract(t *testing.T, s adapter.LedgerStore) {
 		}
 	}
 }
+
+// VectorScopeContract checks VectorQuery scoping on a 3-dimension store:
+// WorkspaceID searches one workspace, WorkspaceIDs those workspaces,
+// AllWorkspaces the whole node, and a query with no scope (or more than
+// one) is invalid input rather than silently node-wide.
+func VectorScopeContract(t *testing.T, s adapter.VectorStore) {
+	t.Helper()
+	ctx := context.Background()
+	wsA, wsB, wsC := types.NewID(), types.NewID(), types.NewID()
+	var puts []adapter.VectorPut
+	for _, ws := range []string{wsA, wsB, wsC} {
+		puts = append(puts, adapter.VectorPut{
+			Key:       adapter.VectorKey{WorkspaceID: ws, MemoryID: types.NewID(), CellID: types.NewID()},
+			Embedding: []float32{1, 0, 0},
+		})
+	}
+	if err := s.PutVectorsBatch(ctx, puts); err != nil {
+		t.Fatalf("PutVectorsBatch: %v", err)
+	}
+	workspacesOf := func(q adapter.VectorQuery) map[string]bool {
+		t.Helper()
+		q.Embedding, q.K = []float32{1, 0, 0}, 1000
+		hits, err := s.Query(ctx, q)
+		if err != nil {
+			t.Fatalf("Query(%+v): %v", q, err)
+		}
+		got := map[string]bool{}
+		for _, h := range hits {
+			got[h.Key.WorkspaceID] = true
+		}
+		return got
+	}
+
+	if got := workspacesOf(adapter.VectorQuery{WorkspaceID: wsA}); len(got) != 1 || !got[wsA] {
+		t.Errorf("WorkspaceID scope hit %v, want only %s", got, wsA)
+	}
+	if got := workspacesOf(adapter.VectorQuery{WorkspaceIDs: []string{wsA, wsB}}); len(got) != 2 || !got[wsA] || !got[wsB] {
+		t.Errorf("WorkspaceIDs scope hit %v, want %s and %s", got, wsA, wsB)
+	}
+	if got := workspacesOf(adapter.VectorQuery{AllWorkspaces: true}); !got[wsA] || !got[wsB] || !got[wsC] {
+		t.Errorf("AllWorkspaces hit %v, want all three workspaces", got)
+	}
+	for name, q := range map[string]adapter.VectorQuery{
+		"no scope":   {},
+		"two scopes": {WorkspaceID: wsA, AllWorkspaces: true},
+	} {
+		q.Embedding, q.K = []float32{1, 0, 0}, 10
+		if _, err := s.Query(ctx, q); !errors.Is(err, types.ErrInvalidInput) {
+			t.Errorf("%s: Query err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+}

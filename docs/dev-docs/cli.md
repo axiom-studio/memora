@@ -147,5 +147,5 @@ Wire it from Claude Code via `.mcp.json`:
 }
 ```
 
-The MCP server exposes all 25 OSS tools (memora_imprint, _recall,
+The MCP server exposes all 26 OSS tools (memora_imprint, _recall,
 _patch, _link, _neighbors, _traverse, etc.).

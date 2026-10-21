@@ -107,6 +107,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Node-wide search: `POST /v1/search`, MCP tool `memora_search` and
+  `memora-cli search` query every workspace on the node, or those in
+  `workspace_ids`, in keyword, vector or hybrid mode. Hits carry
+  `workspace_id`. In `multi-tenant` mode a search stays inside the
+  `X-Memora-Workspace` tenant. `adapter.VectorQuery` gains `WorkspaceIDs`
+  and `AllWorkspaces`; a query with no scope is now invalid input
+  rather than matching nothing.
 - Opt-in async embedding (`embedding.async`, `MEMORA_EMBEDDING_ASYNC`,
   `serve --async-embed`; default off). Writes return once their Cells are
   stored and the in-process embed pool fills in vectors; imprint responds

@@ -71,6 +71,7 @@ type GraphProvenance struct {
 // RecallHit is one search result.
 type RecallHit struct {
 	MemoryID         string            `json:"memory_id"`
+	WorkspaceID      string            `json:"workspace_id,omitempty"`
 	CellID           string            `json:"cell_id,omitempty"`
 	Score            float64           `json:"score"`
 	VectorScore      float64           `json:"vector_score,omitempty"`
@@ -127,4 +128,16 @@ type PinEntry struct {
 	Label     string `json:"label,omitempty"`
 	CreatedBy string `json:"created_by,omitempty"`
 	CreatedAt string `json:"created_at"`
+}
+
+// SearchRequest is POST /v1/search: a recall query across every
+// workspace on the node, or the subset in WorkspaceIDs. Lookup mode does
+// not apply; Mode is keyword, vector or hybrid (the default).
+type SearchRequest struct {
+	Query        string        `json:"query"`
+	Mode         RecallMode    `json:"mode,omitempty"`
+	K            int           `json:"k,omitempty"`
+	WorkspaceIDs []string      `json:"workspace_ids,omitempty"`
+	Filters      RecallFilters `json:"filters,omitempty"`
+	Weights      RecallWeights `json:"weights,omitempty"`
 }

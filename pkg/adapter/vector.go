@@ -2,7 +2,10 @@ package adapter
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // VectorConfig is the driver-agnostic input to VectorStore.Open.
@@ -49,10 +52,40 @@ type VectorFilter struct {
 
 // VectorQuery is the input to VectorStore.Query.
 type VectorQuery struct {
-	WorkspaceID string
-	Embedding   []float32
-	K           int
-	Filter      VectorFilter
+	// The scope is exactly one of: WorkspaceID (one workspace),
+	// WorkspaceIDs (those workspaces) or AllWorkspaces (the whole node).
+	// Node-wide search is an explicit opt-in so that an empty
+	// WorkspaceID can never widen a query; Scope reports a bad scope.
+	WorkspaceID   string
+	WorkspaceIDs  []string
+	AllWorkspaces bool
+	Embedding     []float32
+	K             int
+	Filter        VectorFilter
+}
+
+// Scope validates the query scope and returns the workspaces to search;
+// nil means every workspace on the node.
+func (q VectorQuery) Scope() ([]string, error) {
+	set := 0
+	if q.WorkspaceID != "" {
+		set++
+	}
+	if len(q.WorkspaceIDs) > 0 {
+		set++
+	}
+	if q.AllWorkspaces {
+		set++
+	}
+	switch {
+	case set != 1:
+		return nil, fmt.Errorf("%w: vector query needs exactly one of WorkspaceID, WorkspaceIDs or AllWorkspaces", types.ErrInvalidInput)
+	case q.WorkspaceID != "":
+		return []string{q.WorkspaceID}, nil
+	case q.AllWorkspaces:
+		return nil, nil
+	}
+	return q.WorkspaceIDs, nil
 }
 
 // VectorHit is one row of Query output.

@@ -19,6 +19,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/readyz", s.readyz)
 	s.mux.HandleFunc("/metrics", s.metrics)
 
+	s.mux.HandleFunc("/v1/search", s.handleSearch)
 	s.mux.HandleFunc("/v1/workspaces", s.handleWorkspaces)
 	s.mux.HandleFunc("/v1/workspaces/", s.handleWorkspacePath)
 }
@@ -423,6 +424,31 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 		return
 	}
 	resp, err := s.cfg.Service.Recall(r.Context(), wsID, req)
+	if err != nil {
+		s.writeErrorFromService(w, err)
+		return
+	}
+	s.writeJSON(w, 200, resp)
+}
+
+// /v1/search — node-wide search. In multi-tenant mode the request is
+// pinned to the X-Memora-Workspace tenant: node-wide must never mean
+// cross-tenant.
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		s.writeError(w, 405, "method_not_allowed", "", nil)
+		return
+	}
+	var req api.SearchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeError(w, 400, "invalid_input", err.Error(), nil)
+		return
+	}
+	if tenant, _ := r.Context().Value(ctxKeyWorkspace).(string); tenant != "" {
+		req.WorkspaceIDs = []string{tenant}
+	}
+	resp, err := s.cfg.Service.Search(r.Context(), req)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return

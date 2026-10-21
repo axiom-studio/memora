@@ -24,7 +24,7 @@ In a project's `.mcp.json`:
 ```
 
 Claude Code spawns `memora-core mcp`, pipes JSON-RPC over its
-stdin/stdout, and presents the 25 OSS tools to the model.
+stdin/stdout, and presents the 26 OSS tools to the model.
 
 ## Available tools
 
@@ -34,6 +34,7 @@ stdin/stdout, and presents the 25 OSS tools to the model.
 | `memora_lookup` | Fetch a Memory. |
 | `memora_update` / `memora_patch` / `memora_append` | Edit a Memory (CAS). |
 | `memora_forget` | Soft-delete + cascade edges. |
+| `memora_search` | Search every workspace on the node (keyword/vector/hybrid); hits carry `workspace_id`. |
 | `memora_recall` | Search (lookup/keyword/vector/hybrid + graph_expansion). |
 | `memora_pin` / `memora_unpin` | Bind a recall to a watermark. |
 | `memora_list_workspaces` + `_create_workspace` / `_get_workspace` / `_delete_workspace` | Workspace admin. |
@@ -64,7 +65,7 @@ memora-core mcp --data-dir=./data 2>/dev/null
 ) | memora-core mcp --data-dir=./data
 ```
 
-You'll see initialize → tools list (25 tools) → workspace created.
+You'll see initialize → tools list (26 tools) → workspace created.
 
 ## Auth
 

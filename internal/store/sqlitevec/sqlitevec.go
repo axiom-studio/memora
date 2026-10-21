@@ -177,10 +177,20 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 	if len(q.Embedding) != s.dim {
 		return nil, fmt.Errorf("%w: query vector has %d dimensions, store is sized for %d", types.ErrInvalidInput, len(q.Embedding), s.dim)
 	}
+	workspaces, err := q.Scope()
+	if err != nil {
+		return nil, err
+	}
 	// Rows written at another width (before an embedding-model change) are
 	// not comparable; skip them rather than returning zero-score hits.
-	where := []string{"workspace_id = ?", "dim = ?"}
-	args := []any{q.WorkspaceID, s.dim}
+	where := []string{"dim = ?"}
+	args := []any{s.dim}
+	if workspaces != nil {
+		where = append(where, "workspace_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(workspaces)), ",")+")")
+		for _, ws := range workspaces {
+			args = append(args, ws)
+		}
+	}
 	if q.Filter.CollectionID != "" {
 		where = append(where, "collection_id = ?")
 		args = append(args, q.Filter.CollectionID)
