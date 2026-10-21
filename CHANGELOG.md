@@ -52,6 +52,9 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   `written_by_agent_id`); names go in `display_name`. The sentinel agents
   have fixed UUIDs (`AgentLegacyVibeflowID`, `AgentSystemAutoLinkID`) and
   the CLI's default agent is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`.
+  Synthetic `parent_of` edges from the vibeflow shim get persisted UUIDs
+  (sqlite migration 0007, `memora_synthetic_edges`) and are recognised by
+  the view's `is_synthetic` column, not an `edg_synthetic_` prefix.
   Existing prefixed data is not migrated yet (see
   docs/dev-docs/prd-uuid-ids-federated-search.md, ID-8).
 - **BREAKING (identity)**: `anthropic_session`, `oauth_agent` and

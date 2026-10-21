@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -88,7 +87,7 @@ SELECT COUNT(*) FROM memora_edges WHERE workspace_id = ? AND source_memory_id = 
 		err := g.db.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM memora_edges_view
 WHERE workspace_id = ? AND source_memory_id = ? AND target_memory_id = ? AND edge_type = 'parent_of'
-  AND edge_id LIKE 'edg_synthetic_%'`,
+  AND is_synthetic = 1`,
 			e.WorkspaceID, e.SourceMemoryID, e.TargetMemoryID).Scan(&seen)
 		if err == nil && seen > 0 {
 			return types.Edge{}, types.ErrAlreadyLinked
@@ -133,7 +132,7 @@ func (g *GraphStore) assertEndpointsInWorkspace(ctx context.Context, wsID, src, 
 }
 
 func (g *GraphStore) Unlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
-	if strings.HasPrefix(edgeID, "edg_synthetic_") {
+	if isSyntheticEdge(ctx, g.db, workspaceID, edgeID) {
 		return types.ErrSyntheticEdge
 	}
 	res, err := g.db.ExecContext(ctx, `

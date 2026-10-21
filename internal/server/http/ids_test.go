@@ -39,6 +39,7 @@ func TestRoutes_NonUUIDIDs_Return400NamingTheField(t *testing.T) {
 		{"collection", "GET", wsBase + "/collections/coll_1", "collection_id", nil},
 		{"collection filter", "GET", wsBase + "/memories?collection_id=coll_1", "collection_id", nil},
 		{"pin", "DELETE", wsBase + "/recall/pins/pin_1", "pin_id", nil},
+		{"edge", "DELETE", wsBase + "/edges/edg_synthetic_42", "edge_id", nil},
 		{"neighbors body", "POST", wsBase + "/graph/neighbors", "memory_id", map[string]any{"memory_id": legacy}},
 		{"traverse body", "POST", wsBase + "/graph/traverse", "seed_memory_id", map[string]any{"seed_memory_id": legacy}},
 		{"ledger memory filter", "GET", wsBase + "/ledger?memory_id=" + legacy, "memory_id", nil},

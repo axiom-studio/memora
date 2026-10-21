@@ -529,6 +529,7 @@ func TestToolCall_NonUUIDID_ReturnsInvalidParams(t *testing.T) {
 		{"memora_link", "source_memory_id"},
 		{"memora_link", "target_memory_id"},
 		{"memora_traverse", "seed_memory_id"},
+		{"memora_unlink", "edge_id"},
 	}
 	for i, tc := range cases {
 		args := map[string]any{"workspace_id": types.NewID(), "agent_id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}

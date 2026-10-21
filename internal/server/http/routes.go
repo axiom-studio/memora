@@ -647,6 +647,9 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
+	if !s.validID(w, "edge_id", seg) {
+		return
+	}
 	if err := s.cfg.Service.GraphUnlink(r.Context(), wsID, seg, agentFrom(r.Context())); err != nil {
 		s.writeErrorFromService(w, err)
 		return
