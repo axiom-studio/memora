@@ -9,11 +9,10 @@ import (
 
 func TestNewOutboundRecallEntry(t *testing.T) {
 	fr := &FanoutResult{
-		Results:        []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}},
-		TotalScanned:   50,
-		PartialSuccess: true,
-		FailedPeers:    []string{"dead-peer"},
-		PeerLatencyMS:  map[string]int{"peer1": 10},
+		Lists:         []NodeHits{{NodeID: "n1", Hits: []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}}}},
+		TotalScanned:  50,
+		Failures:      []PeerFailure{{NodeID: "n2", Name: "dead-peer", Err: ErrOutboundRateLimited}},
+		PeerLatencyMS: map[string]int{"peer1": 10},
 	}
 	e := NewOutboundRecallEntry("ws_test", "fed_abc", fr)
 	if e.Op != "federation_recall" {
@@ -32,7 +31,7 @@ func TestNewOutboundRecallEntry(t *testing.T) {
 
 func TestNewOutboundRecallEntry_NoFailures(t *testing.T) {
 	fr := &FanoutResult{
-		Results:      []api.RecallHit{{MemoryID: "m1"}},
+		Lists:        []NodeHits{{NodeID: "n1", Hits: []api.RecallHit{{MemoryID: "m1"}}}},
 		TotalScanned: 10,
 	}
 	e := NewOutboundRecallEntry("ws_test", "fed_abc", fr)

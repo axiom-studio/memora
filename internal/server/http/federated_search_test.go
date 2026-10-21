@@ -24,6 +24,7 @@ import (
 	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/identity"
 	"github.com/axiom-studio/memora/pkg/types"
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
 // meshNode is one real node in a federation test mesh.
@@ -174,6 +175,15 @@ func TestFederatedSearch_E2E_PeersContribute(t *testing.T) {
 			t.Fatalf("%s: partial_success with every peer up: %v", mode, body["failed_peers"])
 		}
 		lat, _ := body["peer_latency_ms"].(map[string]any)
+		if _, ok := lat[a.id]; !ok {
+			t.Fatalf("%s: peer_latency_ms = %v, want an entry for a (this node)", mode, lat)
+		}
+		for _, r := range body["results"].([]any) {
+			h := r.(map[string]any)
+			if h["node_id"] != a.id && h["via"] != "federation:"+h["node_id"].(string) {
+				t.Fatalf("%s: peer hit via = %v, want federation:<node_id>", mode, h["via"])
+			}
+		}
 		if _, ok := lat[b.id]; !ok {
 			t.Fatalf("%s: peer_latency_ms = %v, want an entry for b", mode, lat)
 		}
@@ -189,8 +199,14 @@ func TestFederatedSearch_E2E_PeersContribute(t *testing.T) {
 		}
 	}
 
+	// rerank: true goes through the default (no-op) re-scorer: same hits.
+	status, body := a.search(t, map[string]any{"query": "aurora", "mode": "keyword", "k": 10, "federated": true, "rerank": true})
+	if got := hitNodes(body); status != 200 || len(got) != 3 {
+		t.Fatalf("rerank: status=%d hits=%v, want the three memories", status, got)
+	}
+
 	// Without federated: true, A answers alone.
-	_, body := a.search(t, map[string]any{"query": "aurora", "mode": "keyword"})
+	_, body = a.search(t, map[string]any{"query": "aurora", "mode": "keyword"})
 	if got, ok := hitNodes(body)[memA]; !ok || len(hitNodes(body)) != 1 || got != "" {
 		t.Fatalf("local search hits = %v, want only a's memory, unattributed", hitNodes(body))
 	}
@@ -216,8 +232,11 @@ func TestFederatedSearch_E2E_SlowPeerFails(t *testing.T) {
 	if status != 200 || got[memB] != b.id || len(got) != 1 {
 		t.Fatalf("status=%d hits=%v, want only b's memory", status, got)
 	}
-	if body["partial_success"] != true || len(failed) != 1 || failed[0] != "c" {
-		t.Fatalf("partial_success=%v failed_peers=%v, want true and [c]", body["partial_success"], failed)
+	if body["partial_success"] != true || len(failed) != 1 {
+		t.Fatalf("partial_success=%v failed_peers=%v, want true and one failed peer", body["partial_success"], failed)
+	}
+	if fp := failed[0].(map[string]any); fp["node_id"] != c.id || fp["name"] != "c" || fp["error_code"] != "timeout" {
+		t.Fatalf("failed peer = %v, want c (%s) with error_code timeout", fp, c.id)
 	}
 }
 
@@ -247,7 +266,7 @@ func TestFederatedSearch_E2E_PerPeerTimeout(t *testing.T) {
 	b.delay = 600 * time.Millisecond
 
 	_, body := a.search(t, map[string]any{"query": "orchard", "mode": "keyword", "federated": true})
-	if failed, _ := body["failed_peers"].([]any); len(failed) != 1 || failed[0] != "b" {
+	if failed, _ := body["failed_peers"].([]any); len(failed) != 1 || failed[0].(map[string]any)["name"] != "b" {
 		t.Fatalf("with b's 150 ms timeout: failed_peers=%v, want [b]", body["failed_peers"])
 	}
 	_, body = a.search(t, map[string]any{"query": "orchard", "mode": "keyword", "federated": true, "timeout_ms": 3000})
@@ -289,5 +308,52 @@ func TestFederatedSearch_E2E_Validation(t *testing.T) {
 		map[string]string{"X-Memora-Workspace": types.NewID()}))
 	if status != 403 || resp["error_code"] != "federation_multi_tenant" {
 		t.Fatalf("multi-tenant: status=%d body=%v, want 403 federation_multi_tenant", status, resp)
+	}
+}
+
+// reverseReranker is a Reranker that reverses the fused order, so the
+// test can see that rerank: true routes through the node's re-scorer.
+type reverseReranker struct{ err error }
+
+func (r reverseReranker) Rerank(_ context.Context, _ string, hits []api.RecallHit) ([]api.RecallHit, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	out := make([]api.RecallHit, len(hits))
+	for i, h := range hits {
+		out[len(hits)-1-i] = h
+	}
+	return out, nil
+}
+
+// TestFederatedSearch_E2E_RerankHook: with rerank: true the node's
+// Reranker reorders the merged hits; a failing Reranker keeps the fused
+// order instead of failing the search.
+func TestFederatedSearch_E2E_RerankHook(t *testing.T) {
+	nodes := newMesh(t, []string{"a", "b"}, nil)
+	a, b := nodes[0], nodes[1]
+	a.seed(t, "comet tail photo")
+	b.seed(t, "comet orbit notes")
+
+	order := func(body map[string]any) []string {
+		var ids []string
+		for _, r := range body["results"].([]any) {
+			ids = append(ids, r.(map[string]any)["memory_id"].(string))
+		}
+		return ids
+	}
+	req := map[string]any{"query": "comet", "mode": "keyword", "k": 10, "federated": true}
+	_, fused := a.search(t, req)
+	req["rerank"] = true
+	a.svc.Reranker = reverseReranker{}
+	_, reranked := a.search(t, req)
+	f, r := order(fused), order(reranked)
+	if len(f) != 2 || len(r) != 2 || f[0] != r[1] || f[1] != r[0] {
+		t.Fatalf("fused %v, reranked %v: want the reverse order", f, r)
+	}
+	a.svc.Reranker = reverseReranker{err: fmt.Errorf("scorer down")}
+	status, failed := a.search(t, req)
+	if status != 200 || fmt.Sprint(order(failed)) != fmt.Sprint(f) {
+		t.Fatalf("failing reranker: status=%d order=%v, want 200 and the fused order %v", status, order(failed), f)
 	}
 }

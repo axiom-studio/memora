@@ -110,8 +110,11 @@ Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_
 | `peers` | Node IDs to ask. Default: every peer that is not `revoked` and has an `api_key`. An unknown or unusable node ID is `400`. |
 | `per_peer_k` | How many hits each peer returns. Default `k`. |
 | `timeout_ms` | Bounds every peer. Default: each peer's `timeout_ms` (see [Peer Credentials](configuration.md#peer-credentials)). At most `60000`. |
+| `rerank` | `true` passes the merged hits through the node's re-scorer before the top `k` is taken. The default re-scorer keeps the fused order; embedders of Memora can plug in their own (`federation.Reranker`). |
 
-Hits carry `node_id` and `node_name`, and peer hits have `via: "federation:<peer name>"`. A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed by name in `failed_peers`, and `partial_success` is `true`. `peer_latency_ms` maps each answering node ID, and `local`, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
+This node's list and each peer's list are merged by reciprocal rank fusion: ranks, not scores, are combined, because the nodes run different embedding models. A hit's `score` is its fused score. Hits are identified by `(node_id, memory_id)`, so the same memory ID on two nodes is two hits. Every hit carries `node_id` and `node_name`; a peer's hits have `via: "federation:<node_id>"`, with the node taken from this node's peer config rather than from the peer's answer.
+
+A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed in `failed_peers` as `{node_id, name, error_code}`, where `error_code` is `timeout`, `unreachable`, `outbound_rate_limited`, `bad_response`, the peer's own error code (for example `federation_unauthorized`), or `http_<status>`; `partial_success` is then `true`. `peer_latency_ms` maps each answering node ID, this node's included, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
 
 ### Federation
 

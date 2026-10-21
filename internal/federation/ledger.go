@@ -8,14 +8,18 @@ import (
 )
 
 func NewOutboundRecallEntry(wsID, federationID string, fr *FanoutResult) api.LedgerEntry {
+	hits := 0
+	for _, l := range fr.Lists {
+		hits += len(l.Hits)
+	}
 	meta := map[string]any{
 		"federation_id": federationID,
-		"total_hits":    len(fr.Results),
+		"total_hits":    hits,
 		"total_scanned": fr.TotalScanned,
 	}
-	if fr.PartialSuccess {
+	if fr.PartialSuccess() {
 		meta["partial_success"] = true
-		meta["failed_peers"] = fr.FailedPeers
+		meta["failed_peers"] = fr.FailedPeers()
 	}
 	if len(fr.PeerLatencyMS) > 0 {
 		meta["peer_latency_ms"] = fr.PeerLatencyMS

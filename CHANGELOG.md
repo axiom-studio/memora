@@ -65,6 +65,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- Federated search merges by rank, not score (F-5, #4365). Local and
+  peer hit lists are fused with reciprocal rank fusion, the same
+  function hybrid search uses, keyed on `(node_id, memory_id)`. The
+  z-score `Aggregate` is removed.
+  - Peer hits take `node_id`, `node_name` and
+    `via: "federation:<node_id>"` from this node's peer config, so a
+    peer cannot attribute hits to another node.
+  - Response changes: `failed_peers` is now
+    `[{node_id, name, error_code}]` instead of names, and
+    `peer_latency_ms` keys this node by its node ID, not `local`. The
+    never-filled `federation_id` and per-hit `peer_id` are removed.
+  - New `rerank: true` with a pluggable `federation.Reranker` (default:
+    keep the fused order).
 - Non-UUID IDs are rejected everywhere (ID-9, #4353).
   - HTTP: the `/v1` routes are declared in one table that the
     middleware enforces. An unknown path is `404`, an unsupported method

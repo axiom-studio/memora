@@ -34,14 +34,14 @@ func TestFanoutSearch_LocalOnly(t *testing.T) {
 		TotalCandidatesScanned: 5,
 		LatencyMS:              2,
 	}
-	result, err := FanoutSearch(context.Background(), local, nil, api.FederationSearchRequest{}, "", 0, nil)
+	result, err := FanoutSearch(context.Background(), local, "local-node", nil, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	if len(result.Lists) != 1 || len(result.Lists[0].Hits) != 1 {
+		t.Fatalf("lists = %+v, want the local list only", result.Lists)
 	}
-	if result.PartialSuccess {
+	if result.PartialSuccess() {
 		t.Error("unexpected partial success")
 	}
 }
@@ -53,7 +53,7 @@ func TestFanoutSearch_AllFailed_NoLocal(t *testing.T) {
 	defer srv.Close()
 
 	peers := []*PeerClient{testPeerClient(srv, "bad-peer")}
-	_, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
+	_, err := FanoutSearch(context.Background(), nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
 	if !errors.Is(err, ErrAllPeersFailed) {
 		t.Fatalf("expected ErrAllPeersFailed, got %v", err)
 	}
@@ -74,17 +74,17 @@ func TestFanoutSearch_MergesResults(t *testing.T) {
 		TotalCandidatesScanned: 5,
 	}
 	peers := []*PeerClient{testPeerClient(srv, "peer1")}
-	result, err := FanoutSearch(context.Background(), local, peers, api.FederationSearchRequest{}, "fed_test", 0, nil)
+	result, err := FanoutSearch(context.Background(), local, "local-node", peers, api.FederationSearchRequest{}, "fed_test", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Results) != 2 {
-		t.Fatalf("expected 2 results (local + peer), got %d", len(result.Results))
+	if len(result.Lists) != 2 || result.Lists[0].NodeID != "local-node" || result.Lists[1].Hits[0].NodeID != "peer1" {
+		t.Fatalf("lists = %+v, want local then peer1", result.Lists)
 	}
 	if result.TotalScanned != 8 {
 		t.Errorf("expected 8 total scanned, got %d", result.TotalScanned)
 	}
-	if result.PartialSuccess {
+	if result.PartialSuccess() {
 		t.Error("no peers failed, should not be partial")
 	}
 }
@@ -106,18 +106,18 @@ func TestFanoutSearch_PartialSuccess(t *testing.T) {
 		testPeerClient(goodSrv, "good-peer"),
 		testPeerClient(badSrv, "bad-peer"),
 	}
-	result, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
+	result, err := FanoutSearch(context.Background(), nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.PartialSuccess {
+	if !result.PartialSuccess() {
 		t.Error("expected partial success")
 	}
-	if len(result.FailedPeers) != 1 || result.FailedPeers[0] != "bad-peer" {
-		t.Errorf("expected bad-peer in failed list, got %v", result.FailedPeers)
+	if fp := result.FailedPeers(); len(fp) != 1 || fp[0].Name != "bad-peer" || fp[0].ErrorCode != "http_500" {
+		t.Errorf("failed peers = %+v, want bad-peer with http_500", fp)
 	}
-	if len(result.Results) != 1 {
-		t.Fatalf("expected 1 result from good peer, got %d", len(result.Results))
+	if len(result.Lists) != 1 || len(result.Lists[0].Hits) != 1 {
+		t.Fatalf("lists = %+v, want the good peer's one hit", result.Lists)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestFanoutSearch_PeerLatencyTracked(t *testing.T) {
 	defer srv.Close()
 
 	peers := []*PeerClient{testPeerClient(srv, "fast-peer")}
-	result, err := FanoutSearch(context.Background(), nil, peers, api.FederationSearchRequest{}, "", 0, nil)
+	result, err := FanoutSearch(context.Background(), nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +155,8 @@ func TestFanoutSearch_ContextCancel(t *testing.T) {
 	peers := []*PeerClient{testPeerClient(slowSrv, "slow-peer")}
 	peers[0].peer.RequestTimeoutMS = 80
 	peers[0].httpClient.Timeout = 80 * time.Millisecond
-	result, err := FanoutSearch(ctx, nil, peers, api.FederationSearchRequest{}, "", 0, nil)
-	if err == nil && result != nil && !result.PartialSuccess {
+	result, err := FanoutSearch(ctx, nil, "local-node", peers, api.FederationSearchRequest{}, "", 0, nil)
+	if err == nil && result != nil && !result.PartialSuccess() {
 		t.Error("expected failure or partial success on timeout")
 	}
 }

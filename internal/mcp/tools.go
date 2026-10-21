@@ -146,6 +146,7 @@ func toolCatalog() []Tool {
 					"peers":         map[string]any{"type": "array", "items": stringP()},
 					"per_peer_k":    intP(1, 100, 5),
 					"timeout_ms":    intP(1, 60000, 5000),
+					"rerank":        map[string]any{"type": "boolean", "default": false},
 				},
 				"required": []string{"query"},
 			},

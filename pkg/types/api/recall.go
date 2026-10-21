@@ -98,8 +98,9 @@ type RecallHit struct {
 	Tags             map[string]string `json:"tags,omitempty"`
 	Watermark        string            `json:"watermark"`
 	WrittenByAgentID string            `json:"written_by_agent_id,omitempty"`
-	Via              string            `json:"via"` // "seed" | "graph" | "federation:<peer>"
-	PeerID           string            `json:"peer_id,omitempty"`
+	// Via is how the hit was reached: "seed" or "graph" on this node,
+	// "federation:<node_id>" when a peer returned it.
+	Via string `json:"via"`
 	// NodeID and NodeName identify the node that holds the memory. A
 	// node answering a peer's federation search sets them.
 	NodeID          string           `json:"node_id,omitempty"`
@@ -112,15 +113,26 @@ type RecallResponse struct {
 	Results []RecallHit `json:"results"`
 	// Degraded lists the hybrid sources that failed (DegradedVector,
 	// DegradedKeyword); results came from the other source alone.
-	Degraded               []string       `json:"degraded,omitempty"`
-	TotalCandidatesScanned int            `json:"total_candidates_scanned"`
-	GraphNodesExpanded     int            `json:"graph_nodes_expanded,omitempty"`
-	LatencyMS              int            `json:"latency_ms"`
-	EmbeddingPending       bool           `json:"embedding_pending,omitempty"`
-	FederationID           string         `json:"federation_id,omitempty"`
-	PartialSuccess         bool           `json:"partial_success,omitempty"`
-	FailedPeers            []string       `json:"failed_peers,omitempty"`
-	PeerLatencyMS          map[string]int `json:"peer_latency_ms,omitempty"`
+	Degraded               []string `json:"degraded,omitempty"`
+	TotalCandidatesScanned int      `json:"total_candidates_scanned"`
+	GraphNodesExpanded     int      `json:"graph_nodes_expanded,omitempty"`
+	LatencyMS              int      `json:"latency_ms"`
+	EmbeddingPending       bool     `json:"embedding_pending,omitempty"`
+	// PartialSuccess, FailedPeers and PeerLatencyMS describe a federated
+	// search: whether any peer did not contribute, which and why, and
+	// each answering node's latency by node_id (this node's included).
+	PartialSuccess bool           `json:"partial_success,omitempty"`
+	FailedPeers    []FailedPeer   `json:"failed_peers,omitempty"`
+	PeerLatencyMS  map[string]int `json:"peer_latency_ms,omitempty"`
+}
+
+// FailedPeer is a peer that did not contribute to a federated search.
+// ErrorCode is "timeout", "unreachable", "outbound_rate_limited",
+// "bad_response", or the error_code the peer answered with.
+type FailedPeer struct {
+	NodeID    string `json:"node_id"`
+	Name      string `json:"name"`
+	ErrorCode string `json:"error_code"`
 }
 
 // PinRequest creates a saved recall query bound to a watermark.
@@ -174,6 +186,9 @@ type SearchRequest struct {
 	// those node IDs (default: every peer that is not revoked and has an
 	// api_key); PerPeerK is each peer's k (default K); TimeoutMS bounds
 	// every peer (default: each peer's timeout_ms; at most 60000).
+	// Rerank passes the merged federated hits through the node's
+	// re-scorer (federation.Reranker; the default keeps the fused order).
+	Rerank    bool     `json:"rerank,omitempty"`
 	Federated bool     `json:"federated,omitempty"`
 	Peers     []string `json:"peers,omitempty"`
 	PerPeerK  int      `json:"per_peer_k,omitempty"`

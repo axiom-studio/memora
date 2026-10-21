@@ -50,6 +50,9 @@ type Service struct {
 	// Federation, when set, serves Search requests with federated: true
 	// by fanning out to this node's peers. nil = federation off.
 	Federation *federation.Searcher
+	// Reranker re-scores merged federated hits when a search sets
+	// rerank: true. nil = federation.NoopReranker (keep the fused order).
+	Reranker federation.Reranker
 	// Pool, when set, takes cell embedding off the write path: writes
 	// queue vectorless cells and the pool flips recall_ready once they
 	// are all embedded (`embedding.async`). nil = embed inline.
@@ -638,8 +641,8 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 // failed_peers and never fails the search.
 func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
 	if !req.Federated {
-		if len(req.Peers) > 0 || req.PerPeerK != 0 || req.TimeoutMS != 0 {
-			return nil, fmt.Errorf("%w: peers, per_peer_k and timeout_ms need federated: true", types.ErrInvalidInput)
+		if len(req.Peers) > 0 || req.PerPeerK != 0 || req.TimeoutMS != 0 || req.Rerank {
+			return nil, fmt.Errorf("%w: peers, per_peer_k, timeout_ms and rerank need federated: true", types.ErrInvalidInput)
 		}
 		return s.localSearch(ctx, req)
 	}
@@ -678,15 +681,38 @@ func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	// F-5 replaces this score merge with rank fusion.
-	resp := federation.Aggregate(fr, federation.AggregateOpts{K: k, LocalInstanceID: s.NodeID})
-	resp.Degraded = local.Degraded
-	resp.PartialSuccess = fr.PartialSuccess
-	resp.FailedPeers = fr.FailedPeers
-	resp.PeerLatencyMS = fr.PeerLatencyMS
-	resp.LatencyMS = int(time.Since(start).Milliseconds())
-	return &resp, nil
+	var hits []api.RecallHit
+	if req.Rerank {
+		// The re-scorer sees a wider pool than k, so it can promote hits
+		// that fusion ranked just below the cut.
+		pool := federation.Merge(fr, min(4*k, maxRerankPool))
+		reranker := s.Reranker
+		if reranker == nil {
+			reranker = federation.NoopReranker{}
+		}
+		if hits, err = reranker.Rerank(ctx, req.Query, pool); err != nil {
+			slog.Default().Warn("federated search: rerank failed; keeping the fused order", "err", err)
+			hits = pool
+		}
+		if len(hits) > k {
+			hits = hits[:k]
+		}
+	} else {
+		hits = federation.Merge(fr, k)
+	}
+	return &api.RecallResponse{
+		Results:                hits,
+		Degraded:               local.Degraded,
+		TotalCandidatesScanned: fr.TotalScanned,
+		PartialSuccess:         fr.PartialSuccess(),
+		FailedPeers:            fr.FailedPeers(),
+		PeerLatencyMS:          fr.PeerLatencyMS,
+		LatencyMS:              int(time.Since(start).Milliseconds()),
+	}, nil
 }
+
+// maxRerankPool caps how many fused hits a Reranker is given.
+const maxRerankPool = 200
 
 // localSearch is Search on this node only.
 func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {

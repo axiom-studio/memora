@@ -56,7 +56,7 @@ func (s *Searcher) Fanout(ctx context.Context, localResult *api.RecallResponse, 
 	if opts.Timeout > MaxFederatedTimeout {
 		opts.Timeout = MaxFederatedTimeout
 	}
-	return FanoutSearch(ctx, localResult, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound)
+	return FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound)
 }
 
 func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
