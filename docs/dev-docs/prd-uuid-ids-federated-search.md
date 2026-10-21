@@ -1,6 +1,8 @@
 # PRD: UUIDv4 identifiers and federated memory search
 
 **Status:** Accepted — tracked as features F20 (UUIDv4 identifiers), F21 (node-wide search) and F22 (federated search)
+**Author:** Principal Engineer (automated)
+**Date:** 2026-10-21
 **Source:** VibeFlow document #649 "memora-requirements-gaps.md" (2026-10-21)
 **Baseline:** `main` at `e2c7c02` (2026-10-18)
 
@@ -187,7 +189,7 @@ Workspace-scoped fan-out (`/v1/workspaces/{ws}/recall` on peers), per-peer works
 
 Checked against the code at `e2c7c02` when the tickets were filed. The source document stands; these notes correct counts and settle one ambiguity.
 
-- **Counts.** A `grep` for `NewID(` finds 33 non-test call sites (the document says 44), and there are 16 non-test `MustHavePrefix` calls (it says 14). The scope is the same either way: every call site changes.
+- **Counts.** There are 32 non-test `NewID` call sites (31 direct calls plus `NewWatermark`), not the document's 44. The document's 14 non-test `MustHavePrefix` calls is correct. The scope is the same either way: every call site changes.
 - **`internal/federation` is unused.** Confirmed: no other package imports it. `internal/config` and `internal/ui` have their own `federation` config section and fields.
 - **No release yet.** The repository has no git tags, so no tagged release has shipped with prefixed IDs. That bears on ID-8 (migrate or start fresh), which the user still has to decide.
 - **Which routes take peer credentials (F-3 and F-7).** "Federation routes bypass the server's single API key" applies only to the routes peers call: `POST /v1/federation/search` and `GET /v1/federation/memories/{memory_id}`. The peer-management routes (`GET/POST /v1/federation/peers`, `DELETE /v1/federation/peers/{node_id}`) are operator routes and keep the normal API key.
