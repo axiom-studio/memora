@@ -136,7 +136,7 @@ func TestDispatch_UpdateWorkspace_RenamesAndPreservesOtherFields(t *testing.T) {
 
 func TestDispatch_UpdateWorkspace_Unknown_ReturnsNotFound(t *testing.T) {
 	s := NewServer(newTestService(t), testLogger())
-	_, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": "ws_missing", "name": "x"})
+	_, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": types.NewID(), "name": "x"})
 	if !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}

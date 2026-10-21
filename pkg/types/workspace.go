@@ -50,7 +50,7 @@ func (w *Workspace) AutoLinkDefaults() {
 // Validate returns an error if the workspace is malformed.
 func (w *Workspace) Validate() error {
 	if w.ID != "" {
-		if err := MustHavePrefix(w.ID, WorkspaceIDPrefix); err != nil {
+		if err := parseErr("workspace_id", w.ID); err != nil {
 			return err
 		}
 	}
@@ -72,11 +72,11 @@ type Collection struct {
 // Validate returns an error if the collection is malformed.
 func (c *Collection) Validate() error {
 	if c.ID != "" {
-		if err := MustHavePrefix(c.ID, CollectionIDPrefix); err != nil {
+		if err := parseErr("collection_id", c.ID); err != nil {
 			return err
 		}
 	}
-	if err := MustHavePrefix(c.WorkspaceID, WorkspaceIDPrefix); err != nil {
+	if err := parseErr("workspace_id", c.WorkspaceID); err != nil {
 		return err
 	}
 	if c.Name == "" {

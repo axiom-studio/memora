@@ -32,3 +32,9 @@ func errEmpty(field string) error {
 func errf(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidInput, fmt.Sprintf(format, args...))
 }
+
+// parseErr is ParseID for validators, which only need the error.
+func parseErr(field, id string) error {
+	_, err := ParseID(field, id)
+	return err
+}

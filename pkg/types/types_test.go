@@ -1,37 +1,67 @@
 package types
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
 
-func TestNewID_PrefixedULID(t *testing.T) {
-	id := NewID(MemoryIDPrefix)
-	if !strings.HasPrefix(id, MemoryIDPrefix) {
-		t.Fatalf("NewID(mem_) = %q, want prefix %s", id, MemoryIDPrefix)
-	}
-	if len(id) != len(MemoryIDPrefix)+26 { // ULIDs are 26 chars
-		t.Fatalf("expected ULID length 26 after prefix, got len=%d for %q", len(id), id)
+// Fixed UUIDv4 fixtures for the validator tests.
+const (
+	testWS   = "0e7d4d8a-5f1c-4b8e-9a3d-1c2b3a4d5e6f"
+	testMemX = "6a1f0c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b"
+	testMemY = "9b8a7c6d-5e4f-4a3b-b2c1-d0e9f8a7b6c5"
+)
+
+func TestNewID_IsCanonicalUUIDv4(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 1000; i++ {
+		id := NewID()
+		if _, err := ParseID("id", id); err != nil {
+			t.Fatalf("NewID() = %q does not parse: %v", id, err)
+		}
+		if seen[id] {
+			t.Fatalf("NewID() repeated %q", id)
+		}
+		seen[id] = true
 	}
 }
 
-func TestMustHavePrefix(t *testing.T) {
-	if err := MustHavePrefix("mem_abc", MemoryIDPrefix); err != nil {
-		t.Fatalf("valid id rejected: %v", err)
+func TestParseID(t *testing.T) {
+	const valid = "3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90"
+	if got, err := ParseID("memory_id", valid); err != nil || got != valid {
+		t.Fatalf("ParseID(valid) = %q, %v; want %q, nil", got, err, valid)
 	}
-	if err := MustHavePrefix("", MemoryIDPrefix); err == nil {
-		t.Fatal("empty id should be rejected")
+	rejected := map[string]string{
+		"empty":          "",
+		"legacy prefix":  "mem_01HXYZABCDEFGHJKMNPQRSTVWX",
+		"uppercase":      strings.ToUpper(valid),
+		"braces":         "{" + valid + "}",
+		"urn":            "urn:uuid:" + valid,
+		"no hyphens":     strings.ReplaceAll(valid, "-", ""),
+		"version 1":      "3f2b8c1e-6d4a-1f0b-9a7e-2c5d8e1f4a90",
+		"version 7":      "0192b3c4-6d4a-7f0b-9a7e-2c5d8e1f4a90",
+		"wrong variant":  "3f2b8c1e-6d4a-4f0b-ca7e-2c5d8e1f4a90",
+		"nil uuid":       "00000000-0000-0000-0000-000000000000",
+		"trailing space": valid + " ",
 	}
-	if err := MustHavePrefix("ws_abc", MemoryIDPrefix); err == nil {
-		t.Fatal("wrong-prefix id should be rejected")
+	for name, id := range rejected {
+		_, err := ParseID("memory_id", id)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("%s: ParseID(%q) err = %v, want ErrInvalidInput", name, id, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), "memory_id must be a UUID") {
+			t.Errorf("%s: error %q does not name the field", name, err)
+		}
 	}
 }
 
 func TestEdgeValidate_SelfLoopRejected(t *testing.T) {
 	e := &Edge{
-		WorkspaceID:      "ws_a",
-		SourceMemoryID:   "mem_x",
-		TargetMemoryID:   "mem_x",
+		WorkspaceID:      testWS,
+		SourceMemoryID:   testMemX,
+		TargetMemoryID:   testMemX,
 		EdgeType:         EdgeTypeReferences,
 		CreatedByAgentID: "agent_opaque_test",
 	}
@@ -42,9 +72,9 @@ func TestEdgeValidate_SelfLoopRejected(t *testing.T) {
 
 func TestEdgeValidate_BadEdgeType(t *testing.T) {
 	e := &Edge{
-		WorkspaceID:      "ws_a",
-		SourceMemoryID:   "mem_x",
-		TargetMemoryID:   "mem_y",
+		WorkspaceID:      testWS,
+		SourceMemoryID:   testMemX,
+		TargetMemoryID:   testMemY,
 		EdgeType:         "not_a_real_type",
 		CreatedByAgentID: "agent_opaque_test",
 	}
@@ -55,9 +85,9 @@ func TestEdgeValidate_BadEdgeType(t *testing.T) {
 
 func TestEdgeValidate_Happy(t *testing.T) {
 	e := &Edge{
-		WorkspaceID:      "ws_a",
-		SourceMemoryID:   "mem_x",
-		TargetMemoryID:   "mem_y",
+		WorkspaceID:      testWS,
+		SourceMemoryID:   testMemX,
+		TargetMemoryID:   testMemY,
 		EdgeType:         EdgeTypeReferences,
 		CreatedByAgentID: "agent_opaque_test",
 	}
@@ -79,16 +109,36 @@ func TestValidEdgeType(t *testing.T) {
 
 func TestMemoryValidate(t *testing.T) {
 	m := &Memory{
-		WorkspaceID:      "ws_a",
+		WorkspaceID:      testWS,
 		WrittenByAgentID: "agent_opaque_test",
 	}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("happy memory rejected: %v", err)
 	}
 
-	bad := &Memory{WorkspaceID: "ws_a"}
+	bad := &Memory{WorkspaceID: testWS}
 	if err := bad.Validate(); err == nil {
 		t.Fatal("memory without agent_id should be rejected")
+	}
+}
+
+// TestValidate_RejectsLegacyPrefixedIDs pins R1: validators accept only
+// UUIDs, so a pre-UUID "ws_…"/"mem_…" ID is invalid input everywhere.
+func TestValidate_RejectsLegacyPrefixedIDs(t *testing.T) {
+	const legacyWS = "ws_01HXYZABCDEFGHJKMNPQRSTVWX"
+	cases := map[string]interface{ Validate() error }{
+		"memory":     &Memory{WorkspaceID: legacyWS, WrittenByAgentID: "agent_opaque_test"},
+		"cell":       &Cell{MemoryID: "mem_01HXYZABCDEFGHJKMNPQRSTVWX"},
+		"workspace":  &Workspace{ID: legacyWS, Name: "w"},
+		"collection": &Collection{WorkspaceID: legacyWS, Name: "c"},
+		"agent":      &Agent{AgentID: "agent_x", WorkspaceID: legacyWS, IdentityProvider: "opaque"},
+		"edge": &Edge{WorkspaceID: testWS, SourceMemoryID: "mem_01HXYZABCDEFGHJKMNPQRSTVWX", TargetMemoryID: testMemY,
+			EdgeType: EdgeTypeReferences, CreatedByAgentID: "agent_opaque_test"},
+	}
+	for name, v := range cases {
+		if err := v.Validate(); !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "must be a UUID") {
+			t.Errorf("%s.Validate() = %v, want ErrInvalidInput naming a UUID field", name, err)
+		}
 	}
 }
 

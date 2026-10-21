@@ -189,8 +189,8 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 func DeleteCellsFromContract(t *testing.T, s adapter.MetadataStore) {
 	t.Helper()
 	ctx := context.Background()
-	ws := &types.Workspace{Name: "delete-cells-" + types.NewID("t")}
-	other := &types.Workspace{Name: "delete-cells-other-" + types.NewID("t")}
+	ws := &types.Workspace{Name: "delete-cells-" + types.NewID()}
+	other := &types.Workspace{Name: "delete-cells-other-" + types.NewID()}
 	for _, w := range []*types.Workspace{ws, other} {
 		if err := s.CreateWorkspace(ctx, w); err != nil {
 			t.Fatalf("create workspace: %v", err)

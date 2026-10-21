@@ -187,7 +187,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	// reverse (metadata first, content second) would leave a memory
 	// visible but unreadable — a worse failure mode.
 
-	mem.ID = types.NewID(types.MemoryIDPrefix)
+	mem.ID = types.NewID()
 	cells, err := ck.Chunk(ctx, req.Content)
 	if err != nil {
 		return nil, err
@@ -195,7 +195,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	for i := range cells {
 		cells[i].MemoryID = mem.ID
 		cells[i].WrittenByAgentID = agentID
-		cells[i].CellID = types.NewID(types.CellIDPrefix)
+		cells[i].CellID = types.NewID()
 	}
 
 	// Step 1: content writes (orphan-safe — GC reclaims if step 2 fails).
@@ -673,7 +673,7 @@ func (s *Service) AppendLedger(ctx context.Context, e api.LedgerEntry) string {
 		return ""
 	}
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	_ = s.Ledger.Append(ctx, e)
 	return e.LedgerID

@@ -41,6 +41,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- **BREAKING (IDs)**: new workspaces, collections, memories, cells, edges,
+  watermarks, ledger entries and pins get canonical lowercase UUIDv4 IDs
+  instead of prefixed ULIDs (`mem_01H…`). The API, MCP and type validators
+  reject any other ID form with `400 invalid_input` (MCP: `-32602`) naming
+  the field, e.g. `memory_id must be a UUID`. `types.NewID()` takes no
+  prefix; `types.ParseID(field, id)` replaces `MustHavePrefix`; the
+  `oklog/ulid` dependency is gone. `federation.federation_id` must be a
+  UUID. Agent IDs keep the `agent_` prefix for now. Existing prefixed data
+  is not migrated yet (see docs/dev-docs/prd-uuid-ids-federated-search.md,
+  ID-8).
 - **BREAKING (adapter API)**: `MetadataStore` gains
   `DeleteCellsFrom(ctx, workspaceID, memoryID, fromSeq)` (#6037); see
   `pkg/adapter/compliance.DeleteCellsFromContract`.

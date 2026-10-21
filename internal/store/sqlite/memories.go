@@ -16,7 +16,7 @@ import (
 // ImprintMemory inserts a fresh Memory and returns its head watermark.
 func (s *Store) ImprintMemory(ctx context.Context, m *types.Memory) (string, error) {
 	if m.ID == "" {
-		m.ID = types.NewID(types.MemoryIDPrefix)
+		m.ID = types.NewID()
 	}
 	if err := m.Validate(); err != nil {
 		return "", err

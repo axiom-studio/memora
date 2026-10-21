@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // EX_CONFIG is the sysexits.h exit code for configuration errors.
@@ -242,8 +244,8 @@ func (c *Config) Validate() error {
 	if c.Federation.Enabled {
 		if c.Federation.FederationID == "" {
 			errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))
-		} else if !strings.HasPrefix(c.Federation.FederationID, "fed_") {
-			errs = append(errs, fmt.Errorf("federation.federation_id %q must start with fed_ prefix", c.Federation.FederationID))
+		} else if _, err := types.ParseID("federation.federation_id", c.Federation.FederationID); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	for i, p := range c.Federation.Peers {

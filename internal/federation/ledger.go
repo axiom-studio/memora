@@ -21,7 +21,7 @@ func NewOutboundRecallEntry(wsID, federationID string, fr *FanoutResult) api.Led
 		meta["peer_latency_ms"] = fr.PeerLatencyMS
 	}
 	return api.LedgerEntry{
-		LedgerID:    types.NewID(types.LedgerIDPrefix),
+		LedgerID:    types.NewID(),
 		WorkspaceID: wsID,
 		Op:          "federation_recall",
 		Timestamp:   time.Now().UTC(),
@@ -39,7 +39,7 @@ func NewOutboundLookupEntry(wsID, federationID, memoryID string, found bool, pee
 		meta["found_on_peer"] = peerName
 	}
 	return api.LedgerEntry{
-		LedgerID:    types.NewID(types.LedgerIDPrefix),
+		LedgerID:    types.NewID(),
 		WorkspaceID: wsID,
 		Op:          "federation_lookup",
 		Target:      memoryID,
@@ -50,7 +50,7 @@ func NewOutboundLookupEntry(wsID, federationID, memoryID string, found bool, pee
 
 func NewInboundEntry(wsID, peerID, federationPath, op string) api.LedgerEntry {
 	return api.LedgerEntry{
-		LedgerID:    types.NewID(types.LedgerIDPrefix),
+		LedgerID:    types.NewID(),
 		WorkspaceID: wsID,
 		Op:          "federation_inbound",
 		AgentID:     peerID,
@@ -65,7 +65,7 @@ func NewInboundEntry(wsID, peerID, federationPath, op string) api.LedgerEntry {
 
 func NewRejectedEntry(wsID, peerID, reason string) api.LedgerEntry {
 	return api.LedgerEntry{
-		LedgerID:    types.NewID(types.LedgerIDPrefix),
+		LedgerID:    types.NewID(),
 		WorkspaceID: wsID,
 		Op:          "federation_rejected",
 		AgentID:     peerID,

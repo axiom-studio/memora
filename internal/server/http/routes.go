@@ -118,6 +118,9 @@ func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wsID := parts[0]
+	if !s.validID(w, "workspace_id", wsID) {
+		return
+	}
 
 	if len(parts) == 1 {
 		s.handleWorkspaceSingle(w, r, wsID)
@@ -183,6 +186,9 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 
 // /v1/workspaces/{ws_id}/collections[/{coll_id}]
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "collection_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		coll, err := s.cfg.Service.Metadata.ListCollections(r.Context(), wsID)
@@ -229,18 +235,25 @@ func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request, wsID str
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		s.handleListMemories(w, r, wsID)
 	case len(rest) >= 1:
-		// rest[0] may be `mem_xxx`, possibly with ':append' suffix.
+		// rest[0] is a memory ID, possibly with an ':append' or '@{wmk}' suffix.
 		seg := rest[0]
 		if idx := strings.Index(seg, ":append"); idx >= 0 {
-			s.handleAppend(w, r, wsID, seg[:idx])
+			if s.validID(w, "memory_id", seg[:idx]) {
+				s.handleAppend(w, r, wsID, seg[:idx])
+			}
 			return
 		}
 		memID, wmk, ok := parseMemoryAtWatermark(seg)
 		if ok && len(rest) == 1 && r.Method == http.MethodGet {
-			s.handleGetAtWatermark(w, r, wsID, memID, wmk)
+			if s.validID(w, "memory_id", memID) && s.validID(w, "watermark", wmk) {
+				s.handleGetAtWatermark(w, r, wsID, memID, wmk)
+			}
 			return
 		}
 		memID = seg
+		if !s.validID(w, "memory_id", memID) {
+			return
+		}
 		if len(rest) == 1 {
 			switch r.Method {
 			case http.MethodGet:
@@ -295,6 +308,9 @@ func (s *Server) handleImprint(w http.ResponseWriter, r *http.Request, wsID stri
 }
 
 func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request, wsID string) {
+	if !s.validOptionalID(w, "collection_id", r.URL.Query().Get("collection_id")) {
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 50
@@ -416,6 +432,9 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 
 // /v1/workspaces/{ws_id}/recall/pins[/{pin_id}]
 func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "pin_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		pins, err := s.cfg.Service.Metadata.ListPins(r.Context(), wsID)
@@ -649,6 +668,9 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
 		}
+		if !s.validID(w, "memory_id", req.MemoryID) {
+			return
+		}
 		edges, headers, err := s.cfg.Service.GraphNeighbors(r.Context(), wsID, req.MemoryID,
 			adapter.NeighborsOpts{Direction: req.Direction, EdgeTypes: req.EdgeTypes, K: req.K})
 		if err != nil {
@@ -664,6 +686,9 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 		var req api.TraverseRequest
 		if err := decodeJSON(r, &req); err != nil {
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		if !s.validID(w, "seed_memory_id", req.SeedMemoryID) {
 			return
 		}
 		tr, err := s.cfg.Service.GraphTraverse(r.Context(), wsID, req.SeedMemoryID,
@@ -746,6 +771,10 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
+	if !s.validOptionalID(w, "memory_id", r.URL.Query().Get("memory_id")) ||
+		!s.validOptionalID(w, "since_ledger_id", r.URL.Query().Get("since_ledger_id")) {
+		return
+	}
 	caps := s.cfg.Service.Ledger.Capabilities()
 	if !caps.SupportsQuery {
 		s.writeError(w, 501, "capability_unavailable", "configured LedgerStore does not support query", nil)
@@ -781,6 +810,22 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 		return
 	}
 	s.writeJSON(w, 200, api.LedgerResponse{Entries: entries, NextCursor: next})
+}
+
+// validID writes a 400 and returns false unless id is a UUID. field
+// names the parameter in the error, since a UUID doesn't say what kind
+// of thing it points at.
+func (s *Server) validID(w http.ResponseWriter, field, id string) bool {
+	if _, err := types.ParseID(field, id); err != nil {
+		s.writeErrorFromService(w, err)
+		return false
+	}
+	return true
+}
+
+// validOptionalID is validID for optional parameters: empty is allowed.
+func (s *Server) validOptionalID(w http.ResponseWriter, field, id string) bool {
+	return id == "" || s.validID(w, field, id)
 }
 
 // Used by handlers to bubble named errors up.

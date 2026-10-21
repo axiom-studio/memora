@@ -60,7 +60,7 @@ func (g *GraphStore) Capabilities() adapter.GraphCapabilities {
 
 func (g *GraphStore) Link(ctx context.Context, e types.Edge) (types.Edge, error) {
 	if e.EdgeID == "" {
-		e.EdgeID = types.NewID(types.EdgeIDPrefix)
+		e.EdgeID = types.NewID()
 	}
 	if err := e.Validate(); err != nil {
 		return types.Edge{}, err

@@ -242,7 +242,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		start := time.Now()
 		reqID := r.Header.Get("X-Request-ID")
 		if reqID == "" {
-			reqID = types.NewID("req_")
+			reqID = types.NewID()
 		}
 		w.Header().Set("X-Request-ID", reqID)
 

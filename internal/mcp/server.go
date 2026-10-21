@@ -14,6 +14,7 @@ import (
 
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // Config configures an MCP Server. Zero-valued Config disables auth
@@ -167,7 +168,11 @@ func (s *Server) handleToolCall(ctx context.Context, req request) response {
 	}
 	result, err := s.dispatchTool(ctx, p.Name, p.Arguments)
 	if err != nil {
-		return errResponse(req.ID, -32603, err.Error(), map[string]any{"tool": p.Name})
+		code := -32603 // internal error
+		if errors.Is(err, types.ErrInvalidInput) {
+			code = -32602 // invalid params
+		}
+		return errResponse(req.ID, code, err.Error(), map[string]any{"tool": p.Name})
 	}
 	// MCP wraps tool output in a "content" array. We emit a single
 	// text item with the JSON-encoded result so clients can JSON-parse.

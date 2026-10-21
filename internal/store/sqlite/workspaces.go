@@ -14,7 +14,7 @@ import (
 // CreateWorkspace inserts a new Workspace. ID is assigned if blank.
 func (s *Store) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if w.ID == "" {
-		w.ID = types.NewID(types.WorkspaceIDPrefix)
+		w.ID = types.NewID()
 	}
 	if err := w.Validate(); err != nil {
 		return err
@@ -204,7 +204,7 @@ func (s *Store) DeleteWorkspace(ctx context.Context, id string) error {
 // CreateCollection inserts a Collection inside a Workspace.
 func (s *Store) CreateCollection(ctx context.Context, c *types.Collection) error {
 	if c.ID == "" {
-		c.ID = types.NewID(types.CollectionIDPrefix)
+		c.ID = types.NewID()
 	}
 	if err := c.Validate(); err != nil {
 		return err

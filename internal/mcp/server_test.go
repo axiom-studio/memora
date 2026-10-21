@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	stdlog "log"
 	"path/filepath"
@@ -475,5 +476,34 @@ func TestDispatch_NoAuthMode_ClientAgentIDFlows(t *testing.T) {
 	}
 	if mem.WrittenByAgentID != "client_supplied" {
 		t.Fatalf("WrittenByAgentID = %q, want %q (client pass-through)", mem.WrittenByAgentID, "client_supplied")
+	}
+}
+
+// TestToolCall_NonUUIDID_ReturnsInvalidParams pins R1 at the MCP
+// boundary: an ID argument that is not a UUIDv4 is -32602 (invalid
+// params) naming the argument, for every ID argument the catalog uses.
+func TestToolCall_NonUUIDID_ReturnsInvalidParams(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	cases := []struct{ tool, arg string }{
+		{"memora_lookup", "workspace_id"},
+		{"memora_lookup", "memory_id"},
+		{"memora_imprint", "collection_id"},
+		{"memora_unpin", "pin_id"},
+		{"memora_link", "source_memory_id"},
+		{"memora_link", "target_memory_id"},
+		{"memora_traverse", "seed_memory_id"},
+	}
+	for i, tc := range cases {
+		args := map[string]any{"workspace_id": types.NewID(), "agent_id": "agent_opaque_test"}
+		args[tc.arg] = "mem_01HXYZABCDEFGHJKMNPQRSTVWX"
+		argsJSON, _ := json.Marshal(args)
+		frame := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":%s}}`, i+2, tc.tool, argsJSON)
+		resps := roundtrip(t, s, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`, frame)
+		if len(resps) != 2 || resps[1].Error == nil {
+			t.Fatalf("%s/%s: want an error response, got %+v", tc.tool, tc.arg, resps)
+		}
+		if resps[1].Error.Code != -32602 || !strings.Contains(resps[1].Error.Message, tc.arg+" must be a UUID") {
+			t.Errorf("%s/%s: error = %+v, want -32602 naming %s", tc.tool, tc.arg, resps[1].Error, tc.arg)
+		}
 	}
 }

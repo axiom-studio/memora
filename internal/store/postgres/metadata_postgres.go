@@ -69,7 +69,7 @@ func (s *MetadataStore) Capabilities() adapter.MetadataCapabilities {
 
 func (s *MetadataStore) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if w.ID == "" {
-		w.ID = types.NewID(types.WorkspaceIDPrefix)
+		w.ID = types.NewID()
 	}
 	if err := w.Validate(); err != nil {
 		return err
@@ -280,7 +280,7 @@ func scanWorkspacePg(row pgScanner) (types.Workspace, error) {
 
 func (s *MetadataStore) CreateCollection(ctx context.Context, c *types.Collection) error {
 	if c.ID == "" {
-		c.ID = types.NewID(types.CollectionIDPrefix)
+		c.ID = types.NewID()
 	}
 	if err := c.Validate(); err != nil {
 		return err
@@ -347,7 +347,7 @@ func (s *MetadataStore) DeleteCollection(ctx context.Context, id string) error {
 
 func (s *MetadataStore) ImprintMemory(ctx context.Context, m *types.Memory) (string, error) {
 	if m.ID == "" {
-		m.ID = types.NewID(types.MemoryIDPrefix)
+		m.ID = types.NewID()
 	}
 	if err := m.Validate(); err != nil {
 		return "", err
@@ -746,7 +746,7 @@ func (s *MetadataStore) UpsertCells(ctx context.Context, memoryID string, cells 
 	for i := range cells {
 		c := &cells[i]
 		if c.CellID == "" {
-			c.CellID = types.NewID(types.CellIDPrefix)
+			c.CellID = types.NewID()
 		}
 		c.MemoryID = memoryID
 		if c.CreatedAt.IsZero() {
@@ -1084,7 +1084,7 @@ func nullableJSON(b []byte) any {
 
 func (s *MetadataStore) CreatePin(ctx context.Context, p *types.Pin) error {
 	if p.PinID == "" {
-		p.PinID = types.NewID("pin")
+		p.PinID = types.NewID()
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()

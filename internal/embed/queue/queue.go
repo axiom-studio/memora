@@ -358,7 +358,7 @@ func (p *Pool) logEmbedFailed(j Job, cause error) {
 		return
 	}
 	_ = p.deps.Ledger.Append(context.Background(), api.LedgerEntry{
-		LedgerID:    types.NewID(types.LedgerIDPrefix),
+		LedgerID:    types.NewID(),
 		WorkspaceID: j.WorkspaceID,
 		Op:          OpEmbedFailed,
 		Target:      j.MemoryID,
@@ -408,7 +408,7 @@ func ClassifyCells(oldCells, newCells []types.Cell) (reembed []int, skipped []st
 			// written under it or the old vector is orphaned (#6037).
 			nc.CellID = match.CellID
 		case nc.CellID == "":
-			nc.CellID = types.NewID(types.CellIDPrefix)
+			nc.CellID = types.NewID()
 		}
 		reembed = append(reembed, i)
 	}

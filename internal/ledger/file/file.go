@@ -118,7 +118,7 @@ func (s *Store) Append(_ context.Context, e api.LedgerEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
@@ -154,7 +154,7 @@ func (s *Store) AppendBatch(_ context.Context, entries []api.LedgerEntry) error 
 	for i := range entries {
 		e := &entries[i]
 		if e.LedgerID == "" {
-			e.LedgerID = types.NewID(types.LedgerIDPrefix)
+			e.LedgerID = types.NewID()
 		}
 		if e.Timestamp.IsZero() {
 			e.Timestamp = time.Now().UTC()

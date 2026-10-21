@@ -30,15 +30,15 @@ type Memory struct {
 // Validate returns an error if the memory is malformed.
 func (m *Memory) Validate() error {
 	if m.ID != "" {
-		if err := MustHavePrefix(m.ID, MemoryIDPrefix); err != nil {
+		if err := parseErr("memory_id", m.ID); err != nil {
 			return err
 		}
 	}
-	if err := MustHavePrefix(m.WorkspaceID, WorkspaceIDPrefix); err != nil {
+	if err := parseErr("workspace_id", m.WorkspaceID); err != nil {
 		return err
 	}
 	if m.CollectionID != "" {
-		if err := MustHavePrefix(m.CollectionID, CollectionIDPrefix); err != nil {
+		if err := parseErr("collection_id", m.CollectionID); err != nil {
 			return err
 		}
 	}
@@ -74,11 +74,11 @@ type Cell struct {
 // Validate returns an error if the cell is malformed.
 func (c *Cell) Validate() error {
 	if c.CellID != "" {
-		if err := MustHavePrefix(c.CellID, CellIDPrefix); err != nil {
+		if err := parseErr("cell_id", c.CellID); err != nil {
 			return err
 		}
 	}
-	if err := MustHavePrefix(c.MemoryID, MemoryIDPrefix); err != nil {
+	if err := parseErr("memory_id", c.MemoryID); err != nil {
 		return err
 	}
 	if c.Seq < 0 {

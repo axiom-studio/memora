@@ -7,45 +7,31 @@
 package types
 
 import (
-	"crypto/rand"
 	"fmt"
-	"strings"
-	"time"
 
-	"github.com/oklog/ulid/v2"
+	"github.com/google/uuid"
 )
 
-// ID prefixes — every Memora identifier carries a typed prefix so a
-// stray ID in a log message tells you what kind of thing it points at.
-const (
-	WorkspaceIDPrefix  = "ws_"
-	CollectionIDPrefix = "coll_"
-	MemoryIDPrefix     = "mem_"
-	CellIDPrefix       = "cell_"
-	EdgeIDPrefix       = "edg_"
-	AgentIDPrefix      = "agent_"
-	WatermarkPrefix    = "wmk_"
-	LedgerIDPrefix     = "lg_"
-	PinIDPrefix        = "pin_"
-	SnapshotIDPrefix   = "snap_"
-	FederationIDPrefix = "fed_"
-)
+// AgentIDPrefix is the prefix client-supplied agent IDs still carry.
+// Agent IDs become UUIDv4s with the identity_key change (ID-3); every
+// other Memora ID is already a bare UUIDv4.
+const AgentIDPrefix = "agent_"
 
-// NewID returns a fresh prefixed ULID, e.g. "mem_01HXYZ...".
-func NewID(prefix string) string {
-	entropy := ulid.Monotonic(rand.Reader, 0)
-	return prefix + ulid.MustNew(ulid.Timestamp(time.Now().UTC()), entropy).String()
+// NewID returns a fresh ID: a canonical lowercase UUIDv4 such as
+// "3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90". IDs carry no type prefix and
+// no timestamp; nothing may rely on their order.
+func NewID() string {
+	return uuid.NewString()
 }
 
-// MustHavePrefix returns an error if id does not start with prefix.
-// Used to fail fast on cross-table foreign keys that the wrong kind
-// of ID slipped into.
-func MustHavePrefix(id, prefix string) error {
-	if id == "" {
-		return fmt.Errorf("id is empty (expected %s prefix)", prefix)
+// ParseID returns id unchanged if it is a canonical Memora ID — a
+// lowercase, hyphenated UUIDv4 — and otherwise an ErrInvalidInput error
+// naming field ("memory_id must be a UUID"). The field name matters
+// because the ID itself no longer says what kind of thing it points at.
+func ParseID(field, id string) (string, error) {
+	u, err := uuid.Parse(id)
+	if err != nil || u.Version() != 4 || u.Variant() != uuid.RFC4122 || u.String() != id {
+		return "", fmt.Errorf("%w: %s must be a UUID, got %q", ErrInvalidInput, field, id)
 	}
-	if !strings.HasPrefix(id, prefix) {
-		return fmt.Errorf("id %q has wrong prefix (expected %s)", id, prefix)
-	}
-	return nil
+	return id, nil
 }

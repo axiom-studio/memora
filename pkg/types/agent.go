@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -99,10 +100,10 @@ func (a *Agent) Validate() error {
 	if a.AgentID == "" {
 		return errEmpty("agent.agent_id")
 	}
-	if err := MustHavePrefix(a.AgentID, AgentIDPrefix); err != nil {
-		return err
+	if !strings.HasPrefix(a.AgentID, AgentIDPrefix) {
+		return errf("agent_id %q must start with %s", a.AgentID, AgentIDPrefix)
 	}
-	if err := MustHavePrefix(a.WorkspaceID, WorkspaceIDPrefix); err != nil {
+	if err := parseErr("workspace_id", a.WorkspaceID); err != nil {
 		return err
 	}
 	if a.IdentityProvider == "" {

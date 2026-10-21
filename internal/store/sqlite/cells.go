@@ -20,7 +20,7 @@ func (s *Store) UpsertCells(ctx context.Context, memoryID string, cells []types.
 	for i := range cells {
 		c := &cells[i]
 		if c.CellID == "" {
-			c.CellID = types.NewID(types.CellIDPrefix)
+			c.CellID = types.NewID()
 		}
 		c.MemoryID = memoryID
 		if c.CreatedAt.IsZero() {

@@ -353,7 +353,7 @@ func TestLoad_WithFederation(t *testing.T) {
 	content := `
 [federation]
 enabled = true
-federation_id = "fed_01HQ1234ABCDEF"
+federation_id = "8c5e2f1a-3d4b-4c6e-9f7a-0b1c2d3e4f5a"
 
 [[federation.peers]]
 name = "us-west"

@@ -41,7 +41,7 @@ func TestStore_AppendAndQuery(t *testing.T) {
 	}
 	defer s.Close()
 
-	ws := "ws_ledger_test_" + types.NewID("t")
+	ws := types.NewID()
 	entry := api.LedgerEntry{
 		WorkspaceID: ws,
 		Op:          "memory.imprint",
@@ -79,7 +79,7 @@ func TestStore_AppendBatch(t *testing.T) {
 	}
 	defer s.Close()
 
-	ws := "ws_batch_test_" + types.NewID("t")
+	ws := types.NewID()
 	entries := []api.LedgerEntry{
 		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "a1", Timestamp: time.Now().UTC()},
 		{WorkspaceID: ws, Op: "memory.update", AgentID: "a1", Timestamp: time.Now().UTC()},
@@ -108,7 +108,7 @@ func TestStore_Redact(t *testing.T) {
 	}
 	defer s.Close()
 
-	ws := "ws_redact_test_" + types.NewID("t")
+	ws := types.NewID()
 	entry := api.LedgerEntry{
 		WorkspaceID: ws,
 		Op:          "memory.imprint",
@@ -148,7 +148,7 @@ func TestStore_QueryFilters(t *testing.T) {
 	}
 	defer s.Close()
 
-	ws := "ws_filter_test_" + types.NewID("t")
+	ws := types.NewID()
 	entries := []api.LedgerEntry{
 		{WorkspaceID: ws, Op: "memory.imprint", AgentID: "a1"},
 		{WorkspaceID: ws, Op: "memory.update", AgentID: "a2"},

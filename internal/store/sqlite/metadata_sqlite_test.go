@@ -90,7 +90,7 @@ func TestMetadataStore_CellRoundtrip(t *testing.T) {
 	_, _ = ms.ImprintMemory(ctx, m)
 
 	cells := []types.Cell{
-		{CellID: types.NewID(types.CellIDPrefix), MemoryID: m.ID, Seq: 0, Text: "chunk text", TextMD5: "abc123", WrittenByAgentID: "agent"},
+		{CellID: types.NewID(), MemoryID: m.ID, Seq: 0, Text: "chunk text", TextMD5: "abc123", WrittenByAgentID: "agent"},
 	}
 	if err := ms.UpsertCells(ctx, m.ID, cells); err != nil {
 		t.Fatalf("UpsertCells: %v", err)
@@ -140,7 +140,7 @@ func TestMetadataStore_AgentRoundtrip(t *testing.T) {
 	ws := &types.Workspace{Name: "agent-test"}
 	_ = ms.CreateWorkspace(ctx, ws)
 
-	agentID := types.NewID(types.AgentIDPrefix)
+	agentID := types.AgentIDPrefix + types.NewID()
 	a := &types.Agent{
 		AgentID:          agentID,
 		WorkspaceID:      ws.ID,

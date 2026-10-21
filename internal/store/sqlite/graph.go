@@ -17,7 +17,7 @@ import (
 // GraphLink creates a typed edge. CAS-like uniqueness on the live triple.
 func (s *Store) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
 	if e.EdgeID == "" {
-		e.EdgeID = types.NewID(types.EdgeIDPrefix)
+		e.EdgeID = types.NewID()
 	}
 	if err := e.Validate(); err != nil {
 		return types.Edge{}, err

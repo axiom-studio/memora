@@ -119,7 +119,7 @@ func (s *Store) AppendBatch(ctx context.Context, entries []api.LedgerEntry) erro
 
 func (s *Store) appendEntry(ctx context.Context, ex any, e *api.LedgerEntry) error {
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()

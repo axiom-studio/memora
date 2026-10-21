@@ -148,7 +148,7 @@ func AutoLink(
 	edges := make([]types.Edge, 0, len(candidates))
 	for _, c := range candidates {
 		edges = append(edges, types.Edge{
-			EdgeID:         types.NewID(types.EdgeIDPrefix),
+			EdgeID:         types.NewID(),
 			WorkspaceID:    workspaceID,
 			SourceMemoryID: newMemory.ID,
 			TargetMemoryID: c.MemoryID,

@@ -16,7 +16,7 @@ model = "noop:default"
 
 [federation]
 enabled = true
-federation_id = "fed_demo_cluster"
+federation_id = "4d2c1b0a-0000-4000-8000-000000000001"
 
 [[federation.peers]]
 name = "node2"

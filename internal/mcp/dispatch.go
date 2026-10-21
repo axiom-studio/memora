@@ -20,9 +20,40 @@ func agentFrom(ctx context.Context) string {
 	return v
 }
 
+// idArgs are the top-level tool arguments that carry Memora IDs.
+// agent_id joins them when agent IDs become UUIDs (ID-3) and edge_id
+// when synthetic edges get UUIDs (ID-4).
+var idArgs = []string{
+	"workspace_id", "collection_id", "memory_id", "pin_id",
+	"source_memory_id", "target_memory_id", "seed_memory_id",
+}
+
+// validateIDArgs rejects any present, non-empty ID argument that is not
+// a UUID. Missing or non-string values are left to the tool's own decode
+// and required-field checks.
+func validateIDArgs(args json.RawMessage) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(args, &m); err != nil {
+		return nil // the tool's decode reports malformed arguments
+	}
+	for _, k := range idArgs {
+		var id string
+		if json.Unmarshal(m[k], &id) != nil || id == "" {
+			continue
+		}
+		if _, err := types.ParseID(k, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // dispatchTool routes a tool call to the corresponding service-layer
 // method. Returns a JSON-marshallable result or an error.
 func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	if err := validateIDArgs(args); err != nil {
+		return nil, err
+	}
 	pinned := agentFrom(ctx)
 
 	switch name {

@@ -70,17 +70,17 @@ type Edge struct {
 // Validate returns an error if the edge is malformed.
 func (e *Edge) Validate() error {
 	if e.EdgeID != "" {
-		if err := MustHavePrefix(e.EdgeID, EdgeIDPrefix); err != nil {
+		if err := parseErr("edge_id", e.EdgeID); err != nil {
 			return err
 		}
 	}
-	if err := MustHavePrefix(e.WorkspaceID, WorkspaceIDPrefix); err != nil {
+	if err := parseErr("workspace_id", e.WorkspaceID); err != nil {
 		return err
 	}
-	if err := MustHavePrefix(e.SourceMemoryID, MemoryIDPrefix); err != nil {
+	if err := parseErr("source_memory_id", e.SourceMemoryID); err != nil {
 		return err
 	}
-	if err := MustHavePrefix(e.TargetMemoryID, MemoryIDPrefix); err != nil {
+	if err := parseErr("target_memory_id", e.TargetMemoryID); err != nil {
 		return err
 	}
 	if e.SourceMemoryID == e.TargetMemoryID {

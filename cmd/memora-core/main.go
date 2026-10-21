@@ -96,7 +96,7 @@ func printHelp() {
 Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
-  memora-core federation init      generate a federation UUID (fed_<ULID>)
+  memora-core federation init      generate a federation ID (UUIDv4)
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -529,7 +529,7 @@ func runFederation() {
 	name := fs.String("name", "", "human-readable name for this federation instance")
 	_ = fs.Parse(os.Args[1:])
 
-	fedID := types.NewID(types.FederationIDPrefix)
+	fedID := types.NewID()
 	fmt.Printf("Federation ID: %s\n", fedID)
 	if *name != "" {
 		fmt.Printf("Name:          %s\n", *name)

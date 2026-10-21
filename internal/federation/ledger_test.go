@@ -1,9 +1,9 @@
 package federation
 
 import (
-	"strings"
 	"testing"
 
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -19,8 +19,8 @@ func TestNewOutboundRecallEntry(t *testing.T) {
 	if e.Op != "federation_recall" {
 		t.Errorf("expected federation_recall, got %s", e.Op)
 	}
-	if !strings.HasPrefix(e.LedgerID, "lg_") {
-		t.Errorf("expected lg_ prefix, got %s", e.LedgerID)
+	if _, err := types.ParseID("ledger_id", e.LedgerID); err != nil {
+		t.Errorf("ledger_id: %v", err)
 	}
 	if e.Metadata["federation_id"] != "fed_abc" {
 		t.Errorf("expected fed_abc, got %v", e.Metadata["federation_id"])
