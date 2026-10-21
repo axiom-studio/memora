@@ -842,7 +842,11 @@ func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, r
 	}
 	vecs, err := s.Embedder.Embed(ctx, []string{req.Query})
 	if err != nil {
-		return nil, fmt.Errorf("%w: vector search: embed query: %v", types.ErrCapability, err)
+		// Provider error text can carry provider internals (and once
+		// carried an API key in a URL), so clients get a fixed message and
+		// the redacted detail stays in the server log.
+		slog.Default().Warn("vector search: embed query failed", "err", embedding.Redact(err.Error()))
+		return nil, fmt.Errorf("%w: vector search unavailable: embedding provider error", types.ErrCapability)
 	}
 	if len(vecs) == 0 {
 		return nil, fmt.Errorf("%w: vector search: embedder returned no vector", types.ErrCapability)

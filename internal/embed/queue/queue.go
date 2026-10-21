@@ -366,7 +366,7 @@ func (p *Pool) logEmbedFailed(j Job, cause error) {
 		Timestamp:   time.Now().UTC(),
 		Metadata: map[string]any{
 			"cell_id": j.Cell.CellID,
-			"error":   cause.Error(),
+			"error":   embedding.Redact(cause.Error()), // ledger is readable by any key holder
 		},
 	})
 }

@@ -14,6 +14,15 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- The Gemini embedding provider sent its API key as a URL query parameter
+  (`?key=`), and Go transport errors print the full URL. The key could
+  reach vector-search error responses (HTTP and MCP), server logs, and
+  `embed_failed` ledger entries (#6165). The key now goes in the
+  `x-goog-api-key` header. Provider transport errors drop URL query
+  strings. Search returns a fixed `embedding provider error` message
+  and logs only the redacted detail. Ledger entries are redacted too.
+  **Operators who ran Gemini embeddings should rotate the key** if logs
+  or the ledger may hold it.
 - Edits that re-chunk a Memory to fewer cells now delete the removed cells,
   their vectors and their content blobs (#6037). Before, the cell rows and
   content stayed, so `GET /v1/workspaces/{ws}/memories/{id}`, the console

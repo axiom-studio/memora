@@ -107,16 +107,19 @@ func (p *GeminiProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 			}
 		}
 
-		url := p.endpoint + "/models/" + p.model + ":batchEmbedContents?key=" + p.apiKey
+		// The key goes in a header, never the URL, so no error, proxy or
+		// access log that prints the URL can carry it.
+		url := p.endpoint + "/models/" + p.model + ":batchEmbedContents"
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 		if err != nil {
-			return nil, err
+			return nil, transportError("gemini", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", p.apiKey)
 
 		resp, err := p.client.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("gemini: %w", err)
+			lastErr = transportError("gemini", err)
 			continue
 		}
 

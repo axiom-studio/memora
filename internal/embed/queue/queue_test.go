@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -538,3 +539,34 @@ func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 
 // Silence "imported and not used" if api is only referenced indirectly.
 var _ = api.LedgerEntry{}
+
+// TestPool_EmbedFailedLedger_RedactsURLQuery (#6165): the ledger is
+// readable by any key holder, so a provider error carrying a URL with a
+// key in its query string is stored redacted.
+func TestPool_EmbedFailedLedger_RedactsURLQuery(t *testing.T) {
+	const sentinel = "AIzaSENTINEL0123456789"
+	h := newHarness(t)
+	inner, _ := embedding.Open("noop:default")
+	bad := &alwaysFailProvider{inner: inner, err: errors.New(`gemini: Post "https://p.example/embed?key=` + sentinel + `": EOF`)}
+	rl := &recordingLedger{}
+	ws := &types.Workspace{Name: "redact"}
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
+	agent := types.NewID()
+	mem := h.imprint(ws.ID, "r", agent)
+	cells := h.seedCells(mem.ID, agent, []string{"r0"})
+
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: bad, Ledger: rl},
+		queue.PoolConfig{Workers: 1, BatchSize: 8, BatchFlushInterval: 10 * time.Millisecond,
+			RetryAttempts: 1, RetryBaseDelay: time.Millisecond})
+	pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: cells[0]})
+	pool.Close()
+
+	entries, _, err := rl.Query(h.ctx, adapter.LedgerQuery{WorkspaceID: ws.ID, Op: []string{queue.OpEmbedFailed}})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("embed_failed entries = %d, %v", len(entries), err)
+	}
+	msg, _ := entries[0].Metadata["error"].(string)
+	if strings.Contains(msg, sentinel) || !strings.Contains(msg, "?[redacted]") {
+		t.Fatalf("ledger error = %q; want the URL query redacted", msg)
+	}
+}
