@@ -1064,17 +1064,33 @@ func excerpt(content string, terms []string, max int) string {
 // memory, capped, so that collapsing to one cell per memory still leaves k.
 const (
 	cellsPerMemoryOverfetch = 4
-	maxVectorCandidates     = 400
+	maxVectorCandidates     = 1000
 )
 
-// hybridSearch runs keyword and vector search over scope and fuses the
-// two rankings by weighted reciprocal rank fusion (rank.Fuse), so BM25 and
-// cosine scores never mix. req.Weights scale each source's votes (default
+// Hybrid fuses candidate pools larger than k: with only k per side, the
+// two lists barely overlap at small k, fusion degenerates into single
+// votes, and top-k is no longer a prefix of top-(k+n).
+const (
+	minHybridPool = 50
+	maxHybridPool = 400
+)
+
+// hybridPool is the number of candidates each side contributes for a
+// final top k.
+func hybridPool(k int) int {
+	return min(max(4*k, minHybridPool), maxHybridPool)
+}
+
+// hybridSearch runs keyword and vector search over scope, each returning a
+// candidate pool of hybridPool(k) memories, fuses the two full rankings by
+// weighted reciprocal rank fusion (rank.Fuse) and only then keeps the top
+// k, so top-k is a prefix of top-(k+n). BM25 and cosine scores never mix. req.Weights scale each source's votes (default
 // equal). A failing source is logged and reported in degraded instead of
 // failing the search; both failing is an error.
 func (s *Service) hybridSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) (hits []api.RecallHit, scanned int, degraded []string, err error) {
-	kw, kwErr := s.keywordSearch(ctx, scope, req, k)
-	vec, vecErr := s.vectorSearch(ctx, scope, req, k)
+	pool := hybridPool(k)
+	kw, kwErr := s.keywordSearch(ctx, scope, req, pool)
+	vec, vecErr := s.vectorSearch(ctx, scope, req, pool)
 	if kwErr != nil && vecErr != nil {
 		return nil, 0, nil, fmt.Errorf("hybrid search: both sources failed: %w", errors.Join(kwErr, vecErr))
 	}

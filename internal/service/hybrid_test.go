@@ -109,3 +109,51 @@ func TestHybrid_KeywordDown_ReportsDegradedAndKeepsVectorHits(t *testing.T) {
 		t.Fatal("hybrid with both sides down must fail")
 	}
 }
+
+// TestHybrid_TopKIsPrefixStableAndBothSidesWin (#4356 QA): hybrid fuses
+// candidate pools larger than k, so top-k is a prefix of top-20, and a
+// memory ranked by both sides outranks one that only the vector side
+// ranks (the noop embedder ranks every memory), even at k=1..3.
+func TestHybrid_TopKIsPrefixStableAndBothSidesWin(t *testing.T) {
+	s := newTestService(t)
+	ws := newTestWorkspace(t, s)
+	keywordMatches := map[string]bool{}
+	for _, c := range []string{
+		"NVDA dropped on export controls", "Chip exports and NVDA guidance cut", "NVDA",
+		"exports exports exports of grain", "Quarterly NVDA exports review meeting notes",
+		"NVDA supplier exports", "export data for NVDA", "NVDA exports outlook", "exports up, NVDA flat",
+		"NVDA and AMD exports", "another NVDA note",
+	} {
+		keywordMatches[imprint(t, s, ws, c)] = true
+	}
+	for _, c := range []string{"Lunch menu for Tuesday", "Parking rota", "Team offsite photos"} {
+		imprint(t, s, ws, c)
+	}
+
+	ids := func(k int) []string {
+		t.Helper()
+		r, err := s.Search(context.Background(), api.SearchRequest{Query: "NVDA exports", K: k})
+		if err != nil {
+			t.Fatalf("k=%d: %v", k, err)
+		}
+		out := make([]string, len(r.Results))
+		for i, h := range r.Results {
+			out[i] = h.MemoryID
+		}
+		return out
+	}
+	full := ids(20)
+	for k := 1; k <= 5; k++ {
+		top := ids(k)
+		for i := range top {
+			if top[i] != full[i] {
+				t.Fatalf("k=%d: position %d is %s, but top-20 has %s there (not prefix-stable)", k, i, top[i], full[i])
+			}
+		}
+	}
+	for i, id := range full[:len(keywordMatches)] {
+		if !keywordMatches[id] {
+			t.Fatalf("position %d is a vector-only memory, ranked above a memory both sides rank", i)
+		}
+	}
+}
