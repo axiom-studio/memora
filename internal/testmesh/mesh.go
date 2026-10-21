@@ -61,10 +61,13 @@ type Options struct {
 	// Mesh makes every pair of nodes peers (both directions); otherwise
 	// only the first node calls the others.
 	Mesh bool
+	// FirstDim is node 0's embedding dimension (default 64); node i
+	// gets FirstDim·(i+1).
+	FirstDim int
 }
 
-// New starts one node per name. Node i embeds with hash:<64·(i+1)>, so
-// no two nodes share a vector space. Keys are per pair and direction:
+// New starts one node per name. Node i embeds with
+// hash:<FirstDim·(i+1)>, so no two nodes of a mesh share a vector space. Keys are per pair and direction:
 // the caller holds the key, the callee only its SHA-256.
 func New(t testing.TB, names []string, o Options) []*Node {
 	t.Helper()
@@ -96,8 +99,12 @@ func New(t testing.TB, names []string, o Options) []*Node {
 	for _, n := range nodes {
 		n.Config = mergePeers(n.Config)
 	}
+	first := o.FirstDim
+	if first <= 0 {
+		first = 64
+	}
 	for i, n := range nodes {
-		n.start(t, 64*(i+1))
+		n.start(t, first*(i+1))
 	}
 	return nodes
 }

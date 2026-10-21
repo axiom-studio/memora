@@ -214,6 +214,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Federation acceptance suite (F-10, #4370). `test/federation_e2e` runs
+  real in-process nodes with different embedders. Peers are registered
+  at runtime over the API. It covers federated search across both
+  nodes, fetch by `(node_id, memory_id)`, peer removal, unknown (401)
+  and revoked (403) callers, a stopped peer (`partial_success`), the
+  loop guard on a three-node mesh, and the audit on both nodes. It
+  passes under `-race`. The docker-compose CLI script now checks
+  federated search and fetch output instead of an exit code.
 - Federation audit, limits and metrics (F-8, #4368).
   - Ledger ops `federation_search` (caller), `federation_inbound` and
     `federation_rejected` (receiver), and `federation_fetch` (both

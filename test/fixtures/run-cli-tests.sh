@@ -138,13 +138,35 @@ if [[ "$TARGET" == "federation" || "$TARGET" == "federation-prod" ]]; then
     run_test "node3 health" \
         "$CLI" --endpoint "$MEMORA_FED_NODE3_ENDPOINT" --api-key "$MEMORA_FED_NODE3_API_KEY" health
 
-    # Imprint on node1, recall on node2 (federation fanout)
-    "$CLI" --endpoint "$MEMORA_FED_NODE1_ENDPOINT" --api-key "$MEMORA_FED_NODE1_API_KEY" -w "$MEMORA_WORKSPACE" \
-        imprint --text "Federation test: this memory lives on node1 originally" --tag test=federation 2>/dev/null || true
+    # Federated search, asserted on output (F-10). Peer node2→node1 at
+    # runtime with a fresh key: node2 holds the key, node1 its hash.
+    NODE1_ID="1d0e5a01-6c1b-4a7e-9f20-000000000001"
+    NODE2_ID="1d0e5a01-6c1b-4a7e-9f20-000000000002"
+    FED_KEY="cli-e2e-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    peer_post() { # endpoint api-key json
+        curl -fsS -X POST "$1/v1/federation/peers" -H "Authorization: Bearer $2" \
+            -H "Content-Type: application/json" -d "$3" >/dev/null
+    }
+    run_test "register node1 on node2 (outbound key)" peer_post "$MEMORA_FED_NODE2_ENDPOINT" "$MEMORA_FED_NODE2_API_KEY" \
+        "{\"node_id\":\"$NODE1_ID\",\"name\":\"node1\",\"url\":\"http://memora-node1:7777\",\"api_key\":\"$FED_KEY\"}"
+    run_test "register node2 on node1 (inbound key)" peer_post "$MEMORA_FED_NODE1_ENDPOINT" "$MEMORA_FED_NODE1_API_KEY" \
+        "{\"node_id\":\"$NODE2_ID\",\"name\":\"node2\",\"url\":\"http://memora-node2:7777\",\"inbound_key\":\"$FED_KEY\"}"
 
-    run_test "cross-node recall (node2 → node1 fanout)" \
-        "$CLI" --endpoint "$MEMORA_FED_NODE2_ENDPOINT" --api-key "$MEMORA_FED_NODE2_API_KEY" -w "$MEMORA_WORKSPACE" \
-        recall "federation test memory" --k 3
+    FED_PHRASE="federation probe $$ lives on node1"
+    FED_WS=$("$CLI" --endpoint "$MEMORA_FED_NODE1_ENDPOINT" --api-key "$MEMORA_FED_NODE1_API_KEY" -o json \
+        workspaces create --name "fed-test-$$" 2>/dev/null | grep -o '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    FED_MEM=$("$CLI" --endpoint "$MEMORA_FED_NODE1_ENDPOINT" --api-key "$MEMORA_FED_NODE1_API_KEY" -w "$FED_WS" -o json \
+        imprint --text "$FED_PHRASE" 2>/dev/null | grep -o '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    FED_OUT=$("$CLI" --endpoint "$MEMORA_FED_NODE2_ENDPOINT" --api-key "$MEMORA_FED_NODE2_API_KEY" -o json \
+        search "federation probe $$" --federated --peers "$NODE1_ID" --mode keyword 2>&1) || true
+    run_test "federated search on node2 returns node1's memory" assert_contains "$FED_OUT" "$FED_MEM"
+    run_test "federated hit is attributed to node1" assert_contains "$FED_OUT" "\"node_id\": \"$NODE1_ID\""
+    run_test "no peer failed" bash -c '! grep -q failed_peers <<<"$1"' _ "$FED_OUT"
+
+    FETCH_OUT=$("$CLI" --endpoint "$MEMORA_FED_NODE2_ENDPOINT" --api-key "$MEMORA_FED_NODE2_API_KEY" -o json \
+        fetch "$FED_MEM" --node "$NODE1_ID" 2>&1) || true
+    run_test "fetch through node2 returns node1's full memory" assert_contains "$FETCH_OUT" "$FED_PHRASE"
 fi
 
 # --- Cleanup ---
