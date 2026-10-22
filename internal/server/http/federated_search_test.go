@@ -166,6 +166,9 @@ func TestFederatedSearch_E2E_Validation(t *testing.T) {
 		{"query": "x", "peers": []string{nodes[1].ID}},
 		{"query": "x", "federated": true, "workspace_ids": []string{types.NewID()}},
 		{"query": "x", "federated": true, "timeout_ms": -1},
+		{"query": "x", "federated": true, "per_peer_k": 101},
+		{"query": "x", "federated": true, "k": 101},
+		{"query": "x", "k": 101},
 	}
 	for _, body := range cases {
 		if status, resp := a.search(t, body); status != 400 || resp["error_code"] != "invalid_input" {

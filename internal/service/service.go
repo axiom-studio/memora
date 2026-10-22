@@ -582,6 +582,12 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	if mode == "" {
 		mode = api.RecallModeHybrid
 	}
+	switch {
+	case req.K > MaxK:
+		return nil, fmt.Errorf("%w: k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.K)
+	case len(req.MemoryIDs) > MaxK:
+		return nil, fmt.Errorf("%w: memory_ids takes at most %d IDs, got %d", types.ErrInvalidInput, MaxK, len(req.MemoryIDs))
+	}
 	k := req.K
 	if k <= 0 {
 		k = 5
@@ -655,6 +661,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	if len(results) > cap {
 		results = results[:cap]
 	}
+	applyResponseBudget(results, mode == api.RecallModeLookup)
 	return &api.RecallResponse{
 		Results:                results,
 		Degraded:               degraded,
@@ -694,6 +701,8 @@ func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*
 		return nil, fmt.Errorf("%w: workspace_ids cannot be combined with federated: peers search their whole node", types.ErrInvalidInput)
 	case req.PerPeerK < 0 || req.TimeoutMS < 0:
 		return nil, fmt.Errorf("%w: per_peer_k and timeout_ms must not be negative", types.ErrInvalidInput)
+	case req.PerPeerK > MaxK:
+		return nil, fmt.Errorf("%w: per_peer_k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.PerPeerK)
 	}
 	local, err := s.localSearch(ctx, req)
 	if err != nil {
@@ -737,6 +746,7 @@ func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*
 	} else {
 		hits = federation.Merge(fr, k)
 	}
+	applyResponseBudget(hits, false)
 	return &api.RecallResponse{
 		Results:                hits,
 		Degraded:               local.Degraded,
@@ -774,6 +784,9 @@ func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.
 	mode := req.Mode
 	if mode == "" {
 		mode = api.RecallModeHybrid
+	}
+	if req.K > MaxK {
+		return nil, fmt.Errorf("%w: k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.K)
 	}
 	k := req.K
 	if k <= 0 {
@@ -817,6 +830,7 @@ func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.
 	if err != nil {
 		return nil, err
 	}
+	applyResponseBudget(hits, false)
 	return &api.RecallResponse{
 		Results:                hits,
 		Degraded:               degraded,
@@ -1082,11 +1096,49 @@ func (s *Service) keepMatching(ctx context.Context, hits []api.RecallHit, f api.
 	return out, nil
 }
 
-// Content limits for include_content.
+// Result size limits (#6166). MaxK bounds k and per_peer_k on search
+// and recall, and memory_ids in lookup mode; the MCP tool schemas
+// advertise the same bound.
 const (
-	defaultMaxContentBytes = 64 << 10
-	hardMaxContentBytes    = 1 << 20
+	MaxK = 100
+	// maxResponseContentBytes bounds the content and cell text one
+	// search or recall response carries, across all its hits.
+	maxResponseContentBytes = 8 << 20
+	// maxCellsPerHit bounds include_cells for one hit.
+	maxCellsPerHit = 256
 )
+
+// applyResponseBudget walks hits in rank order and keeps the content
+// and cell text they carry under maxResponseContentBytes in total. A hit
+// that would cross it has its content cut (ContentTruncated) and its
+// remaining cells omitted (CellsTruncated); every later hit keeps its
+// excerpt and matched cell only. textIsContent counts Text too, for
+// lookup mode, where Text is the memory's whole content.
+func applyResponseBudget(hits []api.RecallHit, textIsContent bool) {
+	left := maxResponseContentBytes
+	for i := range hits {
+		h := &hits[i]
+		if textIsContent {
+			var cut bool
+			h.Text, cut = truncateUTF8(h.Text, left)
+			h.ContentTruncated = h.ContentTruncated || cut
+			left -= len(h.Text)
+		}
+		if h.Content != "" {
+			var cut bool
+			h.Content, cut = truncateUTF8(h.Content, left)
+			h.ContentTruncated = h.ContentTruncated || cut
+			left -= len(h.Content)
+		}
+		for j, c := range h.Cells {
+			if len(c.Text) > left {
+				h.Cells, h.CellsTruncated = h.Cells[:j], true
+				break
+			}
+			left -= len(c.Text)
+		}
+	}
+}
 
 // hydrateOpts says what hydrate fills in beyond the always-present data.
 type hydrateOpts struct {
@@ -1122,11 +1174,7 @@ func (s *Service) hydrate(ctx context.Context, hits []api.RecallHit, o hydrateOp
 	if err != nil {
 		return nil, fmt.Errorf("load search hit cells: %w", err)
 	}
-	maxBytes := o.maxContentBytes
-	if maxBytes <= 0 {
-		maxBytes = defaultMaxContentBytes
-	}
-	maxBytes = min(maxBytes, hardMaxContentBytes)
+	maxBytes := federation.EffectiveMaxContentBytes(o.maxContentBytes)
 	terms := adapter.KeywordTerms(o.query)
 
 	out := hits[:0]
@@ -1152,6 +1200,9 @@ func (s *Service) hydrate(ctx context.Context, hits []api.RecallHit, o hydrateOp
 		}
 		if o.includeCells {
 			h.Cells = cells[m.ID]
+			if len(h.Cells) > maxCellsPerHit {
+				h.Cells, h.CellsTruncated = h.Cells[:maxCellsPerHit], true
+			}
 		}
 		out = append(out, h)
 	}

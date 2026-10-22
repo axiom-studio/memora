@@ -14,6 +14,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Search and recall results are bounded (#6166). `k` and `per_peer_k`
+  are at most 100 and lookup `memory_ids` at most 100 IDs (more is
+  `400 invalid_input`; the MCP schema already advertised 100). One
+  response carries at most 8 MiB of content and cell text in total; the
+  hit that reaches the limit is cut (`content_truncated`, new
+  `cells_truncated`) and later hits keep only their excerpt and matched
+  cell. `include_cells` returns at most 256 cells per hit. Before this,
+  one `k: 30000, include_content, include_cells` request could hold
+  gigabytes in memory, and a peer could ask for the same through
+  `POST /v1/federation/search`.
 - A peer's search answer is checked before it is merged (#6174). Hits
   whose IDs are not UUIDs are dropped, at most `per_peer_k` hits are
   kept, `content` is cut to the requested `max_content_bytes` (and

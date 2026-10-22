@@ -85,7 +85,7 @@ All paths are relative to `/v1`.
 
 | Field | Value |
 |---|---|
-| `POST /search` | Search every workspace on the node, or those in `workspace_ids`. Body: `query`, `mode` (`keyword`, `vector`, or `hybrid`, the default), `k` (default 5), `workspace_ids`, `filters`, `include_content`, `max_content_bytes` (default 64 KiB, at most 1 MiB), `include_cells`. Each hit carries its `workspace_id`, `matched_text` (the full text of the matching Cell, located by `cell_id` and `cell_index`), a short `text` excerpt, `tags`, `written_by_agent_id` and `created_at`. With `include_content` it also carries the Memory's `content`, with `content_truncated` set if it was cut. Recall accepts the same three options. In `multi-tenant` mode the `X-Memora-Workspace` header is required (`400 missing_workspace` without it) and the search stays inside that workspace. With `federated: true` the node also searches its federation peers; see [Federated Search](#federated-search). |
+| `POST /search` | Search every workspace on the node, or those in `workspace_ids`. Body: `query`, `mode` (`keyword`, `vector`, or `hybrid`, the default), `k` (default 5, at most 100; more is `400 invalid_input`), `workspace_ids`, `filters`, `include_content`, `max_content_bytes` (default 64 KiB, at most 1 MiB), `include_cells` (at most 256 Cells per hit). Each hit carries its `workspace_id`, `matched_text` (the full text of the matching Cell, located by `cell_id` and `cell_index`), a short `text` excerpt, `tags`, `written_by_agent_id` and `created_at`. With `include_content` it also carries the Memory's `content`, with `content_truncated` set if it was cut. One response carries at most 8 MiB of content and Cell text across all its hits: in rank order, the hit that reaches the limit has its content cut and its remaining Cells left out (`content_truncated`, `cells_truncated`), and later hits keep only `text` and `matched_text`. Recall accepts the same three options and limits; its lookup mode takes at most 100 `memory_ids`. In `multi-tenant` mode the `X-Memora-Workspace` header is required (`400 missing_workspace` without it) and the search stays inside that workspace. With `federated: true` the node also searches its federation peers; see [Federated Search](#federated-search). |
 | `POST /workspaces/{ws}/recall` | Run a recall query. |
 | `GET /workspaces/{ws}/recall/pins` | List saved queries. |
 | `POST /workspaces/{ws}/recall/pins` | Save a query. `mode` defaults to `hybrid` and `k` to 10. |
@@ -108,7 +108,7 @@ Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_
 |---|---|
 | `federated` | `true` to include peers. |
 | `peers` | Node IDs to ask. Default: every peer that is not `revoked` and has an `api_key`. An unknown or unusable node ID is `400`. |
-| `per_peer_k` | How many hits each peer returns. Default `k`. |
+| `per_peer_k` | How many hits each peer returns. Default `k`, at most 100. |
 | `timeout_ms` | Bounds every peer. Default: each peer's `timeout_ms` (see [Peer Credentials](configuration.md#peer-credentials)). At most `60000`. |
 | `rerank` | `true` passes the merged hits through the node's re-scorer before the top `k` is taken. The default re-scorer keeps the fused order; embedders of Memora can plug in their own (`federation.Reranker`). |
 

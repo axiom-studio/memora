@@ -61,7 +61,9 @@ type RecallRequest struct {
 	Weights      RecallWeights `json:"weights,omitempty"`
 	IncludeCells bool          `json:"include_cells,omitempty"`
 	// IncludeContent adds each hit's full memory content, cut at
-	// MaxContentBytes (default 64 KiB, at most 1 MiB).
+	// MaxContentBytes (default 64 KiB, at most 1 MiB). K is at most 100.
+	// A response carries at most 8 MiB of content and cell text in
+	// total; hits past that have content cut and cells omitted.
 	IncludeContent  bool            `json:"include_content,omitempty"`
 	MaxContentBytes int             `json:"max_content_bytes,omitempty"`
 	GraphExpansion  *GraphExpansion `json:"graph_expansion,omitempty"`
@@ -92,9 +94,12 @@ type RecallHit struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	// Content is the memory's full content (include_content), cut at
 	// max_content_bytes when ContentTruncated.
-	Content          string            `json:"content,omitempty"`
-	ContentTruncated bool              `json:"content_truncated,omitempty"`
-	Cells            []types.Cell      `json:"cells,omitempty"` // include_cells
+	Content          string       `json:"content,omitempty"`
+	ContentTruncated bool         `json:"content_truncated,omitempty"`
+	Cells            []types.Cell `json:"cells,omitempty"` // include_cells
+	// CellsTruncated is set when include_cells returned only some of the
+	// memory's cells (per-hit or per-response limit).
+	CellsTruncated   bool              `json:"cells_truncated,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	Watermark        string            `json:"watermark"`
 	WrittenByAgentID string            `json:"written_by_agent_id,omitempty"`

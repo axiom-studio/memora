@@ -166,6 +166,11 @@ func TestFederationSearch_E2E(t *testing.T) {
 	if resp.StatusCode != 400 || body["error_code"] != "invalid_input" {
 		t.Fatalf("workspace_ids: status=%d body=%v, want 400 invalid_input", resp.StatusCode, body)
 	}
+	// Nor ask for more than k=100 hits (#6166).
+	resp, body = n.peerSearch(t, map[string]any{"query": "telescope", "k": 30000, "include_content": true}, "")
+	if resp.StatusCode != 400 || body["error_code"] != "invalid_input" {
+		t.Fatalf("k=30000: status=%d body=%v, want 400 invalid_input", resp.StatusCode, body)
+	}
 	if got := n.rejections(t); len(got) != 0 {
 		t.Fatalf("rejections = %v, want none", got)
 	}
