@@ -57,6 +57,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   forgotten memory is now `404`.
 
 ### Security
+- The `local` embedder's model is pinned (#4380, first part). It used to
+  download `resolve/main` (a moving branch) with no hash check and hand
+  the file to native code. It now downloads from a fixed commit, keeps
+  the file only if its SHA-256 matches, and verifies an existing model
+  file on every load. An empty pin is refused, not skipped.
 - Every graph and pin write is now audited (#6171). Batch link
   (`POST /edges/:batch`, one `link` entry per edge created), pin
   create (`pin`) and pin delete (`unpin`) wrote no ledger entry, and
