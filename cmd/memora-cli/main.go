@@ -763,13 +763,19 @@ func cmdAgents(ctx context.Context, c *client.Client, g globalFlags) {
 		die(err)
 		emit(g, map[string]any{"agents": ags})
 	case "register":
+		// --agent-id is a global flag (parseGlobal consumes it wherever it
+		// appears), so the agent registered is the global one: the one
+		// --agent-id names, or else the agent this CLI writes as (#6175).
 		fs := flag.NewFlagSet("agents register", flag.ExitOnError)
-		id := fs.String("agent-id", "", "agent id (required)")
+		id := fs.String("id", "", "agent id (default: --agent-id, $MEMORA_AGENT_ID or the shared CLI agent)")
 		provider := fs.String("provider", "opaque", "identity provider")
 		name := fs.String("display-name", "", "display name")
 		_ = fs.Parse(g.Args[1:])
 		if *id == "" {
-			fmt.Fprintln(os.Stderr, "agents register --agent-id <id>")
+			*id = g.AgentID
+		}
+		if *id == "" {
+			fmt.Fprintln(os.Stderr, "agents register [--agent-id <uuid>] [--display-name <name>]")
 			os.Exit(exitUsage)
 		}
 		a, err := c.RegisterAgent(ctx, g.Workspace, api.RegisterAgentRequest{
@@ -1014,7 +1020,7 @@ Commands:
   neighbors <mem_id> [--direction out|in|both] [--types ...] [--k N]
   traverse <seed_mem_id> [--depth 1..3] [--direction ...] [--types ...]
   graph stats
-  agents list|register --agent-id <id>
+  agents list|register [--agent-id <uuid>] [--display-name <name>]
   health
   ready
   migrate content [--workspace ...] [--dry-run|--verify] [--resume-from ...]

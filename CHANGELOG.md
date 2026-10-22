@@ -14,6 +14,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- `memora-cli agents register --agent-id <uuid>` registers that agent
+  (#6175). The global `--agent-id` flag consumed the option before the
+  subcommand saw it, so the command only ever printed its usage. It now
+  registers the global agent ID (the one `--agent-id` names, or the
+  agent the CLI writes as); `--id` is also accepted.
 - Console memory and edge writes work again (#6183). The REST
   middleware's agent-header check matched paths by substring, so every
   console `POST /ui/api/memories/*`, `/ui/api/edges/*` and

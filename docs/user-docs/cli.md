@@ -202,7 +202,7 @@ memora-cli fetch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 --node 1d0e5a01-6c1b-4a7e-
 | Section | Description |
 |---|---|
 | `agents list` | List agents registered in the workspace. |
-| `agents register --agent-id <id>` | Register an agent. |
+| `agents register [--agent-id <uuid>] [--display-name <name>] [--provider <p>]` | Register an agent: the one `--agent-id` names, or else the agent the CLI writes as (`$MEMORA_AGENT_ID` or the shared CLI agent). |
 
 | Field | Value |
 |---|---|
