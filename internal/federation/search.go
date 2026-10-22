@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/types"
@@ -46,48 +47,73 @@ type SearchOpts struct {
 // localResult's. The outgoing X-Memora-Federation-Path is this node's
 // ID: a federated search starts here, and peers never forward it.
 func (s *Searcher) Fanout(ctx context.Context, localResult *api.RecallResponse, req api.FederationSearchRequest, opts SearchOpts) (*FanoutResult, error) {
-	peers, err := s.selectPeers(opts.Peers)
+	peers, unusable, err := s.selectPeers(opts.Peers)
 	if err != nil {
 		return nil, err
 	}
 	if opts.Timeout > MaxFederatedTimeout {
 		opts.Timeout = MaxFederatedTimeout
 	}
-	return FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound, s.reg.metrics)
+	fr, err := FanoutSearch(ctx, localResult, s.reg.NodeID, peers, req, AppendToPath("", s.reg.NodeID), opts.Timeout, s.outbound, s.reg.metrics)
+	if err != nil {
+		return nil, err
+	}
+	// Peers that would have been asked but whose key this node cannot
+	// open are failures the caller sees, not silent omissions (#6177).
+	for _, p := range unusable {
+		fr.Asked = append(fr.Asked, p.ID)
+		fr.Failures = append(fr.Failures, PeerFailure{NodeID: p.ID, Name: p.Name, Err: fmt.Errorf("%w: peer %s", ErrPeerKeyUnavailable, p.Name)})
+		s.reg.metrics.ObserveRequest(p.ID, OutcomeKeyUnavailable, 0)
+	}
+	sort.SliceStable(fr.Failures, func(i, j int) bool { return fr.Failures[i].NodeID < fr.Failures[j].NodeID })
+	return fr, nil
 }
+
+// ErrPeerKeyUnavailable is a peer this node cannot call because its
+// stored api_key does not open with this node's federation secret.
+var ErrPeerKeyUnavailable = errors.New("federation: peer api_key unavailable")
 
 // selectPeers resolves the fan-out targets against one registry
 // snapshot, so a concurrent Replace cannot leave a peer without its
-// client.
-func (s *Searcher) selectPeers(ids []string) ([]*PeerClient, error) {
+// client. unusable are the selected peers whose stored key does not
+// open: they are reported as failures, not asked.
+func (s *Searcher) selectPeers(ids []string) (out []*PeerClient, unusable []*Peer, err error) {
 	snap := s.reg.current()
-	var out []*PeerClient
 	if len(ids) == 0 {
-		for _, p := range snap.peers {
-			if p.Searchable() {
+		for i := range snap.peers {
+			p := &snap.peers[i]
+			switch {
+			case p.Searchable():
 				out = append(out, snap.clients[p.ID])
+			case !p.Revoked && p.KeyUnavailable:
+				unusable = append(unusable, p)
 			}
 		}
-		return out, nil
+		return out, unusable, nil
 	}
 	seen := map[string]bool{}
 	for _, id := range ids {
 		if _, err := types.ParseID("peers", id); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		p := snap.byID[id]
 		if p == nil {
-			return nil, fmt.Errorf("%w: peers: %s is not a peer of this node", types.ErrInvalidInput, id)
+			return nil, nil, fmt.Errorf("%w: peers: %s is not a peer of this node", types.ErrInvalidInput, id)
 		}
-		if !p.Searchable() {
-			return nil, fmt.Errorf("%w: peers: %s is revoked or has no api_key", types.ErrInvalidInput, id)
+		if seen[id] {
+			continue
 		}
-		if !seen[id] {
-			seen[id] = true
+		seen[id] = true
+		switch {
+		case p.Searchable():
 			out = append(out, snap.clients[id])
+		case !p.Revoked && p.KeyUnavailable:
+			unusable = append(unusable, p)
+		default:
+			return nil, nil, fmt.Errorf("%w: peers: %s is revoked or has no api_key", types.ErrInvalidInput, id)
 		}
 	}
-	return out, nil
+	return out, unusable, nil
 }
 
 // ErrUnknownNode is a node ID that is not a usable peer of this node.
@@ -102,6 +128,10 @@ var ErrUnknownNode = errors.New("federation: unknown node")
 func (s *Searcher) Fetch(ctx context.Context, nodeID, memoryID string) (*api.MemoryEnvelope, error) {
 	snap := s.reg.current()
 	p := snap.byID[nodeID]
+	if p != nil && !p.Revoked && p.KeyUnavailable {
+		s.reg.metrics.ObserveRequest(nodeID, OutcomeKeyUnavailable, 0)
+		return nil, fmt.Errorf("%w: peer %s", ErrPeerKeyUnavailable, p.Name)
+	}
 	if p == nil || !p.Searchable() {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNode, nodeID)
 	}

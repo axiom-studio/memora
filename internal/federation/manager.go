@@ -100,10 +100,11 @@ func (m *Manager) toConfig(recs []adapter.PeerRecord) []config.PeerConfig {
 	out := make([]config.PeerConfig, 0, len(recs))
 	for _, r := range recs {
 		key, err := m.sealer.Open(r.SealedAPIKey, r.NodeID)
+		unavailable := false
 		if err != nil {
 			slog.Default().Warn("federation peer api_key unreadable; peer will not be searched until it is set again",
 				"peer", r.Name, "node_id", r.NodeID, "err", err)
-			key = ""
+			key, unavailable = "", len(r.SealedAPIKey) > 0
 		}
 		out = append(out, config.PeerConfig{
 			NodeID: r.NodeID, Name: r.Name, URL: r.URL, APIKey: key,
@@ -111,6 +112,7 @@ func (m *Manager) toConfig(recs []adapter.PeerRecord) []config.PeerConfig {
 			ClientCertFile: r.ClientCertFile, ClientKeyFile: r.ClientKeyFile,
 			ClientCertSHA256: r.ClientCertSHA256, TimeoutMS: r.TimeoutMS,
 			RateLimitQPS: r.RateLimitQPS, InboundQPS: r.InboundQPS, Revoked: r.Revoked,
+			KeyUnavailable: unavailable,
 		})
 	}
 	return out
@@ -124,12 +126,25 @@ func (m *Manager) List(ctx context.Context) ([]api.PeerView, error) {
 	}
 	out := make([]api.PeerView, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, view(r))
+		out = append(out, m.view(r))
 	}
 	return out, nil
 }
 
-func view(r adapter.PeerRecord) api.PeerView {
+// view is the API's view of a stored peer. A stored api_key that does
+// not open with this node's secret is reported as unreadable, not as a
+// usable key (#6177).
+func (m *Manager) view(r adapter.PeerRecord) api.PeerView {
+	v := viewRecord(r)
+	if v.HasAPIKey {
+		if _, err := m.sealer.Open(r.SealedAPIKey, r.NodeID); err != nil {
+			v.HasAPIKey, v.APIKeyStatus = false, "unreadable"
+		}
+	}
+	return v
+}
+
+func viewRecord(r adapter.PeerRecord) api.PeerView {
 	trust := string(TrustAPIKey)
 	if r.TLSCert != "" || r.ClientCertFile != "" {
 		trust = string(TrustMTLS)
@@ -227,7 +242,7 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 	}
 	for _, r := range stored {
 		if r.NodeID == req.NodeID {
-			return view(r), nil
+			return m.view(r), nil
 		}
 	}
 	return api.PeerView{}, errors.New("federation: upserted peer not found")

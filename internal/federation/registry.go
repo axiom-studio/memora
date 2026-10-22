@@ -42,6 +42,10 @@ type Peer struct {
 	RequestTimeoutMS int
 	// Revoked peers stay known but their inbound calls get 403.
 	Revoked bool
+	// KeyUnavailable: the peer has a stored api_key this node cannot
+	// open (the federation secret changed), so it is not searched; a
+	// federated search reports it in failed_peers as key_unavailable.
+	KeyUnavailable bool
 
 	// inboundKeyHash is the SHA-256 of the key the peer presents to us;
 	// hasInboundKey is false when the peer is outbound-only.
@@ -244,6 +248,7 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.Feder
 		RateLimitQPS:     firstPositive(pc.RateLimitQPS, fc.OutboundQPS, DefaultOutboundQPS),
 		RequestTimeoutMS: int(firstPositive(float64(pc.TimeoutMS), float64(fc.PeerTimeoutMS), DefaultPeerTimeoutMS)),
 		Revoked:          pc.Revoked,
+		KeyUnavailable:   pc.KeyUnavailable,
 		InboundQPS:       pc.InboundQPS,
 	}
 	if pc.InboundKeySHA256 != "" {

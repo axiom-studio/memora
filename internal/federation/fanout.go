@@ -75,6 +75,8 @@ func peerErrorCode(err error) string {
 		return "outbound_rate_limited"
 	case errors.Is(err, ErrPeerAddressRefused):
 		return "peer_address_refused"
+	case errors.Is(err, ErrPeerKeyUnavailable):
+		return "key_unavailable"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	case errors.As(err, &pe):

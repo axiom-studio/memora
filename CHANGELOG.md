@@ -14,6 +14,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- A peer whose stored `api_key` no longer opens (for example after a
+  restore without `federation.key`) is reported instead of silently
+  skipped (#6177). `GET /v1/federation/peers` shows `has_api_key: false`
+  with `api_key_status: "unreadable"` (the console says so too), a
+  federated search lists the peer in `failed_peers` as `key_unavailable`
+  with `partial_success: true`, a fetch from it is `502
+  key_unavailable`, and `/metrics` counts the outcome. Setting the key
+  again restores the peer.
 - Partial vector rebuilds are no longer invisible (#6180). `memora-core
   reembed --workspace` with a pgvector dimension change dropped every
   workspace's vectors and re-embedded one; it now refuses and asks for a

@@ -117,12 +117,16 @@ type PeerRequest struct {
 // PeerView is a federation peer as the API shows it: never a key, only
 // whether one is set.
 type PeerView struct {
-	NodeID           string    `json:"node_id"`
-	Name             string    `json:"name"`
-	URL              string    `json:"url"`
-	TrustMode        string    `json:"trust_mode"`
-	HasInboundKey    bool      `json:"has_inbound_key"`
-	HasAPIKey        bool      `json:"has_api_key"`
+	NodeID        string `json:"node_id"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	TrustMode     string `json:"trust_mode"`
+	HasInboundKey bool   `json:"has_inbound_key"`
+	HasAPIKey     bool   `json:"has_api_key"`
+	// APIKeyStatus is "unreadable" when a stored api_key does not open
+	// with this node's federation secret (has_api_key is then false):
+	// the peer is not searched until its api_key is set again.
+	APIKeyStatus     string    `json:"api_key_status,omitempty"`
 	ClientCertSHA256 string    `json:"client_cert_sha256,omitempty"`
 	TimeoutMS        int       `json:"timeout_ms,omitempty"`
 	RateLimitQPS     float64   `json:"rate_limit_qps,omitempty"`

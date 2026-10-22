@@ -70,6 +70,8 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 		}
 		if p.HasAPIKey {
 			keys = append(keys, "outbound")
+		} else if p.APIKeyStatus == "unreadable" {
+			keys = append(keys, "outbound (unreadable: set it again)")
 		}
 		if len(keys) == 0 {
 			keys = []string{"none"}

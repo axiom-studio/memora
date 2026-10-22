@@ -23,6 +23,9 @@ const (
 	OutcomeRejected    = "rejected" // the peer refused us (4xx)
 	OutcomeNotFound    = "not_found"
 	OutcomeError       = "error" // a 5xx or an answer we could not use
+	// OutcomeKeyUnavailable: the peer was not called because its stored
+	// api_key does not open with this node's federation secret.
+	OutcomeKeyUnavailable = "key_unavailable"
 )
 
 // latencyBuckets are the histogram bounds, in seconds.
@@ -62,7 +65,7 @@ func (m *Metrics) ObserveRequest(peer, outcome string, d time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests[[2]string{peer, outcome}]++
-	if outcome == OutcomeRateLimited {
+	if outcome == OutcomeRateLimited || outcome == OutcomeKeyUnavailable {
 		return // never sent
 	}
 	h := m.latency[peer]

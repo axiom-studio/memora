@@ -141,6 +141,9 @@ type PeerConfig struct {
 	// InboundQPS caps this peer's calls to this node; 0 takes
 	// federation.inbound_qps.
 	InboundQPS float64 `toml:"inbound_qps"`
+	// KeyUnavailable is set by the peer registry, never by config: a
+	// stored api_key exists but did not open with the federation secret.
+	KeyUnavailable bool `toml:"-"`
 }
 
 type TelemetryConfig struct {
