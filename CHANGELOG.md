@@ -13,6 +13,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 
 ## [Unreleased]
 
+### Fixed
+- Tag edits are visible everywhere (#6182). `PUT`/`DELETE
+  /v1/workspaces/{ws}/memories/{id}/tags/{key}` and the console's tag
+  actions wrote only the tag index, so `GET` memory kept showing the
+  imprint-time tags and tag-filtered search and recall matched neither
+  the old nor the new tags. Both stores now rewrite the memory's tags
+  from the index in the same transaction, and a migration (SQLite 0013,
+  Postgres 0010) reconciles memories edited by earlier builds. Tagging a
+  forgotten memory is now `404`.
+
 ### Security
 - Forgetting a memory now deletes its vectors (#6179). Since #4231,
   `Forget` asked both vector stores to delete by a key with no cell ID,

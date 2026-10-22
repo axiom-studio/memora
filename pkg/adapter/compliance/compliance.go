@@ -126,6 +126,9 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		KeywordSearchContract(t, factory(t))
 	})
 
+	t.Run("tag_edits", func(t *testing.T) {
+		TagEditContract(t, factory(t))
+	})
 	t.Run("keyword_filter", func(t *testing.T) {
 		KeywordFilterContract(t, factory(t))
 	})
@@ -1034,5 +1037,85 @@ func KeywordFilterContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if got := search(adapter.MemoryFilter{Tags: map[string][]string{"kind": {"target"}, "site": {"south"}}}); len(got) != 0 {
 		t.Errorf("tags that no memory has both of matched %v", got)
+	}
+}
+
+// TagEditContract checks that UpsertTag and DeleteTag change the tags
+// every reader sees (#6182): GetMemory, GetMemories and keyword filter
+// pushdown agree after each edit; edits are scoped to the memory's
+// workspace; a forgotten memory cannot be tagged.
+func TagEditContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	ctx := context.Background()
+	ws, other := &types.Workspace{Name: "tags-" + types.NewID()}, &types.Workspace{Name: "tags-other-" + types.NewID()}
+	for _, w := range []*types.Workspace{ws, other} {
+		if err := s.CreateWorkspace(ctx, w); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+	}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "tagged basalt sample", WrittenByAgentID: types.NewID(), Tags: map[string]string{"k": "v"}}
+	if _, err := s.ImprintMemory(ctx, m); err != nil {
+		t.Fatalf("ImprintMemory: %v", err)
+	}
+	check := func(step string, want map[string]string) {
+		t.Helper()
+		got, err := s.GetMemory(ctx, m.ID)
+		if err != nil {
+			t.Fatalf("%s: GetMemory: %v", step, err)
+		}
+		if fmt.Sprint(got.Tags) != fmt.Sprint(want) && !(len(got.Tags) == 0 && len(want) == 0) {
+			t.Errorf("%s: GetMemory tags = %v, want %v", step, got.Tags, want)
+		}
+		batch, err := s.GetMemories(ctx, []string{m.ID})
+		if err != nil || len(batch) != 1 || fmt.Sprint(batch[0].Tags) != fmt.Sprint(got.Tags) {
+			t.Errorf("%s: GetMemories = %+v, %v; want the same tags as GetMemory", step, batch, err)
+		}
+		for k, v := range want {
+			hits, err := s.SearchKeyword(ctx, adapter.KeywordQuery{WorkspaceIDs: []string{ws.ID}, Query: "basalt", K: 5,
+				Filter: adapter.MemoryFilter{Tags: map[string][]string{k: {v}}}})
+			if err != nil || len(hits) != 1 {
+				t.Errorf("%s: keyword search with tag %s=%s: %d hits, %v; want the memory", step, k, v, len(hits), err)
+			}
+		}
+	}
+	check("imprint", map[string]string{"k": "v"})
+
+	if err := s.UpsertTag(ctx, ws.ID, m.ID, "team", "red"); err != nil {
+		t.Fatalf("UpsertTag: %v", err)
+	}
+	check("upsert", map[string]string{"k": "v", "team": "red"})
+	if err := s.UpsertTag(ctx, ws.ID, m.ID, "team", "blue"); err != nil {
+		t.Fatalf("UpsertTag (change): %v", err)
+	}
+	check("change", map[string]string{"k": "v", "team": "blue"})
+	if err := s.DeleteTag(ctx, ws.ID, m.ID, "k"); err != nil {
+		t.Fatalf("DeleteTag: %v", err)
+	}
+	check("delete", map[string]string{"team": "blue"})
+	hits, err := s.SearchKeyword(ctx, adapter.KeywordQuery{WorkspaceIDs: []string{ws.ID}, Query: "basalt", K: 5,
+		Filter: adapter.MemoryFilter{Tags: map[string][]string{"k": {"v"}}}})
+	if err != nil || len(hits) != 0 {
+		t.Errorf("deleted tag still matches: %d hits, %v", len(hits), err)
+	}
+
+	// Another workspace cannot edit it.
+	if err := s.UpsertTag(ctx, other.ID, m.ID, "team", "green"); !errors.Is(err, types.ErrNotFound) {
+		t.Errorf("UpsertTag from another workspace: err = %v, want ErrNotFound", err)
+	}
+	if err := s.DeleteTag(ctx, other.ID, m.ID, "team"); err != nil {
+		t.Errorf("DeleteTag from another workspace: %v", err)
+	}
+	check("foreign edits", map[string]string{"team": "blue"})
+
+	if err := s.DeleteTag(ctx, ws.ID, m.ID, "team"); err != nil {
+		t.Fatalf("DeleteTag (last): %v", err)
+	}
+	check("last tag deleted", map[string]string{})
+
+	if err := s.ForgetMemory(ctx, ws.ID, m.ID); err != nil {
+		t.Fatalf("ForgetMemory: %v", err)
+	}
+	if err := s.UpsertTag(ctx, ws.ID, m.ID, "team", "red"); !errors.Is(err, types.ErrNotFound) {
+		t.Errorf("UpsertTag on a forgotten memory: err = %v, want ErrNotFound", err)
 	}
 }

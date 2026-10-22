@@ -1059,11 +1059,19 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 
 // --- Tags ---
 
+// UpsertTag sets one tag. memora_tags is the source of truth for a
+// memory's tags; tags_json, which GetMemory and the search filter
+// re-check read, is rewritten from it in the same transaction (#6182).
 func (s *MetadataStore) UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error {
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 INSERT INTO memora_tags(memory_id, key, value)
 SELECT $1, $2, $3
-WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $4)
+WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $4 AND deleted_at IS NULL)
 ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 		memoryID, key, value, workspaceID)
 	if err != nil {
@@ -1072,14 +1080,40 @@ ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 	if tag.RowsAffected() == 0 {
 		return types.ErrNotFound
 	}
-	return nil
+	if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
+// DeleteTag removes one tag and rewrites tags_json to match.
 func (s *MetadataStore) DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error {
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 DELETE FROM memora_tags WHERE memory_id = $1 AND key = $2
 AND EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $3)`,
 		memoryID, key, workspaceID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// syncTagsJSON rewrites a memory's tags_json from its memora_tags rows
+// (NULL when it has none).
+func syncTagsJSON(ctx context.Context, tx pgx.Tx, memoryID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE memora_memories SET tags_json = (SELECT jsonb_object_agg(key, value) FROM memora_tags WHERE memory_id = $1)
+WHERE id = $1`, memoryID)
 	return err
 }
 

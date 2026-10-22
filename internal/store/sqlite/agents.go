@@ -196,28 +196,64 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 }
 
 // UpsertTag adds or replaces a tag, scoped to a workspace via the memory's workspace_id.
+//
+// memora_tags is the source of truth for a memory's tags; tags_json, which
+// GetMemory and the search filter re-check read, is rewritten from it in
+// the same transaction (#6182).
 func (s *Store) UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error {
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 INSERT INTO memora_tags(memory_id, key, value)
 SELECT ?, ?, ?
-WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)
+WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL)
 ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 		memoryID, key, value, memoryID, workspaceID)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return types.ErrNotFound
 	}
-	return nil
+	if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// DeleteTag removes a tag, scoped to a workspace via the memory's workspace_id.
+// DeleteTag removes a tag, scoped to a workspace via the memory's
+// workspace_id, and rewrites tags_json to match.
 func (s *Store) DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 DELETE FROM memora_tags WHERE memory_id = ? AND key = ?
 AND EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)`,
 		memoryID, key, memoryID, workspaceID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// syncTagsJSON rewrites a memory's tags_json from its memora_tags rows
+// (NULL when it has none).
+func syncTagsJSON(ctx context.Context, tx *sql.Tx, memoryID string) error {
+	_, err := tx.ExecContext(ctx, `
+UPDATE memora_memories SET tags_json = (
+    SELECT CASE WHEN count(*) = 0 THEN NULL ELSE json_group_object(key, value) END
+    FROM memora_tags WHERE memory_id = ?)
+WHERE id = ?`, memoryID, memoryID)
 	return err
 }
