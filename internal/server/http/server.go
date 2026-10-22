@@ -231,8 +231,23 @@ func (s *Server) ListenAndServe() error {
 	return s.srv.ListenAndServe()
 }
 
-// Shutdown drains the server gracefully.
-func (s *Server) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+// Shutdown drains the server, then writes the pending peer-route
+// rejection summaries, so a restart never drops a window of audit
+// (#6232).
+func (s *Server) Shutdown(ctx context.Context) error {
+	err := s.srv.Shutdown(ctx)
+	s.FlushAudit()
+	return err
+}
+
+// FlushAudit writes the pending peer-route rejection summaries now.
+// Shutdown calls it; a caller that serves Handler() itself (tests,
+// embedders) calls it before closing the ledger.
+func (s *Server) FlushAudit() {
+	if s.rejections != nil {
+		s.rejections.Flush()
+	}
+}
 
 func initTLS(cfg *Config) error {
 	if cfg.TLS.CertFile == "" && cfg.TLS.AutoSelfSigned {

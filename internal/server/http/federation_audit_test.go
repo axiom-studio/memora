@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/federation"
+	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/testmesh"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -96,17 +100,26 @@ func TestFederationAudit_E2E(t *testing.T) {
 	}
 	// Unauthenticated refusals arrive as summaries when the window
 	// (testmesh.RejectWindow) closes.
+	// An unknown peer's claimed ID is not the actor (it is attacker-chosen,
+	// #6232); a well-formed one is kept as a sample.
 	reasons := map[string]string{}
+	var samples []string
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		samples = nil
 		for _, e := range b.ledger(t, federation.OpRejected) {
 			reasons[e.APIKeyID] = fmt.Sprint(e.Metadata["reason"])
+			if s, ok := e.Metadata["sample_claimed_peers"].([]any); ok {
+				for _, v := range s {
+					samples = append(samples, fmt.Sprint(v))
+				}
+			}
 		}
-		if len(reasons) == 3 || time.Now().After(deadline) {
+		if len(reasons) == 2 && len(samples) > 0 || time.Now().After(deadline) {
 			break
 		}
 	}
-	if reasons[a.ID] != federation.ReasonBadKey || reasons[stranger] != federation.ReasonUnknownPeer || reasons[""] != federation.ReasonUnknownPeer {
-		t.Fatalf("rejection reasons = %v", reasons)
+	if reasons[a.ID] != federation.ReasonBadKey || reasons[""] != federation.ReasonUnknownPeer || len(samples) != 1 || samples[0] != stranger {
+		t.Fatalf("rejection reasons = %v, samples %v", reasons, samples)
 	}
 
 	// Metrics on both sides.
@@ -222,7 +235,7 @@ func TestFederationRejections_NoLedgerFlood(t *testing.T) {
 		t.Fatalf("%d rows counting %d refusals; want at most %d rows counting %d", len(rows), total, windows, codes[401])
 	}
 	for _, e := range rows {
-		if e.Metadata["reason"] != federation.ReasonUnknownPeer || e.APIKeyID != stranger || e.Target != federation.RouteFederationSearch || e.Metadata["client"] != "127.0.0.1" {
+		if e.Metadata["reason"] != federation.ReasonUnknownPeer || e.APIKeyID != "" || fmt.Sprint(e.Metadata["sample_claimed_peers"]) != "["+stranger+"]" || e.Target != federation.RouteFederationSearch || e.Metadata["client"] != "127.0.0.1" {
 			t.Fatalf("summary = %+v %v, want unknown_peer from 127.0.0.1 on the search route", e, e.Metadata)
 		}
 	}
@@ -246,5 +259,40 @@ func TestFederationRejections_NoLedgerFlood(t *testing.T) {
 		if e.Target != federation.RouteFederationSearch && e.Target != federation.RouteFederationMemory {
 			t.Fatalf("target %q is not a route template", e.Target)
 		}
+	}
+}
+
+// TestShutdown_FlushesRejectionSummaries (#6232): a graceful shutdown
+// writes the unauthenticated-refusal summaries of the open window.
+func TestShutdown_FlushesRejectionSummaries(t *testing.T) {
+	b := newMesh(t, []string{"b"}, nil)[0]
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httpserver.New(httpserver.Config{
+		Service: b.Svc, Federation: reg, MaxBodyBytes: httpserver.DefaultMaxBodyBytes,
+		Logger:                 slog.New(slog.NewTextHandler(io.Discard, nil)),
+		FederationRejectWindow: time.Hour, // never flushes by itself here
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/federation/search", strings.NewReader(`{"query":"x"}`))
+	req.Header.Set(federation.HeaderLocalInstanceID, types.NewID())
+	req.Header.Set(federation.HeaderFederationAuth, "Bearer guess")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("unknown peer: %d, want 401", resp.StatusCode)
+	}
+	before := len(b.ledger(t, federation.OpRejected))
+	if err := srv.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if after := len(b.ledger(t, federation.OpRejected)); after != before+1 {
+		t.Fatalf("rejection rows %d -> %d across Shutdown, want one summary written", before, after)
 	}
 }

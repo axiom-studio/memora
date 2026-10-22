@@ -73,6 +73,15 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   by the `Local embedder image` workflow and on release, then signed.
 
 ### Security
+- Peer-route audit and limiter hardening (#6232). A graceful shutdown now
+  writes the open window of `federation_rejected` summaries instead of
+  dropping it. The pre-auth limiter evicts its least recently used
+  address instead of clearing its table, and admits previously unseen
+  addresses through one node-wide limiter, so rotating addresses (a
+  botnet or an IPv6 /48) no longer resets the limit. `unknown_peer`
+  summaries are no longer split by the attacker-chosen claimed node ID:
+  one summary per address and route, with up to 5 claimed IDs in
+  `sample_claimed_peers`.
 - The `local` embedder's model is pinned (#4380, first part). It used to
   download `resolve/main` (a moving branch) with no hash check and hand
   the file to native code. It now downloads from a fixed commit, keeps

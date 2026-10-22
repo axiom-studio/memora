@@ -1,8 +1,10 @@
 package federation
 
 import (
+	"container/list"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -57,21 +59,41 @@ func clientKey(remoteAddr string) string {
 }
 
 // AddrLimiter rate-limits peer-route requests per client address before
-// authentication. It holds at most maxAddrs limiters; when full it is
-// cleared, so memory stays bounded however many addresses call it.
+// authentication. It holds at most maxAddrs limiters and evicts the
+// least recently used one when full, so active callers (real peers)
+// keep their state however many addresses call it. Addresses it has
+// not seen are admitted through one node-wide limiter (newPerSec), so
+// rotating through many addresses (a botnet, or the 65,536 /64s of one
+// IPv6 /48) cannot mint a fresh burst per address faster than that
+// (#6232).
 type AddrLimiter struct {
 	mu       sync.Mutex
 	qps      float64
 	maxAddrs int
-	lims     map[string]*rate.Limiter
+	lims     map[string]*list.Element // of *addrEntry
+	lru      *list.List               // front = most recently used
+	newAddrs *rate.Limiter
 }
 
-// NewAddrLimiter limits each client address to qps requests per second.
+type addrEntry struct {
+	key string
+	lim *rate.Limiter
+}
+
+// NewAddrLimiter limits each client address to qps requests per second,
+// and admits at most qps/2 (at least 10) previously unseen addresses
+// per second node-wide.
 func NewAddrLimiter(qps float64) *AddrLimiter {
 	if qps <= 0 {
 		qps = 2 * DefaultInboundQPS
 	}
-	return &AddrLimiter{qps: qps, maxAddrs: 10000, lims: map[string]*rate.Limiter{}}
+	newPerSec := max(10, qps/2)
+	return &AddrLimiter{
+		qps: qps, maxAddrs: 10000,
+		lims:     map[string]*list.Element{},
+		lru:      list.New(),
+		newAddrs: rate.NewLimiter(rate.Limit(newPerSec), int(newPerSec)),
+	}
 }
 
 // Allow reports whether a request from remoteAddr (http.Request
@@ -79,14 +101,23 @@ func NewAddrLimiter(qps float64) *AddrLimiter {
 func (l *AddrLimiter) Allow(remoteAddr string) bool {
 	key := clientKey(remoteAddr)
 	l.mu.Lock()
-	lim, ok := l.lims[key]
+	el, ok := l.lims[key]
 	if !ok {
-		if len(l.lims) >= l.maxAddrs {
-			l.lims = map[string]*rate.Limiter{}
+		if !l.newAddrs.Allow() {
+			l.mu.Unlock()
+			return false
 		}
-		lim = rate.NewLimiter(rate.Limit(l.qps), max(1, int(l.qps)))
-		l.lims[key] = lim
+		if l.lru.Len() >= l.maxAddrs {
+			oldest := l.lru.Back()
+			l.lru.Remove(oldest)
+			delete(l.lims, oldest.Value.(*addrEntry).key)
+		}
+		el = l.lru.PushFront(&addrEntry{key: key, lim: rate.NewLimiter(rate.Limit(l.qps), max(1, int(l.qps)))})
+		l.lims[key] = el
+	} else {
+		l.lru.MoveToFront(el)
 	}
+	lim := el.Value.(*addrEntry).lim
 	l.mu.Unlock()
 	return lim.Allow()
 }
@@ -114,7 +145,12 @@ type rejectKey struct{ reason, peer, addr, route string }
 type rejectGroup struct {
 	count       int
 	first, last time.Time
+	samples     []string // claimed node IDs of an unknown_peer group
 }
+
+// maxClaimedSamples bounds the claimed node IDs kept per unknown_peer
+// summary.
+const maxClaimedSamples = 5
 
 const maxRejectKeys = 1024
 
@@ -128,6 +164,13 @@ func NewRejectionAggregator(window time.Duration, write func(api.LedgerEntry)) *
 // well-formed, else ""; remoteAddr is the request's RemoteAddr; route
 // is a route template.
 func (a *RejectionAggregator) Record(reason, peerID, remoteAddr, route string) {
+	// An unknown_peer's claimed node ID is attacker-chosen: grouping on it
+	// would let one address fill every group with fresh IDs (#6232), so
+	// it is kept only as a bounded sample.
+	sample := ""
+	if reason == ReasonUnknownPeer {
+		sample, peerID = peerID, ""
+	}
 	k := rejectKey{reason: reason, peer: peerID, addr: clientKey(remoteAddr), route: route}
 	now := a.now()
 	a.mu.Lock()
@@ -145,6 +188,9 @@ func (a *RejectionAggregator) Record(reason, peerID, remoteAddr, route string) {
 	}
 	g.count++
 	g.last = now
+	if sample != "" && len(g.samples) < maxClaimedSamples && !slices.Contains(g.samples, sample) {
+		g.samples = append(g.samples, sample)
+	}
 	if a.timer == nil {
 		a.timer = time.AfterFunc(a.window, a.Flush)
 	}
@@ -161,7 +207,11 @@ func (a *RejectionAggregator) Flush() {
 	}
 	a.mu.Unlock()
 	for k, g := range groups {
-		a.write(RejectedSummaryEntry(k.peer, k.reason, k.route, k.addr, g.count, g.first, g.last))
+		e := RejectedSummaryEntry(k.peer, k.reason, k.route, k.addr, g.count, g.first, g.last)
+		if len(g.samples) > 0 {
+			e.Metadata["sample_claimed_peers"] = g.samples
+		}
+		a.write(e)
 	}
 }
 
