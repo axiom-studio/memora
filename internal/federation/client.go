@@ -48,11 +48,19 @@ func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 			// A ceiling only: each call's context carries the peer's
 			// timeout or the request's timeout_ms, which may be longer.
 			Timeout: MaxFederatedTimeout,
+			// A peer never redirects a federation call. Following one
+			// would re-send the query and X-Memora-Federation-Auth (Go
+			// strips only Authorization and cookies) to whatever host the
+			// Location names, so a 3xx is returned as the answer and
+			// becomes a *PeerError.
+			CheckRedirect: noRedirects,
 		},
 		federationID: federationID,
 		instanceID:   nodeID,
 	}, nil
 }
+
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // buildMTLSConfig trusts the peer's CA (TLSCert) when set, and presents
 // this node's client certificate when one is configured.

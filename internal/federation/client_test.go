@@ -6,9 +6,12 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/axiom-studio/memora/internal/certgen"
@@ -209,5 +212,44 @@ func TestNewRegistry_BadClientCert(t *testing.T) {
 	}, nid("self"))
 	if err == nil || !strings.Contains(err.Error(), "client cert") {
 		t.Fatalf("err = %v, want a client cert load error", err)
+	}
+}
+
+// TestPeerClient_NoRedirects: a peer that answers a federation call with
+// a redirect fails that call. The redirect target receives nothing, so
+// neither the query nor the peer key reaches it.
+func TestPeerClient_NoRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		t.Errorf("redirect target got %s %s (auth %q)", r.Method, r.URL.Path, r.Header.Get(HeaderFederationAuth))
+	}))
+	defer target.Close()
+	for _, code := range []int{http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+r.URL.Path, code)
+		}))
+		reg, err := NewRegistry(config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{
+			{NodeID: nid("peer"), Name: "peer", URL: peer.URL, APIKey: "secret-peer-key"},
+		}}, nid("self"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := reg.Client(nid("peer"))
+		_, err = c.Search(context.Background(), api.FederationSearchRequest{Query: "private query", K: 1}, "")
+		var pe *PeerError
+		if !errors.As(err, &pe) || pe.Status != code {
+			t.Errorf("search redirected with %d: err = %v, want a PeerError with that status", code, err)
+		}
+		if got := PeerErrorCode(err); got != fmt.Sprintf("http_%d", code) {
+			t.Errorf("search redirected with %d: error_code %q", code, got)
+		}
+		if _, err = c.FetchMemory(context.Background(), nid("mem"), ""); !errors.As(err, &pe) || pe.Status != code {
+			t.Errorf("fetch redirected with %d: err = %v, want a PeerError with that status", code, err)
+		}
+		peer.Close()
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("redirect target received %d requests", n)
 	}
 }

@@ -143,6 +143,8 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 - **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
 - **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
 
+Calls to a peer never follow redirects. A peer that answers with a `3xx` fails that call (`error_code` `http_307` and so on), and nothing is sent to the `Location` it names, so the query and the peer key cannot be passed on to another host.
+
 Peers listed in the config file seed the node's peer registry, which is stored in the metadata store. Each one is imported on the first start that sees it, and never again. After that, edit peers over [`/v1/federation/peers`](api.md#managing-peers) or in the console; changing a peer in the config file does not change the registered peer, and a removed peer is not re-imported.
 
 The `api_key` of each peer is stored sealed (AES-256-GCM) with a node secret kept outside the database. The secret comes from `MEMORA_FEDERATION_SECRET` (32 bytes, base64), or from `federation.secret_key_file`, which defaults to `<data_dir>/federation.key` and is created with mode `0600` on first start. A key file readable by others is refused. Keep the secret with the node: without it the stored peer keys cannot be opened, and those peers are not searched until their `api_key` is set again.

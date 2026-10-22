@@ -14,6 +14,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Federation peer calls no longer follow redirects (#6173). Before
+  this, a peer answering `307`/`308` made the node re-send the query
+  and its `X-Memora-Federation-Auth` key to any host (Go strips only
+  `Authorization` and cookies on cross-host redirects), which leaked
+  the key and let a peer point the node at internal addresses. A `3xx`
+  now fails the call and the peer is listed in `failed_peers` as
+  `http_<status>`.
 - Federation peers authenticate with per-peer keys (F-3, #4362). The
   routes peers call (`POST /v1/federation/search`,
   `GET /v1/federation/memories/{id}`) take
