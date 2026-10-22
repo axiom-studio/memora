@@ -27,7 +27,10 @@ type ReembedResult struct {
 	Cells      int    `json:"cells"`
 	Stale      int    `json:"stale"`
 	Reembedded int    `json:"reembedded"`
-	DryRun     bool   `json:"dry_run"`
+	// Orphans counts memories that are deleted or gone but still had
+	// vectors; a run (not a dry run) removes those vectors.
+	Orphans int  `json:"orphan_memories"`
+	DryRun  bool `json:"dry_run"`
 }
 
 // Reembed gives every cell in scope a vector from the active embedding
@@ -77,6 +80,9 @@ func (s *Service) Reembed(ctx context.Context, o ReembedOptions, progress func(R
 
 	for _, ws := range workspaces {
 		res.Workspaces++
+		if err := s.removeOrphanVectors(ctx, mav, ws, o, &res); err != nil {
+			return res, err
+		}
 		for cursor := ""; ; {
 			mems, next, err := s.Metadata.ListMemoriesPaged(ctx, ws, "", cursor, o.Batch)
 			if err != nil {
@@ -170,4 +176,40 @@ func (s *Service) reembedBatch(ctx context.Context, mav adapter.ModelAwareVector
 	}
 	res.Reembedded += len(stale)
 	return nil
+}
+
+// removeOrphanVectors deletes the vectors of memories in ws that are
+// forgotten or missing from the metadata store: before #6179, Forget
+// left them behind, and they count as stale vectors that no re-embed
+// could ever refresh.
+func (s *Service) removeOrphanVectors(ctx context.Context, mav adapter.ModelAwareVectorStore, ws string, o ReembedOptions, res *ReembedResult) error {
+	for after := ""; ; {
+		ids, err := mav.VectorMemories(ctx, ws, after, o.Batch)
+		if err != nil || len(ids) == 0 {
+			return err
+		}
+		live, err := s.Metadata.GetMemories(ctx, ids)
+		if err != nil {
+			return err
+		}
+		alive := make(map[string]bool, len(live))
+		for _, m := range live {
+			if m.WorkspaceID == ws {
+				alive[m.ID] = true
+			}
+		}
+		var gone []adapter.VectorKey
+		for _, id := range ids {
+			if !alive[id] {
+				gone = append(gone, adapter.VectorKey{WorkspaceID: ws, MemoryID: id})
+			}
+		}
+		res.Orphans += len(gone)
+		if len(gone) > 0 && !o.DryRun {
+			if err := s.Vector.DeleteVectors(ctx, gone); err != nil {
+				return err
+			}
+		}
+		after = ids[len(ids)-1]
+	}
 }

@@ -211,4 +211,5 @@ func TestStore_Query_SkipsRowsOfAnotherWidth(t *testing.T) {
 
 func TestStore_QueryScope(t *testing.T) {
 	compliance.VectorScopeContract(t, openStore(t))
+	compliance.VectorDeleteContract(t, openStore(t))
 }

@@ -113,4 +113,5 @@ func TestStore_QueryScope(t *testing.T) {
 	}
 	defer s.Close()
 	compliance.VectorScopeContract(t, s)
+	compliance.VectorDeleteContract(t, s)
 }

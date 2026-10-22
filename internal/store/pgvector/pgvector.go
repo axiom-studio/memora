@@ -339,16 +339,45 @@ func versionAtLeast(v string, major, minor int) bool {
 }
 
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error {
-	if len(keys) == 0 {
-		return nil
+	cellIDs, memories, err := adapter.SplitVectorKeys(keys)
+	if err != nil || len(keys) == 0 {
+		return err
 	}
-	ids := make([]string, len(keys))
-	for i, k := range keys {
-		ids[i] = k.CellID
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := s.pool.Exec(ctx,
-		"DELETE FROM memora_cell_vectors WHERE cell_id = ANY($1)", ids)
-	return err
+	defer func() { _ = tx.Rollback(ctx) }()
+	if len(cellIDs) > 0 {
+		if _, err := tx.Exec(ctx, "DELETE FROM memora_cell_vectors WHERE cell_id = ANY($1)", cellIDs); err != nil {
+			return err
+		}
+	}
+	for _, k := range memories {
+		if _, err := tx.Exec(ctx, "DELETE FROM memora_cell_vectors WHERE workspace_id = $1 AND memory_id = $2", k.WorkspaceID, k.MemoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// VectorMemories implements adapter.ModelAwareVectorStore.
+func (s *Store) VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT memory_id FROM memora_cell_vectors
+WHERE workspace_id = $1 AND memory_id > $2 ORDER BY memory_id LIMIT $3`, workspaceID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func floatsToVectorLiteral(v []float32) string {

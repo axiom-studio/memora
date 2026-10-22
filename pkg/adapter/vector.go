@@ -33,6 +33,28 @@ type ModelAwareVectorStore interface {
 	// FreshCells reports which of cellIDs have a vector from the active
 	// model and dimension.
 	FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error)
+	// VectorMemories lists, in ascending order, up to limit distinct
+	// memory IDs that have vectors in workspaceID, after the memory ID
+	// after ("" = from the start). Re-embedding uses it to remove the
+	// vectors of memories that no longer exist.
+	VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error)
+}
+
+// SplitVectorKeys separates DeleteVectors keys into cell IDs and memory
+// keys (workspace and memory, no cell), and refuses keys that name
+// neither or a memory without its workspace.
+func SplitVectorKeys(keys []VectorKey) (cellIDs []string, memories []VectorKey, err error) {
+	for _, k := range keys {
+		switch {
+		case k.CellID != "":
+			cellIDs = append(cellIDs, k.CellID)
+		case k.MemoryID != "" && k.WorkspaceID != "":
+			memories = append(memories, k)
+		default:
+			return nil, nil, fmt.Errorf("%w: a vector key needs a cell_id, or a workspace_id and memory_id", types.ErrInvalidInput)
+		}
+	}
+	return cellIDs, memories, nil
 }
 
 // VectorCapabilities advertises what a VectorStore can do.
@@ -148,7 +170,11 @@ type VectorStore interface {
 	PutVectorsBatch(ctx context.Context, puts []VectorPut) error
 	// Query returns the top-K vectors nearest to q.Embedding, filtered by q.Filter. Results are ordered by descending cosine similarity.
 	Query(ctx context.Context, q VectorQuery) ([]VectorHit, error)
-	// DeleteVectors removes vectors by key. No-op for keys that don't exist.
+	// DeleteVectors removes vectors by key. A key with a CellID removes
+	// that cell's vector. A key with only WorkspaceID and MemoryID removes
+	// every vector of that memory in that workspace (Forget). A key with
+	// neither, or a memory key without a WorkspaceID, is ErrInvalidInput.
+	// No-op for keys that don't exist.
 	DeleteVectors(ctx context.Context, keys []VectorKey) error
 }
 

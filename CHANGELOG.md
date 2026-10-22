@@ -14,6 +14,17 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Forgetting a memory now deletes its vectors (#6179). Since #4231,
+  `Forget` asked both vector stores to delete by a key with no cell ID,
+  which matched nothing, and the error was discarded, so a forgotten
+  memory's embeddings stayed in the index (an erasure gap, GDPR Art.
+  17), kept `stale_vectors` above 0 after a full re-embed, and took
+  top-k slots. `DeleteVectors` now treats a key with only a workspace
+  and memory ID as "every vector of that memory" and refuses keys that
+  name nothing; a failure is logged. `memora-core reembed` removes the
+  vectors already left behind (`orphan_memories`). Vector store authors:
+  see `compliance.VectorDeleteContract` and the new
+  `ModelAwareVectorStore.VectorMemories`.
 - Unauthenticated callers can no longer flood the audit ledger through
   the peer routes (#6178). Before this, every refused call to
   `/v1/federation/search` or `/v1/federation/memories/*`, reachable

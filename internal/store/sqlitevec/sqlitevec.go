@@ -215,19 +215,51 @@ ON CONFLICT(cell_id) DO UPDATE SET
 
 // DeleteVectors implements adapter.VectorStore.
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error {
-	if len(keys) == 0 {
-		return nil
+	cellIDs, memories, err := adapter.SplitVectorKeys(keys)
+	if err != nil || len(keys) == 0 {
+		return err
 	}
-	args := make([]any, len(keys))
-	ph := make([]string, len(keys))
-	for i, k := range keys {
-		args[i] = k.CellID
-		ph[i] = "?"
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
-	q := "DELETE FROM memora_cell_vectors WHERE cell_id IN (" + strings.Join(ph, ",") + ")"
-	_, err := s.db.ExecContext(ctx, q, args...)
-	return err
+	defer func() { _ = tx.Rollback() }()
+	if len(cellIDs) > 0 {
+		args := make([]any, len(cellIDs))
+		for i, id := range cellIDs {
+			args[i] = id
+		}
+		//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
+		q := "DELETE FROM memora_cell_vectors WHERE cell_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(cellIDs)), ",") + ")"
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+			return err
+		}
+	}
+	for _, k := range memories {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memora_cell_vectors WHERE workspace_id = ? AND memory_id = ?`, k.WorkspaceID, k.MemoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// VectorMemories implements adapter.ModelAwareVectorStore.
+func (s *Store) VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT memory_id FROM memora_cell_vectors
+WHERE workspace_id = ? AND memory_id > ? ORDER BY memory_id LIMIT ?`, workspaceID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // Query implements adapter.VectorStore via cosine similarity over the

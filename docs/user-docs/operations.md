@@ -192,7 +192,7 @@ memora-core reembed --config memora.toml             # re-embed them
 | `--dry-run` | Count only; write nothing. |
 | `--batch` | Memories per batch. Default `100`. |
 
-It re-embeds only cells whose vector is missing or from another model or dimension, and it writes each batch as it goes. An interrupted run picks up where it stopped when started again, and a run with nothing to do is a no-op. It prints the counts as JSON.
+It re-embeds only cells whose vector is missing or from another model or dimension, and it writes each batch as it goes. It also removes the vectors of forgotten memories that an earlier version left in the vector store (`orphan_memories` in its output; a `--dry-run` only counts them). An interrupted run picks up where it stopped when started again, and a run with nothing to do is a no-op. It prints the counts as JSON.
 
 With `pgvector`, the vector column has a fixed width. If the new model's dimension differs, the server refuses to start and names `memora-core reembed`. A real `reembed` run drops the old vectors, which the new model cannot use, resizes the column and re-embeds every cell. A `--dry-run` reports the mismatch and changes nothing. Plan for vector search to be empty until the run finishes, or switch back to the old model to undo.
 

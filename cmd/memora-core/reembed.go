@@ -67,7 +67,7 @@ func reembed(ctx context.Context, cfg config.Config, o service.ReembedOptions, p
 	}
 	defer closeAll()
 	return svc.Reembed(ctx, o, func(r service.ReembedResult) {
-		fmt.Fprintf(progress, "reembed: %d workspaces, %d memories, %d cells, %d stale, %d re-embedded\n",
-			r.Workspaces, r.Memories, r.Cells, r.Stale, r.Reembedded)
+		fmt.Fprintf(progress, "reembed: %d workspaces, %d memories, %d cells, %d stale, %d re-embedded, %d forgotten memories' vectors removed\n",
+			r.Workspaces, r.Memories, r.Cells, r.Stale, r.Reembedded, r.Orphans)
 	})
 }

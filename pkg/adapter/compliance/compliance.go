@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -420,6 +421,94 @@ func VectorScopeContract(t *testing.T, s adapter.VectorStore) {
 		if _, err := s.Query(ctx, q); !errors.Is(err, types.ErrInvalidInput) {
 			t.Errorf("%s: Query err = %v, want ErrInvalidInput", name, err)
 		}
+	}
+}
+
+// VectorDeleteContract checks DeleteVectors on a 3-dimension store: a
+// memory key removes every vector of that memory and only in its
+// workspace, a cell key removes one vector, and keys naming neither, or
+// a memory without its workspace, are invalid input. When the store is
+// model-aware it also checks VectorMemories paging.
+func VectorDeleteContract(t *testing.T, s adapter.VectorStore) {
+	t.Helper()
+	ctx := context.Background()
+	wsA, wsB := types.NewID(), types.NewID()
+	memA, memB := types.NewID(), types.NewID()
+	put := func(ws, mem string) string {
+		t.Helper()
+		cell := types.NewID()
+		if err := s.PutVector(ctx, adapter.VectorPut{Key: adapter.VectorKey{WorkspaceID: ws, MemoryID: mem, CellID: cell}, Embedding: []float32{1, 0, 0}}); err != nil {
+			t.Fatalf("PutVector: %v", err)
+		}
+		return cell
+	}
+	put(wsA, memA)
+	put(wsA, memA)
+	keepB := put(wsA, memB)
+	dropB := put(wsA, memB)
+	put(wsB, memA) // the same memory ID in another workspace is not touched
+	cells := func(ws string) map[string]string {
+		t.Helper()
+		hits, err := s.Query(ctx, adapter.VectorQuery{WorkspaceID: ws, Embedding: []float32{1, 0, 0}, K: 100})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		out := map[string]string{}
+		for _, h := range hits {
+			out[h.Key.CellID] = h.Key.MemoryID
+		}
+		return out
+	}
+
+	if err := s.DeleteVectors(ctx, []adapter.VectorKey{{WorkspaceID: wsA, MemoryID: memA}, {CellID: dropB}}); err != nil {
+		t.Fatalf("DeleteVectors: %v", err)
+	}
+	if got := cells(wsA); len(got) != 1 || got[keepB] != memB {
+		t.Errorf("workspace A after delete = %v, want only %s of memory B", got, keepB)
+	}
+	if got := cells(wsB); len(got) != 1 {
+		t.Errorf("workspace B after delete = %v, want its vector of the same memory ID kept", got)
+	}
+	for name, k := range map[string]adapter.VectorKey{
+		"empty key":            {},
+		"memory, no workspace": {MemoryID: memB},
+		"workspace only":       {WorkspaceID: wsA},
+	} {
+		if err := s.DeleteVectors(ctx, []adapter.VectorKey{k}); !errors.Is(err, types.ErrInvalidInput) {
+			t.Errorf("%s: err = %v, want ErrInvalidInput", name, err)
+		}
+	}
+	if got := cells(wsA); len(got) != 1 {
+		t.Errorf("a refused delete changed workspace A: %v", got)
+	}
+
+	mav, ok := s.(adapter.ModelAwareVectorStore)
+	if !ok {
+		return
+	}
+	wsC := types.NewID()
+	var want []string
+	for i := 0; i < 5; i++ {
+		m := types.NewID()
+		put(wsC, m)
+		put(wsC, m)
+		want = append(want, m)
+	}
+	sort.Strings(want)
+	var got []string
+	for after := ""; ; {
+		page, err := mav.VectorMemories(ctx, wsC, after, 2)
+		if err != nil {
+			t.Fatalf("VectorMemories: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		got = append(got, page...)
+		after = page[len(page)-1]
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("VectorMemories paged = %v, want %v (each memory once, ascending)", got, want)
 	}
 }
 

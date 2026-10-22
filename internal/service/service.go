@@ -554,9 +554,15 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 		_ = s.Content.DeleteAllForMemory(ctx, workspaceID, memoryID)
 	}
 	if s.Vector != nil {
-		_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{
+		// A memory key removes every vector of the memory. On failure the
+		// vectors are orphaned but never returned (hydrate drops deleted
+		// memories); `memora-core reembed` removes them.
+		if err := s.Vector.DeleteVectors(ctx, []adapter.VectorKey{
 			{WorkspaceID: workspaceID, MemoryID: memoryID},
-		})
+		}); err != nil {
+			slog.Default().Warn("forget: delete vectors failed; run memora-core reembed to remove them",
+				"workspace_id", workspaceID, "memory_id", memoryID, "err", err)
+		}
 	}
 	n, _ := s.GraphCascadeForget(ctx, workspaceID, memoryID, agentID)
 	wmk := types.NewWatermark()
