@@ -226,7 +226,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			WorkspaceID: in.WorkspaceID, Query: in.Query, Mode: in.Mode, K: in.K,
 			Watermark: in.Watermark, Label: in.Label, CreatedBy: pinned,
 		}
-		if err := s.svc.Metadata.CreatePin(ctx, p); err != nil {
+		if err := s.svc.CreatePin(ctx, p); err != nil {
 			return nil, err
 		}
 		return api.PinResponse{PinID: p.PinID, Watermark: p.Watermark}, nil
@@ -238,7 +238,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		if err := s.svc.Metadata.DeletePin(ctx, in.WorkspaceID, in.PinID); err != nil {
+		by, _ := ctx.Value(ctxKeyAgent).(string)
+		if err := s.svc.DeletePin(ctx, in.WorkspaceID, in.PinID, by); err != nil {
 			return nil, err
 		}
 		return map[string]any{"pin_id": in.PinID, "unpinned": true}, nil

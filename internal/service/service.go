@@ -157,15 +157,39 @@ func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID,
 	}
 }
 
-// GraphLink delegates to the configured GraphStore.
+// GraphLink links two memories; see Link.
 func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
+	out, _, err := s.Link(ctx, e)
+	return out, err
+}
+
+// Link creates an edge and ledgers it as "link", returning the ledger
+// ID. Every caller (REST, MCP, console) goes through it, so every link
+// is audited (#6171).
+func (s *Service) Link(ctx context.Context, e types.Edge) (types.Edge, string, error) {
 	if s.Graph == nil {
-		return types.Edge{}, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
+		return types.Edge{}, "", fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
 	if err := s.admitAgent(ctx, e.WorkspaceID, e.CreatedByAgentID); err != nil {
-		return types.Edge{}, err
+		return types.Edge{}, "", err
 	}
-	return s.Graph.Link(ctx, e)
+	out, err := s.Graph.Link(ctx, e)
+	if err != nil {
+		return types.Edge{}, "", err
+	}
+	ledgerID := s.AppendLedger(ctx, linkEntry(out, false))
+	return out, ledgerID, nil
+}
+
+func linkEntry(e types.Edge, batch bool) api.LedgerEntry {
+	meta := map[string]any{"edge_type": string(e.EdgeType), "source_memory_id": e.SourceMemoryID, "target_memory_id": e.TargetMemoryID}
+	if batch {
+		meta["batch"] = true
+	}
+	return api.LedgerEntry{
+		WorkspaceID: e.WorkspaceID, Op: "link", Target: e.EdgeID, AgentID: e.CreatedByAgentID,
+		WatermarkAfter: e.Watermark, Metadata: meta,
+	}
 }
 
 // GraphUnlink delegates to the configured GraphStore.
@@ -201,10 +225,51 @@ func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]ada
 			return nil, err
 		}
 	}
-	if s.Graph == nil {
-		return nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
+	results, err := s.Graph.LinkBatch(ctx, edges)
+	if err != nil {
+		return nil, err
 	}
-	return s.Graph.LinkBatch(ctx, edges)
+	// One "link" entry per edge created, as a single link writes.
+	for _, r := range results {
+		if r.Status == "ok" && r.Index >= 0 && r.Index < len(edges) {
+			e := edges[r.Index]
+			e.EdgeID = r.EdgeID
+			s.AppendLedger(ctx, linkEntry(e, true))
+		}
+	}
+	return results, nil
+}
+
+// CreatePin saves a query and ledgers it as "pin" (#6171). p.CreatedBy
+// is the agent that pins it.
+func (s *Service) CreatePin(ctx context.Context, p *types.Pin) error {
+	if p.CreatedBy != "" {
+		if err := s.admitAgent(ctx, p.WorkspaceID, p.CreatedBy); err != nil {
+			return err
+		}
+	}
+	if err := s.Metadata.CreatePin(ctx, p); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{
+		WorkspaceID: p.WorkspaceID, Op: "pin", Target: p.PinID, AgentID: p.CreatedBy, WatermarkAfter: p.Watermark,
+		Metadata: map[string]any{"query": p.Query, "mode": p.Mode, "k": p.K, "label": p.Label},
+	})
+	return nil
+}
+
+// DeletePin removes a saved query and ledgers it as "unpin".
+func (s *Service) DeletePin(ctx context.Context, workspaceID, pinID, agentID string) error {
+	if agentID != "" {
+		if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+			return err
+		}
+	}
+	if err := s.Metadata.DeletePin(ctx, workspaceID, pinID); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "unpin", Target: pinID, AgentID: agentID})
+	return nil
 }
 
 // GraphCascadeForget delegates to the configured GraphStore.

@@ -175,6 +175,9 @@ func New(cfg Config) *Server {
 				ForgetFunc:  cfg.Service.Forget,
 				UnlinkFunc:  cfg.Service.GraphUnlink,
 
+				LinkFunc:            cfg.Service.GraphLink,
+				CreatePinFunc:       cfg.Service.CreatePin,
+				DeletePinFunc:       cfg.Service.DeletePin,
 				RegisterAgentFunc:   cfg.Service.RegisterAgent,
 				DeactivateAgentFunc: cfg.Service.DeactivateAgent,
 			}

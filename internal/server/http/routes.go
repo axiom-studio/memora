@@ -538,13 +538,13 @@ func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string,
 			Label:       req.Label,
 			CreatedBy:   agentFrom(r.Context()),
 		}
-		if err := s.cfg.Service.Metadata.CreatePin(r.Context(), p); err != nil {
+		if err := s.cfg.Service.CreatePin(r.Context(), p); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 201, api.PinResponse{PinID: p.PinID, Watermark: p.Watermark})
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Metadata.DeletePin(r.Context(), wsID, rest[0]); err != nil {
+		if err := s.cfg.Service.DeletePin(r.Context(), wsID, rest[0], agentFrom(r.Context())); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -640,15 +640,11 @@ func (s *Server) handleMemoryEdges(w http.ResponseWriter, r *http.Request, wsID,
 			PropertiesJSON:   req.Properties,
 			CreatedByAgentID: agentFrom(r.Context()),
 		}
-		out, err := s.cfg.Service.GraphLink(r.Context(), e)
+		out, ledgerID, err := s.cfg.Service.Link(r.Context(), e)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
-		ledgerID := s.cfg.Service.AppendLedger(r.Context(), api.LedgerEntry{
-			WorkspaceID: wsID, Op: "link", Target: out.EdgeID, AgentID: agentFrom(r.Context()),
-			WatermarkAfter: out.Watermark, Metadata: map[string]any{"edge_type": string(out.EdgeType)},
-		})
 		s.writeJSON(w, 201, api.LinkResponse{Edge: out, LedgerID: ledgerID})
 	default:
 		s.writeError(w, 405, "method_not_allowed", "", nil)

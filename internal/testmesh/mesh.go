@@ -142,6 +142,11 @@ func (n *Node) start(t testing.TB, dim int) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
+	graph := &storesqlite.GraphStore{}
+	if err := graph.Open(ctx, adapter.GraphConfig{Driver: "sqlite_graph", DSN: filepath.Join(dir, "meta.db")}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = graph.Close() })
 	vec := &sqlitevec.Store{}
 	if err := vec.Open(ctx, adapter.VectorConfig{Driver: "sqlite-vec", DSN: filepath.Join(dir, "vec.db"), Dim: dim}); err != nil {
 		t.Fatal(err)
@@ -157,7 +162,7 @@ func (n *Node) start(t testing.TB, dim int) {
 		t.Fatal(err)
 	}
 	n.Svc = &service.Service{
-		Metadata: meta, Vector: vec, Ledger: led, Embedder: emb,
+		Metadata: meta, Vector: vec, Ledger: led, Embedder: emb, Graph: graph,
 		Identity: map[string]adapter.IdentityProvider{string(types.IdentityProviderOpaque): identity.Opaque{}},
 		NodeID:   n.ID, NodeName: n.Name,
 	}

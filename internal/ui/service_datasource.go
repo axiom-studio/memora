@@ -28,6 +28,11 @@ type ServiceDataSource struct {
 	// DeactivateAgent); nil falls back to the metadata store.
 	RegisterAgentFunc   func(ctx context.Context, a *types.Agent, byAgent string) error
 	DeactivateAgentFunc func(ctx context.Context, wsID, agentID, byAgent string) error
+	// LinkFunc, CreatePinFunc and DeletePinFunc go through the service,
+	// which ledgers them (#6171); nil falls back to the stores.
+	LinkFunc      func(ctx context.Context, e types.Edge) (types.Edge, error)
+	CreatePinFunc func(ctx context.Context, p *types.Pin) error
+	DeletePinFunc func(ctx context.Context, wsID, pinID, byAgent string) error
 	// UnlinkFunc removes an edge as an agent (Service.GraphUnlink).
 	UnlinkFunc      func(ctx context.Context, wsID, edgeID, agentID string) error
 	EmbedQueueDepth func() int
@@ -630,7 +635,11 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 		EdgeType:         types.EdgeType(edgeType),
 		CreatedByAgentID: types.ConsoleAgentID,
 	}
-	out, err := s.Graph.Link(ctx, e)
+	link := s.Graph.Link
+	if s.LinkFunc != nil {
+		link = s.LinkFunc
+	}
+	out, err := link(ctx, e)
 	if err != nil {
 		return "", err
 	}
@@ -699,14 +708,22 @@ func (s *ServiceDataSource) CreatePin(ctx context.Context, wsID string, query, m
 		K:           k,
 		Watermark:   watermark,
 		Label:       label,
+		CreatedBy:   types.ConsoleAgentID,
 	}
-	if err := s.Metadata.CreatePin(ctx, p); err != nil {
+	create := s.Metadata.CreatePin
+	if s.CreatePinFunc != nil {
+		create = s.CreatePinFunc
+	}
+	if err := create(ctx, p); err != nil {
 		return "", err
 	}
 	return p.PinID, nil
 }
 
 func (s *ServiceDataSource) DeletePin(ctx context.Context, wsID, pinID string) error {
+	if s.DeletePinFunc != nil {
+		return s.DeletePinFunc(ctx, wsID, pinID, types.ConsoleAgentID)
+	}
 	return s.Metadata.DeletePin(ctx, wsID, pinID)
 }
 

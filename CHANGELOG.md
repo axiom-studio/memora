@@ -43,6 +43,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   forgotten memory is now `404`.
 
 ### Security
+- Every graph and pin write is now audited (#6171). Batch link
+  (`POST /edges/:batch`, one `link` entry per edge created), pin
+  create (`pin`) and pin delete (`unpin`) wrote no ledger entry, and
+  links made over MCP or in the console were not ledgered either. All
+  of them now go through the service, which records the op, target,
+  agent and request ID, whichever interface was used. Pin writes also
+  refuse a deactivated agent.
 - Deactivating an agent now stops it writing (#6169). Before this the
   `active` flag was never checked, and the write middleware's
   auto-register set `active` back on (and cleared the display name and
