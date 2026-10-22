@@ -93,7 +93,7 @@ All paths are relative to `/v1`.
 | `GET /workspaces/{ws}/agents` | List agents. |
 | `POST /workspaces/{ws}/agents` | Register an agent. |
 | `GET /workspaces/{ws}/agents/{id}` | Read an agent. |
-| `DELETE /workspaces/{ws}/agents/{id}` | Deactivate an agent. |
+| `DELETE /workspaces/{ws}/agents/{id}` | Deactivate an agent. Its writes in that workspace (REST, MCP and console) are then refused with `403 agent_deactivated` (MCP `-32001`); other workspaces are unaffected. A write never reactivates it: registering it again with `POST /workspaces/{ws}/agents` does. Both are written to the ledger (`agent_deactivate`, `agent_register` with `reactivated`). |
 | `GET /workspaces/{ws}/ledger` | Query the audit ledger. Returns `501` if the configured ledger cannot query. |
 
 Listings are ordered by creation time, newest first, with the ID breaking ties, so pages stay stable while new records arrive: a new record appears on the first page and never shifts later pages. Cursors are opaque; a malformed one returns `400 invalid_input`. The SDK's `ListWorkspacesPage` and `ListMemoriesPage` return the next cursor; `ListWorkspaces` and `ListMemories` return the first page. The MCP list tools return the first page only.

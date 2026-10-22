@@ -545,3 +545,28 @@ func TestToolCall_NonUUIDID_ReturnsInvalidParams(t *testing.T) {
 		}
 	}
 }
+
+// TestDispatch_DeactivatedAgentRefused (#6169): an MCP write by an agent
+// deactivated in the workspace fails with the unauthorized code.
+func TestDispatch_DeactivatedAgentRefused(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	const agentID = "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6"
+	resps := roundtrip(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"deactivated"}}}`,
+	)
+	wsID := extractToolWorkspaceID(t, resps[1])
+	ctx := context.Background()
+	if err := svc.RegisterAgent(ctx, &types.Agent{AgentID: agentID, WorkspaceID: wsID, IdentityProvider: "opaque"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeactivateAgent(ctx, wsID, agentID, ""); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"workspace_id": wsID, "agent_id": agentID, "content": "refused"})
+	r := roundtrip(t, s, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":`+string(args)+`}}`)
+	if len(r) != 1 || r[0].Error == nil || r[0].Error.Code != ErrCodeUnauthorized {
+		t.Fatalf("imprint by a deactivated agent: %+v, want error %d", r, ErrCodeUnauthorized)
+	}
+}

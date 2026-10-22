@@ -72,6 +72,71 @@ func requireAgent(agentID string) error {
 	return err
 }
 
+// TouchAgent records that agentID wrote in workspaceID, registering it
+// there if the workspace has never seen it. Unlike RegisterAgent it never
+// reactivates a deactivated agent or overwrites its registration (#6169).
+func (s *Service) TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error {
+	if t, ok := s.Metadata.(adapter.AgentToucher); ok {
+		return t.TouchAgent(ctx, workspaceID, agentID, identityProvider)
+	}
+	if _, err := s.Metadata.GetAgent(ctx, workspaceID, agentID); !errors.Is(err, types.ErrNotFound) {
+		return err
+	}
+	return s.Metadata.RegisterAgent(ctx, &types.Agent{AgentID: agentID, WorkspaceID: workspaceID, IdentityProvider: identityProvider})
+}
+
+// RegisterAgent registers or re-registers an agent explicitly (REST,
+// console, MCP). It is the one way to reactivate a deactivated agent,
+// and it is ledgered as agent_register, noting a reactivation. byAgent
+// is who did it, when known.
+func (s *Service) RegisterAgent(ctx context.Context, a *types.Agent, byAgent string) error {
+	prev, err := s.Metadata.GetAgent(ctx, a.WorkspaceID, a.AgentID)
+	if err != nil && !errors.Is(err, types.ErrNotFound) {
+		return err
+	}
+	if err := s.Metadata.RegisterAgent(ctx, a); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{
+		WorkspaceID: a.WorkspaceID, Op: "agent_register", Target: a.AgentID, AgentID: byAgent,
+		Metadata: map[string]any{"reactivated": prev != nil && !prev.Active, "new": prev == nil},
+	})
+	return nil
+}
+
+// DeactivateAgent stops an agent writing in a workspace (#6169); it is
+// ledgered as agent_deactivate. byAgent is who did it, when known.
+func (s *Service) DeactivateAgent(ctx context.Context, workspaceID, agentID, byAgent string) error {
+	if err := s.Metadata.DeactivateAgent(ctx, workspaceID, agentID); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "agent_deactivate", Target: agentID, AgentID: byAgent})
+	return nil
+}
+
+// admitAgent is requireAgent plus revocation (#6169): an agent that is
+// registered in workspaceID and deactivated there may not write. An
+// agent the workspace has never registered is admitted (the write
+// middleware registers it).
+func (s *Service) admitAgent(ctx context.Context, workspaceID, agentID string) error {
+	if err := requireAgent(agentID); err != nil {
+		return err
+	}
+	if s.Metadata == nil || workspaceID == "" {
+		return nil
+	}
+	a, err := s.Metadata.GetAgent(ctx, workspaceID, agentID)
+	switch {
+	case errors.Is(err, types.ErrNotFound):
+		return nil
+	case err != nil:
+		return err
+	case !a.Active:
+		return fmt.Errorf("%w: agent %s is deactivated in workspace %s", types.ErrAgentDeactivated, agentID, workspaceID)
+	}
+	return nil
+}
+
 // PostEmbedAutoLinkHook returns a closure suitable for embedqueue.PoolConfig.PostEmbedHook.
 // It calls autolink.AutoLink for the given memory after the async embed pool flips recall_ready.
 func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID, memoryID string, cells []types.Cell, embeddings [][]float32) {
@@ -97,12 +162,15 @@ func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, erro
 	if s.Graph == nil {
 		return types.Edge{}, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
+	if err := s.admitAgent(ctx, e.WorkspaceID, e.CreatedByAgentID); err != nil {
+		return types.Edge{}, err
+	}
 	return s.Graph.Link(ctx, e)
 }
 
 // GraphUnlink delegates to the configured GraphStore.
 func (s *Service) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return err
 	}
 	if s.Graph == nil {
@@ -122,12 +190,26 @@ func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]ada
 	if s.Graph == nil {
 		return nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
+	checked := map[[2]string]bool{}
+	for _, e := range edges {
+		k := [2]string{e.WorkspaceID, e.CreatedByAgentID}
+		if checked[k] || requireAgent(e.CreatedByAgentID) != nil {
+			continue // a malformed agent fails its own edge in the store
+		}
+		checked[k] = true
+		if err := s.admitAgent(ctx, e.WorkspaceID, e.CreatedByAgentID); err != nil {
+			return nil, err
+		}
+	}
+	if s.Graph == nil {
+		return nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
+	}
 	return s.Graph.LinkBatch(ctx, edges)
 }
 
 // GraphCascadeForget delegates to the configured GraphStore.
 func (s *Service) GraphCascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return 0, err
 	}
 	if s.Graph == nil {
@@ -216,7 +298,7 @@ func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chu
 // queued instead: the response says recall_ready=false and the pool
 // flips it once every cell has a vector.
 func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return nil, err
 	}
 	if agentID == "" {
@@ -335,7 +417,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 
 // Update replaces a Memory's content with CAS.
 func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return nil, err
 	}
 	if agentID == "" {
@@ -408,7 +490,7 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Patch is the moat operation: atomic diff-op apply + selective re-embed.
 func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return nil, err
 	}
 	if agentID == "" {
@@ -480,7 +562,7 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 
 // Append tacks body onto a Memory.
 func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return nil, err
 	}
 	if agentID == "" {
@@ -539,7 +621,7 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Forget removes a Memory and cascades incident edges.
 func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID string) (*api.ForgetResponse, error) {
-	if err := requireAgent(agentID); err != nil {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
 		return nil, err
 	}
 	// INVARIANT: forget ordering is metadata → content → vector → ledger.
@@ -1486,7 +1568,7 @@ func HTTPStatus(err error) int {
 		return 400
 	case errors.Is(err, types.ErrCapability):
 		return 501
-	case errors.Is(err, types.ErrFederationRevoked):
+	case errors.Is(err, types.ErrFederationRevoked), errors.Is(err, types.ErrAgentDeactivated):
 		return 403
 	case errors.Is(err, types.ErrFederationAuth):
 		return 401
@@ -1524,6 +1606,8 @@ func ErrorCode(err error) string {
 		return "invalid_input"
 	case errors.Is(err, types.ErrFederationRevoked):
 		return "federation_peer_revoked"
+	case errors.Is(err, types.ErrAgentDeactivated):
+		return "agent_deactivated"
 	case errors.Is(err, types.ErrFederationAuth):
 		return "federation_unauthorized"
 	case errors.Is(err, types.ErrFederationLoop):

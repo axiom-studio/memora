@@ -43,6 +43,15 @@ type ModelAwareVectorStore interface {
 	VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error)
 }
 
+// AgentToucher is implemented by metadata stores that can record an
+// agent's use of a workspace without re-registering it (#6169): it
+// inserts the agent, active, when the workspace has none by that ID, and
+// otherwise updates only last_seen_at, so it never reactivates a
+// deactivated agent or overwrites what an explicit registration set.
+type AgentToucher interface {
+	TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error
+}
+
 // CellCounter is implemented by metadata stores that can count the cells
 // of live (not forgotten) memories, which vector health compares with
 // ModelAwareVectorStore.FreshVectors.

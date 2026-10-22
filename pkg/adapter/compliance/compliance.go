@@ -126,6 +126,9 @@ func MetadataStoreSuite(t *testing.T, factory MetadataFactory) {
 		KeywordSearchContract(t, factory(t))
 	})
 
+	t.Run("agent_touch", func(t *testing.T) {
+		AgentTouchContract(t, factory(t))
+	})
 	t.Run("tag_edits", func(t *testing.T) {
 		TagEditContract(t, factory(t))
 	})
@@ -1117,5 +1120,45 @@ func TagEditContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if err := s.UpsertTag(ctx, ws.ID, m.ID, "team", "red"); !errors.Is(err, types.ErrNotFound) {
 		t.Errorf("UpsertTag on a forgotten memory: err = %v, want ErrNotFound", err)
+	}
+}
+
+// AgentTouchContract checks adapter.AgentToucher (#6169): touching an
+// unknown agent registers it active; touching a known one moves only
+// last_seen_at, so a deactivated agent stays deactivated and its
+// display name and provider are kept.
+func AgentTouchContract(t *testing.T, s adapter.MetadataStore) {
+	t.Helper()
+	toucher, ok := s.(adapter.AgentToucher)
+	if !ok {
+		t.Skip("store does not implement adapter.AgentToucher")
+	}
+	ctx := context.Background()
+	ws := &types.Workspace{Name: "touch-" + types.NewID()}
+	if err := s.CreateWorkspace(ctx, ws); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	fresh, named := types.NewID(), types.NewID()
+	if err := toucher.TouchAgent(ctx, ws.ID, fresh, "opaque"); err != nil {
+		t.Fatalf("TouchAgent (new): %v", err)
+	}
+	if a, err := s.GetAgent(ctx, ws.ID, fresh); err != nil || !a.Active || a.IdentityProvider != "opaque" {
+		t.Fatalf("touched new agent = %+v, %v; want registered and active", a, err)
+	}
+	if err := s.RegisterAgent(ctx, &types.Agent{AgentID: named, WorkspaceID: ws.ID, DisplayName: "named", IdentityProvider: "oidc_agent"}); err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+	if err := s.DeactivateAgent(ctx, ws.ID, named); err != nil {
+		t.Fatalf("DeactivateAgent: %v", err)
+	}
+	if err := toucher.TouchAgent(ctx, ws.ID, named, "opaque"); err != nil {
+		t.Fatalf("TouchAgent (known): %v", err)
+	}
+	a, err := s.GetAgent(ctx, ws.ID, named)
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if a.Active || a.DisplayName != "named" || a.IdentityProvider != "oidc_agent" || a.LastSeenAt == nil {
+		t.Fatalf("after touching a deactivated agent: %+v; want still inactive, name and provider kept, last_seen set", a)
 	}
 }

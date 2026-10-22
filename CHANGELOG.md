@@ -43,6 +43,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   forgotten memory is now `404`.
 
 ### Security
+- Deactivating an agent now stops it writing (#6169). Before this the
+  `active` flag was never checked, and the write middleware's
+  auto-register set `active` back on (and cleared the display name and
+  identity provider) on every write. Writes by an agent deactivated in a
+  workspace are refused with `403 agent_deactivated` (MCP `-32001`) on
+  every path (imprint, update, patch, append, forget, link, batch link,
+  unlink). The middleware records first use only (insert if absent,
+  then `last_seen_at`); reactivation is an explicit register. Register
+  and deactivate are ledgered (`agent_register` with `reactivated`,
+  `agent_deactivate`).
 - Forgetting a memory now deletes its vectors (#6179). Since #4231,
   `Forget` asked both vector stores to delete by a key with no cell ID,
   which matched nothing, and the error was discarded, so a forgotten

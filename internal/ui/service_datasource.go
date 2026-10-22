@@ -23,6 +23,11 @@ type ServiceDataSource struct {
 	PatchFunc   func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
 	AppendFunc  func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
 	ForgetFunc  func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
+	// RegisterAgentFunc and DeactivateAgentFunc register and deactivate
+	// agents with a ledger entry (Service.RegisterAgent and
+	// DeactivateAgent); nil falls back to the metadata store.
+	RegisterAgentFunc   func(ctx context.Context, a *types.Agent, byAgent string) error
+	DeactivateAgentFunc func(ctx context.Context, wsID, agentID, byAgent string) error
 	// UnlinkFunc removes an edge as an agent (Service.GraphUnlink).
 	UnlinkFunc      func(ctx context.Context, wsID, edgeID, agentID string) error
 	EmbedQueueDepth func() int
@@ -191,10 +196,16 @@ func (s *ServiceDataSource) RegisterAgent(ctx context.Context, wsID string, req 
 		Model:            req.Model,
 		Active:           true,
 	}
+	if s.RegisterAgentFunc != nil {
+		return s.RegisterAgentFunc(ctx, a, types.ConsoleAgentID)
+	}
 	return s.Metadata.RegisterAgent(ctx, a)
 }
 
 func (s *ServiceDataSource) DeactivateAgent(ctx context.Context, wsID, agentID string) error {
+	if s.DeactivateAgentFunc != nil {
+		return s.DeactivateAgentFunc(ctx, wsID, agentID, types.ConsoleAgentID)
+	}
 	return s.Metadata.DeactivateAgent(ctx, wsID, agentID)
 }
 

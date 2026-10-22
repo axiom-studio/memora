@@ -174,6 +174,9 @@ func New(cfg Config) *Server {
 				AppendFunc:  cfg.Service.Append,
 				ForgetFunc:  cfg.Service.Forget,
 				UnlinkFunc:  cfg.Service.GraphUnlink,
+
+				RegisterAgentFunc:   cfg.Service.RegisterAgent,
+				DeactivateAgentFunc: cfg.Service.DeactivateAgent,
 			}
 			uiHandler.SetDataSource(ds)
 		}
@@ -444,15 +447,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			ctx = context.WithValue(ctx, ctxKeyAgent, agentID)
 
-			// Auto-register agent after successful verification.
+			// Record the agent in the workspace after verification:
+			// registered on first use, otherwise only last_seen_at moves.
+			// It never reactivates a deactivated agent; the service then
+			// refuses its writes (#6169).
 			if s.cfg.Service != nil && s.cfg.Service.Metadata != nil {
-				wsID := workspaceFromPath(r.URL.Path)
-				if wsID != "" {
-					_ = s.cfg.Service.Metadata.RegisterAgent(ctx, &types.Agent{
-						AgentID:          agentID,
-						WorkspaceID:      wsID,
-						IdentityProvider: provName,
-					})
+				if wsID := workspaceFromPath(r.URL.Path); wsID != "" {
+					_ = s.cfg.Service.TouchAgent(ctx, wsID, agentID, provName)
 				}
 			}
 		}

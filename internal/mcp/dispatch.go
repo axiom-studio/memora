@@ -373,7 +373,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			Model:            in.Model,
 			Capabilities:     in.Capabilities,
 		}
-		if err := s.svc.Metadata.RegisterAgent(ctx, a); err != nil {
+		by, _ := ctx.Value(ctxKeyAgent).(string)
+		if err := s.svc.RegisterAgent(ctx, a, by); err != nil {
 			return nil, err
 		}
 		return a, nil

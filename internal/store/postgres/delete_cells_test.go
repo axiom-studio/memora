@@ -60,6 +60,7 @@ func TestKeywordFilter_Postgres(t *testing.T) {
 	defer ms.Close()
 	compliance.KeywordFilterContract(t, ms)
 	compliance.TagEditContract(t, ms)
+	compliance.AgentTouchContract(t, ms)
 }
 
 func TestBatchLoad_Postgres(t *testing.T) {

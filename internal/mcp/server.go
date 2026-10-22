@@ -175,8 +175,11 @@ func (s *Server) handleToolCall(ctx context.Context, req request) response {
 	result, err := s.dispatchTool(ctx, p.Name, p.Arguments)
 	if err != nil {
 		code := -32603 // internal error
-		if errors.Is(err, types.ErrInvalidInput) {
+		switch {
+		case errors.Is(err, types.ErrInvalidInput):
 			code = -32602 // invalid params
+		case errors.Is(err, types.ErrAgentDeactivated):
+			code = ErrCodeUnauthorized
 		}
 		return errResponse(req.ID, code, err.Error(), map[string]any{"tool": p.Name})
 	}

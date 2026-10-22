@@ -1156,6 +1156,17 @@ ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
 	return err
 }
 
+// TouchAgent implements adapter.AgentToucher.
+func (s *MetadataStore) TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error {
+	now := time.Now().UTC()
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, last_seen_at, active)
+VALUES ($1, $2, $3, $4, $5, TRUE)
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+		agentID, workspaceID, identityProvider, now, now)
+	return err
+}
+
 // ResolveIdentityKey implements adapter.MetadataStore. The insert is a
 // no-op when the key is already bound, so the select always returns the
 // first binding.

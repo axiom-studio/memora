@@ -583,7 +583,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 			Model:            req.Model,
 			Capabilities:     req.Capabilities,
 		}
-		if err := s.cfg.Service.Metadata.RegisterAgent(r.Context(), a); err != nil {
+		if err := s.cfg.Service.RegisterAgent(r.Context(), a, r.Header.Get("Memora-Agent-Id")); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -596,7 +596,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 		}
 		s.writeJSON(w, 200, a)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Metadata.DeactivateAgent(r.Context(), wsID, rest[0]); err != nil {
+		if err := s.cfg.Service.DeactivateAgent(r.Context(), wsID, rest[0], r.Header.Get("Memora-Agent-Id")); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}

@@ -26,6 +26,9 @@ var (
 	// whose access has been revoked (403, not 401: retrying will not help).
 	ErrFederationRevoked = errors.New("memora: federation peer revoked")
 	ErrFederationDown    = errors.New("memora: all federation peers failed")
+	// ErrAgentDeactivated is a write by an agent an operator deactivated
+	// in that workspace (403, agent_deactivated).
+	ErrAgentDeactivated = errors.New("memora: agent deactivated")
 )
 
 func errEmpty(field string) error {
