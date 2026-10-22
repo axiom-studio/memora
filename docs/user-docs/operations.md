@@ -38,6 +38,8 @@ docker run -p 7777:7777 -v memora-data:/data \
     ghcr.io/axiom-studio/memora-core:<version>-local
 ```
 
+The image records what it bundles in `/usr/share/memora/local-components.json`: the kelindar/search and llama.cpp commits the library is built from, its build flags and SHA-256, and the model's source URL and SHA-256. Releases attach an SPDX SBOM (every file with its SHA-256) and that manifest as cosign attestations on the image digest (`cosign verify-attestation --type spdxjson …`). Base images and release actions are pinned by digest.
+
 Switching an existing node to or from this image changes the embedding model, so run `memora-core reembed` afterwards (see [Changing the Embedding Model](#changing-the-embedding-model)). Build it yourself with `docker build -f Dockerfile.local .`; `scripts/smoke-local-image.sh <image>` checks a build.
 
 Mount a volume at `/data`, as above. Without one, the SQLite database holding every Memory, vector, edge, and ledger entry lives in the container's writable layer and is discarded when the container is removed.

@@ -73,6 +73,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   by the `Local embedder image` workflow and on release, then signed.
 
 ### Security
+- `-local` image supply chain (#6244): base images are pinned by digest,
+  the release job's actions by commit SHA, and releases attach an SPDX
+  SBOM (listing `libllama_go.so` and the model with their SHA-256) plus
+  a component manifest (`/usr/share/memora/local-components.json`:
+  source commits, build flags, hashes) as cosign attestations. The CI
+  and release CPU check now requires AVX2, FMA and F16C.
 - Peer-route audit and limiter hardening (#6232). A graceful shutdown now
   writes the open window of `federation_rejected` summaries instead of
   dropping it. The pre-auth limiter evicts its least recently used

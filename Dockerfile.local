@@ -13,7 +13,8 @@
 #
 #   docker build -f Dockerfile.local -t memora-core:dev-local .
 
-FROM golang:1.25-bookworm AS builder
+# Base images are pinned by digest (#6244); bump them deliberately.
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -38,7 +39,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags local_embed \
 # uses AVX-VNNI (vpdpbusd), so it dies with SIGILL on most x86-64 CPUs,
 # AMD Zen 4 EPYC included (#6245). GGML_NATIVE=OFF targets portable
 # x86-64: AVX, AVX2, FMA and F16C; no AVX-VNNI, no AVX-512.
-FROM debian:bookworm-slim AS llama
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS llama
 
 ARG SEARCH_COMMIT=b4c4ef13f5e24271167b5e1248abc4161e47dbaa
 ARG LLAMA_CPP_COMMIT=90e4dba461b07e635fd1daf3b491c978c7dd0013
@@ -60,8 +61,12 @@ RUN cmake -S search -B out -DCMAKE_BUILD_TYPE=Release \
 RUN apt-get update && apt-get install -y --no-install-recommends binutils && rm -rf /var/lib/apt/lists/* && \
     objdump -d --no-show-raw-insn /build/libllama_go.so > /tmp/asm && \
     ! grep -qE 'vpdpbusd|vpdpwssd|%zmm|\{k[0-7]\}' /tmp/asm
+# What the image carries and where it came from, for consumers and the
+# release attestation (#6244).
+RUN printf '{"libllama_go.so":{"source":"https://github.com/kelindar/search","commit":"%s","llama_cpp":"https://github.com/ggerganov/llama.cpp","llama_cpp_commit":"%s","build":"cmake Release GGML_NATIVE=OFF AVX AVX2 FMA F16C, no AVX-VNNI/AVX-512","sha256":"%s"}}\n' \
+    "$SEARCH_COMMIT" "$LLAMA_CPP_COMMIT" "$(sha256sum /build/libllama_go.so | cut -d' ' -f1)" > /build/llama.json
 
-FROM debian:bookworm-slim AS assets
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS assets
 
 # Must match defaultModelRevision / defaultModelSHA in pkg/embedding/modelfile.go.
 ARG MODEL_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.Q8_0.gguf
@@ -71,8 +76,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN mkdir -p /out/models && \
     curl -fsSL -o /out/models/nomic-embed-text-v1.5.Q8_0.gguf "$MODEL_URL" && \
     echo "$MODEL_SHA256  /out/models/nomic-embed-text-v1.5.Q8_0.gguf" | sha256sum -c -
+COPY --from=llama /build/llama.json /tmp/llama.json
+RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/* && \
+    jq --arg url "$MODEL_URL" --arg sha "$MODEL_SHA256" \
+        '. + {"nomic-embed-text-v1.5.Q8_0.gguf": {"source": $url, "sha256": $sha, "license": "Apache-2.0"}}' \
+        /tmp/llama.json > /out/local-components.json
 
-FROM debian:bookworm-slim AS final
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS final
 
 # libllama_go.so needs libstdc++, libgcc_s and libgomp.
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libstdc++6 && rm -rf /var/lib/apt/lists/* && \
@@ -83,6 +93,7 @@ COPY --from=builder /out/memora-core /usr/local/bin/memora-core
 COPY --from=builder /out/memora-cli /usr/local/bin/memora-cli
 COPY --from=llama /build/libllama_go.so /usr/local/lib/libllama_go.so
 COPY --from=assets /out/models /models
+COPY --from=assets /out/local-components.json /usr/share/memora/local-components.json
 
 ENV MEMORA_DATA_DIR=/data
 ENV MEMORA_ADDR=:7777

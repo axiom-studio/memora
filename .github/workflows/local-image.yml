@@ -41,11 +41,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: CPU has AVX
+      - name: CPU has AVX2, FMA and F16C
         run: |
-          grep -qw avx /proc/cpuinfo
+          for f in avx2 fma f16c; do grep -qw "$f" /proc/cpuinfo || { echo "::error::CPU lacks $f, which libllama_go needs"; exit 1; }; done
           # Annotations are readable without signing in, unlike job logs.
           echo "::notice title=CPU::$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2) flags: $(for f in avx avx2 fma f16c avx512f; do grep -qw $f /proc/cpuinfo && printf '%s ' $f; done)"
 

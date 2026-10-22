@@ -129,19 +129,27 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cosign (signing)
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
         with:
           cosign-release: 'v2.4.1'
+
+      - name: Install syft (SBOM generation)
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          syft-version: 'v1.18.0'
+
+      - name: CPU has AVX2, FMA and F16C
+        run: for f in avx2 fma f16c; do grep -qw "$f" /proc/cpuinfo || { echo "::error::CPU lacks $f"; exit 1; }; done
 
       - name: Build
         run: |
@@ -154,9 +162,29 @@ jobs:
       - name: Smoke test
         run: ./scripts/smoke-local-image.sh "ghcr.io/axiom-studio/memora-core:${GITHUB_REF_NAME#v}-local"
 
-      - name: Push and sign
+      - name: Push, sign and attest
+        # The SBOM lists every file with its sha256, so the bundled
+        # libllama_go.so and GGUF model are visible to consumers; the
+        # component manifest records their sources and pins (#6244).
+        env:
+          SYFT_FILE_METADATA_SELECTION: all
+          SYFT_FILE_METADATA_DIGESTS: sha256
         run: |
           IMAGE="ghcr.io/axiom-studio/memora-core:${GITHUB_REF_NAME#v}-local"
           docker push "$IMAGE"
           DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          syft scan "$DIGEST" -o spdx-json=local-image.spdx.json
+          jq -e '[.files[]?.fileName] | any(endswith("libllama_go.so")) and any(endswith(".gguf"))' local-image.spdx.json
+          docker run --rm --entrypoint cat "$IMAGE" /usr/share/memora/local-components.json > local-components.json
           cosign sign --yes "$DIGEST"
+          cosign attest --yes --type spdxjson --predicate local-image.spdx.json "$DIGEST"
+          cosign attest --yes --type https://github.com/axiom-studio/memora/local-components/v1 --predicate local-components.json "$DIGEST"
+
+      - name: Keep the SBOM and component manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: local-image-sbom-${{ github.ref_name }}
+          path: |
+            local-image.spdx.json
+            local-components.json
