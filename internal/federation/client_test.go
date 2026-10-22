@@ -56,9 +56,10 @@ func TestPeerClient_Search(t *testing.T) {
 			TrustMode: TrustAPIKey,
 			APIKey:    "test-key",
 		},
-		httpClient:   srv.Client(),
-		federationID: "fed_a",
-		instanceID:   "fed_a",
+		httpClient:     srv.Client(),
+		federationID:   "fed_a",
+		instanceID:     "fed_a",
+		cleartextKeyOK: true, // loopback
 	}
 
 	got, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "hello", K: 5}, "fed_a")
@@ -119,9 +120,10 @@ func TestPeerClient_KeyAuthenticatesAtPeer(t *testing.T) {
 	for _, mode := range []TrustMode{TrustAPIKey, TrustMTLS} {
 		for _, k := range []string{key, "wrong-key"} {
 			pc := &PeerClient{
-				peer:       Peer{ID: callee, Name: "callee", Endpoint: srv.URL, TrustMode: mode, APIKey: k},
-				httpClient: srv.Client(),
-				instanceID: caller,
+				peer:           Peer{ID: callee, Name: "callee", Endpoint: srv.URL, TrustMode: mode, APIKey: k},
+				httpClient:     srv.Client(),
+				instanceID:     caller,
+				cleartextKeyOK: true, // loopback
 			}
 			_, err := pc.Search(context.Background(), api.FederationSearchRequest{Query: "q", K: 1}, "")
 			if ok := err == nil; ok != (k == key) {
@@ -179,7 +181,8 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 	defer srv.Close()
 
 	callerReg, err := NewRegistry(config.FederationConfig{
-		Enabled: true,
+		Enabled:          true,
+		PrivatePeerHosts: []string{"127.0.0.1"},
 		Peers: []config.PeerConfig{
 			{NodeID: callee, Name: "with-cert", URL: srv.URL, APIKey: key, TLSCert: serverRes.CertPath,
 				ClientCertFile: clientRes.CertPath, ClientKeyFile: clientRes.KeyPath},
@@ -195,7 +198,7 @@ func TestPeerClient_OutboundMTLS(t *testing.T) {
 
 	noCert := callerReg.Peers()[0]
 	noCert.ClientCertFile, noCert.ClientKeyFile = "", ""
-	pc2, err := newPeerClient(noCert, "", caller)
+	pc2, err := newPeerClient(noCert, "", caller, callerReg.policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +232,7 @@ func TestPeerClient_NoRedirects(t *testing.T) {
 		peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, target.URL+r.URL.Path, code)
 		}))
-		reg, err := NewRegistry(config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{
+		reg, err := NewRegistry(config.FederationConfig{Enabled: true, PrivatePeerHosts: []string{"127.0.0.1"}, Peers: []config.PeerConfig{
 			{NodeID: nid("peer"), Name: "peer", URL: peer.URL, APIKey: "secret-peer-key"},
 		}}, nid("self"))
 		if err != nil {

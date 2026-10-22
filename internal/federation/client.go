@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -30,10 +32,25 @@ type PeerClient struct {
 	httpClient   *http.Client
 	federationID string
 	instanceID   string
+	// cleartextKeyOK allows the peer key on an http:// request: the
+	// peer's host is loopback or in federation.insecure_peer_hosts.
+	cleartextKeyOK bool
+	host           string // the URL's host, without port
 }
 
-func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
+func newPeerClient(p Peer, federationID, nodeID string, policy *urlPolicy) (*PeerClient, error) {
+	u, err := url.Parse(p.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// No proxy: the dial check below must see the peer's own address.
+	transport.Proxy = nil
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   policy.dialControl(u.Hostname()),
+	}).DialContext
 	if p.TrustMode == TrustMTLS {
 		tlsCfg, err := buildMTLSConfig(p)
 		if err != nil {
@@ -55,8 +72,10 @@ func newPeerClient(p Peer, federationID, nodeID string) (*PeerClient, error) {
 			// becomes a *PeerError.
 			CheckRedirect: noRedirects,
 		},
-		federationID: federationID,
-		instanceID:   nodeID,
+		federationID:   federationID,
+		instanceID:     nodeID,
+		cleartextKeyOK: policy.cleartextAllowed(normHost(u.Hostname())),
+		host:           u.Hostname(),
 	}, nil
 }
 
@@ -93,7 +112,9 @@ func (c *PeerClient) setHeaders(req *http.Request, path string) {
 	if path != "" {
 		req.Header.Set(HeaderFederationPath, path)
 	}
-	if c.peer.APIKey != "" {
+	// The registry refuses http:// peers it may not send keys to; this
+	// keeps the key off the wire should one get through.
+	if c.peer.APIKey != "" && (req.URL.Scheme == "https" || c.cleartextKeyOK) {
 		req.Header.Set(HeaderFederationAuth, "Bearer "+c.peer.APIKey)
 	}
 	req.Header.Set("Content-Type", "application/json")

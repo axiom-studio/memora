@@ -143,6 +143,27 @@ Each direction between two nodes has its own key. The routes a peer calls, `POST
 - **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
 - **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
 
+### Peer URL Policy
+
+Every peer URL, from the config file or added at runtime, must pass this node's URL policy, which only the config file sets:
+
+| Key | Type | Effect |
+|---|---|---|
+| `federation.insecure_peer_hosts` | list of hosts | Peers at these hosts may use `http://`. Over http the peer key travels in cleartext, so any other `http://` peer is refused. Loopback hosts (`localhost`, `127.0.0.1`, `::1`) need no entry. The node logs a warning for each such peer when it loads them. |
+| `federation.private_peer_hosts` | list of hosts or CIDRs | Peers may reach non-public addresses (loopback, RFC 1918 and `fc00::/7` private, link-local such as `169.254.169.254`, CGNAT, unspecified, multicast and reserved ranges) only if listed. A host name or IP entry lets that URL host resolve to any address; a CIDR entry allows the addresses inside it. Everything else is refused. |
+
+The address check runs when a peer is added over the API or console, on the addresses its host resolves to, and again on every connection, so a name that later resolves to an internal address is still refused. Peer calls do not use `HTTP_PROXY`/`HTTPS_PROXY`. A URL with a user name or password is refused. A refused call shows up in `failed_peers` as `peer_address_refused`. If a stored peer no longer passes the policy (for example, after an entry is removed from a list), the node refuses to start and names the peer; change or delete it first.
+
+```toml
+[federation]
+enabled = true
+# Local demo on a private network: plain http between known hosts.
+insecure_peer_hosts = ["memora-node2"]
+private_peer_hosts = ["memora-node2", "10.20.0.0/16"]
+```
+
+Each peer also needs its own `inbound_key_sha256`; two peers with the same key are refused.
+
 Calls to a peer never follow redirects. A peer that answers with a `3xx` fails that call (`error_code` `http_307` and so on), and nothing is sent to the `Location` it names, so the query and the peer key cannot be passed on to another host.
 
 Peers listed in the config file seed the node's peer registry, which is stored in the metadata store. Each one is imported on the first start that sees it, and never again. After that, edit peers over [`/v1/federation/peers`](api.md#managing-peers) or in the console; changing a peer in the config file does not change the registered peer, and a removed peer is not re-imported.

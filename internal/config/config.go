@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,9 +98,18 @@ type FederationConfig struct {
 	// SecretKeyFile holds the 32-byte key that seals peer api_keys in
 	// the metadata store (default <data_dir>/federation.key, created on
 	// first start). $MEMORA_FEDERATION_SECRET overrides it.
-	SecretKeyFile string       `toml:"secret_key_file"`
-	OutboundQPS   float64      `toml:"outbound_qps"`
-	Peers         []PeerConfig `toml:"peers"`
+	SecretKeyFile string  `toml:"secret_key_file"`
+	OutboundQPS   float64 `toml:"outbound_qps"`
+	// InsecurePeerHosts lists peer URL hosts this node may call over
+	// http://, which sends the peer key in cleartext. Loopback hosts
+	// need no entry; any other http:// peer is refused.
+	InsecurePeerHosts []string `toml:"insecure_peer_hosts"`
+	// PrivatePeerHosts lets peers reach loopback, private, link-local
+	// and other non-public addresses, which are refused otherwise. An
+	// entry is a URL host (name or IP), which may then resolve to any
+	// address, or a CIDR, which allows the addresses inside it.
+	PrivatePeerHosts []string     `toml:"private_peer_hosts"`
+	Peers            []PeerConfig `toml:"peers"`
 }
 
 type PeerConfig struct {
@@ -308,6 +318,20 @@ func (c *Config) Validate() error {
 	}
 	if c.Federation.InboundQPS < 0 || c.Federation.OutboundQPS < 0 || c.Federation.PeerTimeoutMS < 0 {
 		errs = append(errs, errors.New("federation.inbound_qps, outbound_qps and peer_timeout_ms must not be negative"))
+	}
+	for _, h := range c.Federation.InsecurePeerHosts {
+		if strings.TrimSpace(h) == "" {
+			errs = append(errs, errors.New("federation.insecure_peer_hosts: empty entry"))
+		}
+	}
+	for _, h := range c.Federation.PrivatePeerHosts {
+		if strings.TrimSpace(h) == "" {
+			errs = append(errs, errors.New("federation.private_peer_hosts: empty entry"))
+		} else if strings.Contains(h, "/") {
+			if _, err := netip.ParsePrefix(strings.TrimSpace(h)); err != nil {
+				errs = append(errs, fmt.Errorf("federation.private_peer_hosts: %q is not a CIDR: %v", h, err))
+			}
+		}
 	}
 	for i, p := range c.Federation.Peers {
 		if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", i), p.NodeID); err != nil {

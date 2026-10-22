@@ -104,6 +104,15 @@ func TestPeers_E2E_Validation(t *testing.T) {
 		{"node_id": a.ID, "name": "self", "url": "https://x"},
 		{"node_id": types.NewID(), "name": "x", "url": "https://x", "inbound_key": "k", "inbound_key_sha256": strings.Repeat("ab", 32)},
 		{"node_id": types.NewID(), "name": "x", "url": "https://x", "client_cert_sha256": strings.Repeat("ab", 32)},
+		// URL policy (#6172, #6176): cleartext, credentials in the URL and
+		// internal destinations. The mesh allows only 127.0.0.1.
+		{"node_id": types.NewID(), "name": "x", "url": "http://peer.example.com"},
+		{"node_id": types.NewID(), "name": "x", "url": "https://u:p@peer.example.com"},
+		{"node_id": types.NewID(), "name": "x", "url": "http://169.254.169.254"},
+		{"node_id": types.NewID(), "name": "x", "url": "https://169.254.169.254/latest/meta-data"},
+		{"node_id": types.NewID(), "name": "x", "url": "https://10.1.2.3:8080"},
+		{"node_id": types.NewID(), "name": "x", "url": "https://[::1]:5432"},
+		{"node_id": types.NewID(), "name": "x", "url": "https://localhost:5432"}, // a name resolving to loopback
 	} {
 		if status, resp := a.peersAPI(t, "POST", "/v1/federation/peers", body); status != 400 {
 			t.Fatalf("%v: %d %v, want 400", body, status, resp)
@@ -124,7 +133,7 @@ func TestPeers_SeedNeverClobbers(t *testing.T) {
 	if n, err := a.Peers.Seed(ctx, cfg); err != nil || n != 1 {
 		t.Fatalf("first seed = %d, %v", n, err)
 	}
-	if _, err := a.Peers.Upsert(ctx, api.PeerRequest{NodeID: seedID, Name: "edited", URL: "https://edited.example.com"}); err != nil {
+	if _, err := a.Peers.Upsert(ctx, api.PeerRequest{NodeID: seedID, Name: "edited", URL: "https://edited.example.com", APIKey: "edited-key"}); err != nil {
 		t.Fatal(err)
 	}
 	restart := func() []api.PeerView {
@@ -202,4 +211,56 @@ func toJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestPeers_URLChangeNeedsKey_Audited: a stored outbound key is never
+// carried over to a new URL, and every runtime peer edit is ledgered
+// without its keys.
+func TestPeers_URLChangeNeedsKey_Audited(t *testing.T) {
+	a := newMesh(t, []string{"a"}, nil)[0]
+	id := types.NewID()
+	const key = "audited-peer-key-0123456789"
+	if status, body := a.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
+		"node_id": id, "name": "p", "url": "https://p.example.com", "api_key": key,
+	}); status != 200 {
+		t.Fatalf("add: %d %v", status, body)
+	}
+	if status, body := a.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
+		"node_id": id, "name": "p", "url": "https://attacker.example.com",
+	}); status != 400 || !strings.Contains(body["message"].(string), "api_key again") {
+		t.Fatalf("url change without key: %d %v, want 400", status, body)
+	}
+	if status, body := a.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
+		"node_id": id, "name": "p2", "url": "https://p.example.com",
+	}); status != 200 || body["has_api_key"] != true {
+		t.Fatalf("rename keeping the url: %d %v", status, body)
+	}
+	if status, body := a.peersAPI(t, "POST", "/v1/federation/peers", map[string]any{
+		"node_id": id, "name": "p2", "url": "https://p2.example.com", "api_key": key + "-2",
+	}); status != 200 {
+		t.Fatalf("url change with key: %d %v", status, body)
+	}
+	if status, _ := a.peersAPI(t, "DELETE", "/v1/federation/peers/"+id, nil); status != 204 {
+		t.Fatalf("delete: %d", status)
+	}
+
+	entries := a.ledger(t, "federation_peer")
+	raw := toJSON(t, entries)
+	if strings.Contains(raw, key) {
+		t.Fatalf("a peer audit entry holds the key: %s", raw)
+	}
+	var actions []string
+	for i := len(entries) - 1; i >= 0; i-- { // newest first
+		e := entries[i]
+		if e.Target != id || e.Metadata["node_id"] != id {
+			t.Fatalf("entry %+v is not about the peer", e)
+		}
+		actions = append(actions, e.Metadata["action"].(string))
+	}
+	if got := strings.Join(actions, ","); got != "create,update,update,delete" {
+		t.Fatalf("audited actions = %s, want create,update,update,delete (the refused edit is not one)", got)
+	}
+	if e := entries[1]; e.Metadata["previous_url"] != "https://p.example.com" || e.Metadata["url"] != "https://p2.example.com" || e.Metadata["api_key_set"] != true {
+		t.Fatalf("url change entry = %+v", e.Metadata)
+	}
 }

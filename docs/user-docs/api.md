@@ -114,7 +114,7 @@ Ledger queries accept `since`, `until`, `actor`, `agent_id`, `memory_id`, `edge_
 
 This node's list and each peer's list are merged by reciprocal rank fusion: ranks, not scores, are combined, because the nodes run different embedding models. A hit's `score` is its fused score. Hits are identified by `(node_id, memory_id)`, so the same memory ID on two nodes is two hits. Every hit carries `node_id` and `node_name`; a peer's hits have `via: "federation:<node_id>"`, with the node taken from this node's peer config rather than from the peer's answer.
 
-A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed in `failed_peers` as `{node_id, name, error_code}`, where `error_code` is `timeout`, `unreachable`, `outbound_rate_limited`, `bad_response`, the peer's own error code (for example `federation_unauthorized`), or `http_<status>`; `partial_success` is then `true`. `peer_latency_ms` maps each answering node ID, this node's included, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
+A peer that fails, times out or is over this node's outbound limit for it does not fail the search. It is listed in `failed_peers` as `{node_id, name, error_code}`, where `error_code` is `timeout`, `unreachable`, `peer_address_refused` (see [Peer URL Policy](configuration.md#peer-url-policy)), `outbound_rate_limited`, `bad_response`, the peer's own error code (for example `federation_unauthorized`), or `http_<status>`; `partial_success` is then `true`. `peer_latency_ms` maps each answering node ID, this node's included, to milliseconds. `federated` cannot be combined with `workspace_ids`, because peers search their whole node, and a `multi-tenant` node refuses it with `403 federation_multi_tenant`. On a node without federation, `federated: true` is `400`. The MCP `memora_search` tool takes the same fields.
 
 ### Fetching a Memory From Its Node
 
@@ -138,6 +138,7 @@ Every federated call is written to the ledger as a node-level entry (no workspac
 | `federation_inbound` | the node that answered a peer's search | `requesting_peer`, `query`, `hit_count`, `federation_path` |
 | `federation_rejected` | the node that refused a peer call | `requesting_peer` (when well-formed), `reason`: `unknown_peer`, `bad_key`, `bad_cert`, `revoked`, `federation_mismatch`, `loop` or `rate_limited` |
 | `federation_fetch` | both nodes of a fetch | `direction` (`outbound`/`inbound`), `node_id`, `memory_id`, `outcome`; the serving node files it under the memory's workspace |
+| `federation_peer` | the node whose peer registry changed (API or console) | `action` (`create`, `update`, `delete`), `node_id`, `name`, `url`, `previous_url` when it changed, `api_key_set`, `inbound_key_set`, `revoked`; keys are never recorded |
 
 The query text is sensitive. It is kept in the entry's metadata, so redacting an entry's `metadata` hides it. The reason for a refusal is recorded only in the ledger; the refused caller sees the same `401` whatever the reason.
 
@@ -156,10 +157,12 @@ The peer registry can be edited while the node runs. These routes take the API k
 | Field | Value |
 |---|---|
 | `GET /federation/peers` | List peers: `node_id`, `name`, `url`, `trust_mode`, `has_inbound_key`, `has_api_key`, `client_cert_sha256`, `timeout_ms`, `rate_limit_qps`, `revoked`, `created_at`, `updated_at`. Keys are never returned. |
-| `POST /federation/peers` | Create or replace the peer with `node_id`. Body: `node_id`, `name`, `url`; optional `inbound_key` (the key the peer will present, stored only as its SHA-256) or `inbound_key_sha256`; `api_key` (the key this node presents to the peer, stored sealed); `client_cert_sha256` (needs `server.tls`); `timeout_ms`; `rate_limit_qps` (this node's calls to the peer); `inbound_qps` (the peer's calls to this node; default `federation.inbound_qps`); `revoked`. A key left out keeps the stored one. TLS file paths are set only in the config file. Answers with the peer as `GET` shows it. |
+| `POST /federation/peers` | Create or replace the peer with `node_id`. Body: `node_id`, `name`, `url`; optional `inbound_key` (the key the peer will present, stored only as its SHA-256) or `inbound_key_sha256`; `api_key` (the key this node presents to the peer, stored sealed); `client_cert_sha256` (needs `server.tls`); `timeout_ms`; `rate_limit_qps` (this node's calls to the peer); `inbound_qps` (the peer's calls to this node; default `federation.inbound_qps`); `revoked`. A key left out keeps the stored one, except that changing `url` needs `api_key` again (`400` otherwise), so a stored key is never sent to a new host. `url` must pass the node's [Peer URL Policy](configuration.md#peer-url-policy), which is checked against the addresses the host resolves to; `400` otherwise. TLS file paths and the URL policy are set only in the config file. Answers with the peer as `GET` shows it. |
 | `DELETE /federation/peers/{node_id}` | Remove a peer. `404` if it is not registered. |
 
-Without federation these answer `404 federation_disabled`. The console's Federation page uses the same registry.
+Without federation these answer `404 federation_disabled`. The console's Federation page uses the same registry. Every change is written to the ledger as a `federation_peer` entry.
+
+Anyone holding the node's API key can change its peers, and with them where the node sends federated queries. Treat the API key as an administrative credential on a federated node. The URL policy, which only the config file sets, bounds where a runtime peer can point.
 
 ### Federation
 

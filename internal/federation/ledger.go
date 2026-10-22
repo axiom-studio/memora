@@ -18,10 +18,39 @@ const (
 	OpInbound  = "federation_inbound"  // receiver: a peer's search
 	OpRejected = "federation_rejected" // receiver: a refused peer call
 	OpFetch    = "federation_fetch"    // both sides: a memory fetched from its node
+	OpPeer     = "federation_peer"     // a peer added, changed or removed at runtime
 )
 
 // Ops lists every federation audit op.
-var Ops = []string{OpSearch, OpInbound, OpRejected, OpFetch}
+var Ops = []string{OpSearch, OpInbound, OpRejected, OpFetch, OpPeer}
+
+// Peer registry actions in an OpPeer entry.
+const (
+	PeerActionCreate = "create"
+	PeerActionUpdate = "update"
+	PeerActionDelete = "delete"
+)
+
+// PeerChangeEntry audits a runtime peer edit (F-7): which peer, its URL
+// (and the previous one when it changed), and whether its outbound or
+// inbound key was set. The keys themselves are never recorded.
+func PeerChangeEntry(action, nodeID, name, url, prevURL string, apiKeySet, inboundKeySet, revoked bool) api.LedgerEntry {
+	meta := map[string]any{
+		"action":          action,
+		"node_id":         nodeID,
+		"name":            name,
+		"url":             url,
+		"api_key_set":     apiKeySet,
+		"inbound_key_set": inboundKeySet,
+		"revoked":         revoked,
+	}
+	if prevURL != "" && prevURL != url {
+		meta["previous_url"] = prevURL
+	}
+	e := entry(OpPeer, nodeID, meta)
+	e.Target = nodeID
+	return e
+}
 
 func entry(op, actor string, meta map[string]any) api.LedgerEntry {
 	return api.LedgerEntry{

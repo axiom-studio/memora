@@ -32,6 +32,7 @@ func setupFederation(ctx context.Context, cfg config.Config, svc *service.Servic
 	}
 	peers := federation.NewManager(reg, svc.Metadata, sealer)
 	peers.AllowClientCertPins = cfg.Server.TLS.Enabled
+	peers.Audit = svc.AppendLedger
 	n, err := peers.Seed(ctx, cfg.Federation.Peers)
 	if err != nil {
 		return nil, nil, fmt.Errorf("seed peers: %w", err)

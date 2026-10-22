@@ -520,3 +520,22 @@ func TestDocsWorkedExampleValidates(t *testing.T) {
 		t.Fatalf("worked example in configuration.md does not validate: %v", err)
 	}
 }
+
+func TestValidate_PeerHostAllowlists(t *testing.T) {
+	for _, fc := range []FederationConfig{
+		{PrivatePeerHosts: []string{"10.0.0.0/33"}},
+		{PrivatePeerHosts: []string{" "}},
+		{InsecurePeerHosts: []string{""}},
+	} {
+		c := Defaults()
+		c.Federation = fc
+		if err := c.Validate(); err == nil {
+			t.Errorf("%+v validated", fc)
+		}
+	}
+	c := Defaults()
+	c.Federation = FederationConfig{InsecurePeerHosts: []string{"peer-a"}, PrivatePeerHosts: []string{"peer-a", "10.0.0.0/8", "fd00::/8"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

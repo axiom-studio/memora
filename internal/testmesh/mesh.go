@@ -157,7 +157,7 @@ func (n *Node) start(t testing.TB, dim int) {
 		NodeID:   n.ID, NodeName: n.Name,
 	}
 	// As at boot: config peers seed the store, which feeds the registry.
-	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, n.ID)
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true, PrivatePeerHosts: []string{"127.0.0.1"}}, n.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +168,7 @@ func (n *Node) start(t testing.TB, dim int) {
 		t.Fatal(err)
 	}
 	n.Peers = federation.NewManager(reg, meta, sealer)
+	n.Peers.Audit = n.Svc.AppendLedger
 	if _, err := n.Peers.Seed(ctx, n.Config); err != nil {
 		t.Fatal(err)
 	}

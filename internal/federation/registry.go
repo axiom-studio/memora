@@ -3,11 +3,14 @@
 package federation
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
+	"log/slog"
 	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -75,7 +78,9 @@ type Registry struct {
 	FederationID string
 
 	defaults config.FederationConfig // peer timeout and QPS defaults
+	policy   *urlPolicy              // which peer URLs may be called
 	snap     atomic.Pointer[registrySnapshot]
+	warned   sync.Map // node ID + URL of cleartext peers already logged
 	metrics  *Metrics
 }
 
@@ -105,7 +110,11 @@ func NewRegistry(cfg config.FederationConfig, selfNodeID string) (*Registry, err
 	if _, err := types.ParseID("node id", selfNodeID); err != nil {
 		return nil, fmt.Errorf("federation: %w", err)
 	}
-	r := &Registry{NodeID: selfNodeID, FederationID: cfg.FederationID, defaults: cfg, metrics: NewMetrics()}
+	policy, err := newURLPolicy(cfg)
+	if err != nil {
+		return nil, err
+	}
+	r := &Registry{NodeID: selfNodeID, FederationID: cfg.FederationID, defaults: cfg, policy: policy, metrics: NewMetrics()}
 	r.defaults.Peers = nil
 	if err := r.Replace(cfg.Peers); err != nil {
 		return nil, err
@@ -119,6 +128,16 @@ func (r *Registry) Replace(peers []config.PeerConfig) error {
 	next, err := r.build(peers)
 	if err != nil {
 		return err
+	}
+	for _, p := range next.peers {
+		c := next.clients[p.ID]
+		if !c.cleartextKeyOK || !strings.HasPrefix(p.Endpoint, "http://") || isLoopbackHost(normHost(c.host)) {
+			continue
+		}
+		if _, seen := r.warned.LoadOrStore(p.ID+" "+p.Endpoint, true); !seen {
+			slog.Default().Warn("federation peer uses http://: its key is sent in cleartext (federation.insecure_peer_hosts)",
+				"peer", p.Name, "node_id", p.ID, "url", p.Endpoint)
+		}
 	}
 	r.snap.Store(next)
 	return nil
@@ -137,8 +156,9 @@ func (r *Registry) build(peers []config.PeerConfig) (*registrySnapshot, error) {
 		clients: make(map[string]*PeerClient, len(peers)),
 	}
 	var errs []error
+	inboundKeys := map[[32]byte]string{}
 	for i, pc := range peers {
-		p, err := parsePeer(pc, i, r.NodeID, r.defaults)
+		p, err := parsePeer(pc, i, r.NodeID, r.defaults, r.policy)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -146,6 +166,14 @@ func (r *Registry) build(peers []config.PeerConfig) (*registrySnapshot, error) {
 		if _, dup := next.byID[p.ID]; dup {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: duplicate peer id %q", i, p.ID))
 			continue
+		}
+		if p.hasInboundKey {
+			// One key must not authenticate as two nodes.
+			if other, dup := inboundKeys[p.inboundKeyHash]; dup {
+				errs = append(errs, fmt.Errorf("federation.peers[%d] (%s): inbound_key_sha256 is also peer %s's; each peer needs its own key", i, p.Name, other))
+				continue
+			}
+			inboundKeys[p.inboundKeyHash] = p.Name
 		}
 		next.peers = append(next.peers, p)
 		next.byID[p.ID] = nil
@@ -156,7 +184,7 @@ func (r *Registry) build(peers []config.PeerConfig) (*registrySnapshot, error) {
 	sort.Slice(next.peers, func(i, j int) bool { return next.peers[i].ID < next.peers[j].ID })
 	for i := range next.peers {
 		p := &next.peers[i]
-		c, err := newPeerClient(*p, r.FederationID, r.NodeID)
+		c, err := newPeerClient(*p, r.FederationID, r.NodeID, r.policy)
 		if err != nil {
 			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
 		}
@@ -179,7 +207,7 @@ const (
 	DefaultPeerTimeoutMS = 5000
 )
 
-func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.FederationConfig) (Peer, error) {
+func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.FederationConfig, policy *urlPolicy) (Peer, error) {
 	if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", idx), pc.NodeID); err != nil {
 		return Peer{}, err
 	}
@@ -189,9 +217,8 @@ func parsePeer(pc config.PeerConfig, idx int, selfNodeID string, fc config.Feder
 	if pc.URL == "" {
 		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): url is required", idx, pc.Name)
 	}
-	u, err := url.Parse(pc.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): invalid url %q", idx, pc.Name, pc.URL)
+	if _, err := policy.checkURL(pc.URL); err != nil {
+		return Peer{}, fmt.Errorf("federation.peers[%d] (%s): %w", idx, pc.Name, err)
 	}
 
 	id := pc.NodeID
@@ -244,6 +271,18 @@ func decodeSHA256(s string) ([32]byte, error) {
 	}
 	copy(h[:], b)
 	return h, nil
+}
+
+// CheckPeerURL checks a peer URL against the node's URL policy (see
+// urlPolicy), resolving its hostname, so a peer added at runtime whose
+// name points at an internal address is refused when it is added and
+// not only when it is called.
+func (r *Registry) CheckPeerURL(ctx context.Context, raw string) error {
+	u, err := r.policy.checkURL(raw)
+	if err != nil {
+		return err
+	}
+	return r.policy.checkResolved(ctx, u)
 }
 
 // RequiresClientCerts reports whether any peer pins a TLS client

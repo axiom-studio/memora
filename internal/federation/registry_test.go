@@ -1,6 +1,7 @@
 package federation
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/axiom-studio/memora/internal/certgen"
@@ -167,5 +168,33 @@ func TestRegistry_ReplaceIsAtomic(t *testing.T) {
 	}
 	if len(r.Peers()) != 1 || r.Peer(nid("p2")) == nil {
 		t.Fatalf("a rejected Replace changed the registry: %v", r.Peers())
+	}
+}
+
+// TestShippedDeployConfigs_PassURLPolicy: the shipped compose demos
+// allowlist their http:// peers at private addresses, so the URL policy
+// accepts them as copied.
+func TestShippedDeployConfigs_PassURLPolicy(t *testing.T) {
+	paths, err := filepath.Glob("../../deploy/*/node*.toml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("glob deploy configs: %v (found %d)", err, len(paths))
+	}
+	for _, p := range paths {
+		cfg, err := config.Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg, err := NewRegistry(cfg.Federation, cfg.Node.ID)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		if len(reg.Peers()) == 0 {
+			t.Errorf("%s: no peers", p)
+		}
+		cfg.Federation.InsecurePeerHosts, cfg.Federation.PrivatePeerHosts = nil, nil
+		if _, err := NewRegistry(cfg.Federation, cfg.Node.ID); err == nil {
+			t.Errorf("%s: http:// peers accepted without the allowlists", p)
+		}
 	}
 }

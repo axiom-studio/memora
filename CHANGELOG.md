@@ -14,6 +14,26 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- **Breaking:** peer URLs follow a URL policy set only in the config file
+  (#6172, #6176). Before this, any API key holder could point a runtime
+  peer at internal addresses (`http://169.254.169.254`, `localhost:5432`,
+  `10.x`) and use federated search as an SSRF and port-scan oracle, and
+  `http://` peers got the peer key in cleartext. Now `http://` is refused
+  unless the host is loopback or in `federation.insecure_peer_hosts`, and
+  loopback, private, link-local and other non-public addresses are
+  refused unless listed in `federation.private_peer_hosts` (host or CIDR).
+  The address check runs when a peer is added, on the addresses the host
+  resolves to, and again on every connection (DNS rebinding). Peer calls
+  ignore proxy environment variables, URLs carrying credentials are
+  refused, a refused call is `peer_address_refused` in `failed_peers`,
+  and the key is never set on a cleartext request the policy did not
+  allow. Changing a peer's `url` now requires its `api_key` again, so a
+  stored key never goes to a new host. Every runtime peer edit is
+  ledgered as `federation_peer` (no keys). Two peers can no longer share
+  an `inbound_key_sha256`. The shipped compose demos list their peers in
+  both settings. **Upgrade:** a node whose peers use `http://` to
+  non-loopback hosts or reach private addresses will not start until
+  those hosts are listed.
 - Federation peer calls no longer follow redirects (#6173). Before
   this, a peer answering `307`/`308` made the node re-send the query
   and its `X-Memora-Federation-Auth` key to any host (Go strips only

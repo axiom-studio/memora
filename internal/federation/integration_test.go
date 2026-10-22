@@ -23,8 +23,9 @@ func TestIntegration_RegistryToPeers(t *testing.T) {
 	defer srv.Close()
 
 	cfg := config.FederationConfig{
-		Enabled:      true,
-		FederationID: "fed_main",
+		Enabled:          true,
+		FederationID:     "fed_main",
+		PrivatePeerHosts: []string{"127.0.0.1"},
 		Peers: []config.PeerConfig{
 			{NodeID: nid("peer1"), Name: "peer1", URL: srv.URL, APIKey: "key1"},
 		},

@@ -2968,7 +2968,7 @@ func TestPeerEditForm(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+peers[0].NodeID, nil))
 	body := w.Body.String()
-	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", peers[0].NodeID, "blank keeps the stored key"} {
+	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", peers[0].NodeID, "blank keeps the stored key", "required when the endpoint changes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peer edit form missing %q", want)
 		}
@@ -2986,13 +2986,25 @@ func TestPeerUpdate_KeepsKeys(t *testing.T) {
 	h.SetPeers(pm)
 	peers, _ := pm.List(context.Background())
 	id := peers[0].NodeID
-	w := postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com&revoked=true")
+	w := postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west.example.com&revoked=true")
 	if w.Header().Get("HX-Redirect") != "/ui/federation" {
 		t.Fatalf("update: %s", w.Body.String())
 	}
 	peers, _ = pm.List(context.Background())
-	if p := peers[0]; p.Name != "west-2" || p.URL != "https://west2.example.com" || !p.Revoked || !p.HasInboundKey || !p.HasAPIKey {
+	if p := peers[0]; p.Name != "west-2" || p.URL != "https://west.example.com" || !p.Revoked || !p.HasInboundKey || !p.HasAPIKey {
 		t.Fatalf("after update = %+v, want renamed, revoked, keys kept", p)
+	}
+	// A new endpoint never inherits the key given for the old one.
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com")
+	if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "needs its api_key again") {
+		t.Fatalf("endpoint change without a key: %s", w.Body.String())
+	}
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com&api_key=key-west2")
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("endpoint change with a key: %s", w.Body.String())
+	}
+	if peers, _ = pm.List(context.Background()); peers[0].URL != "https://west2.example.com" {
+		t.Fatalf("after endpoint change = %+v", peers[0])
 	}
 }
 

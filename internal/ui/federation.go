@@ -117,11 +117,12 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 }
 
 // peerForm renders the add (p == nil) or edit form. Key inputs are
-// password fields that are never pre-filled; blank keeps the stored key.
+// password fields that are never pre-filled; blank keeps the stored key,
+// except that a changed endpoint needs the outbound key again.
 func peerForm(w http.ResponseWriter, p *api.PeerView) {
 	title, action, submit, idField := "Add Federation Peer", "/ui/api/peers/add", "Add Peer",
 		`<label>Node ID <input type="text" name="node_id" required placeholder="the peer's memora-core node id"></label>`
-	name, url, timeout, keyHint, revoked := "", "", "", "", ""
+	name, url, timeout, keyHint, outHint, revoked := "", "", "", "", "", ""
 	if p != nil {
 		title, action, submit = "Edit Peer: "+p.Name, "/ui/api/peers/update", "Update Peer"
 		idField = fmt.Sprintf(`<input type="hidden" name="node_id" value="%s"><p class="mono">%s</p>`,
@@ -131,6 +132,7 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
 			timeout = strconv.Itoa(p.TimeoutMS)
 		}
 		keyHint = " (blank keeps the stored key)"
+		outHint = " (blank keeps the stored key; required when the endpoint changes)"
 		if p.Revoked {
 			revoked = " checked"
 		}
@@ -156,7 +158,7 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
 </dialog>`,
 		template.HTMLEscapeString(title), action, idField,
 		template.HTMLEscapeString(name), template.HTMLEscapeString(url),
-		keyHint, keyHint, timeout, revoked, submit)
+		keyHint, outHint, timeout, revoked, submit)
 }
 
 func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {

@@ -29,6 +29,15 @@ type Manager struct {
 	// AllowClientCertPins is set when the server serves TLS; without it
 	// a client_cert_sha256 pin could never be satisfied and is refused.
 	AllowClientCertPins bool
+	// Audit, when set, records every peer added, changed or removed
+	// (Service.AppendLedger, which stamps the request ID).
+	Audit func(context.Context, api.LedgerEntry) string
+}
+
+func (m *Manager) audit(ctx context.Context, e api.LedgerEntry) {
+	if m.Audit != nil {
+		m.Audit(ctx, e)
+	}
 }
 
 // NewManager returns a Manager for reg backed by store, sealing outbound
@@ -155,6 +164,10 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 		return invalid("client_cert_sha256 needs server.tls")
 	}
 
+	if err := m.reg.CheckPeerURL(ctx, strings.TrimSpace(req.URL)); err != nil {
+		return invalid(err.Error())
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	recs, err := m.store.ListPeers(ctx)
@@ -168,7 +181,13 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 			rec, idx = recs[i], i
 		}
 	}
+	prevURL := rec.URL
 	rec.Name, rec.URL = strings.TrimSpace(req.Name), strings.TrimSpace(req.URL)
+	if idx >= 0 && rec.URL != prevURL && len(rec.SealedAPIKey) > 0 && req.APIKey == "" {
+		// The stored key was given for the old URL; keeping it would
+		// hand it to whatever host the new URL names.
+		return invalid("changing a peer's url needs its api_key again")
+	}
 	rec.ClientCertSHA256 = strings.ToLower(req.ClientCertSHA256)
 	rec.TimeoutMS, rec.RateLimitQPS, rec.InboundQPS, rec.Revoked = req.TimeoutMS, req.RateLimitQPS, req.InboundQPS, req.Revoked
 	switch {
@@ -197,6 +216,11 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 	if err := m.reloadLocked(ctx); err != nil {
 		return api.PeerView{}, err
 	}
+	action := PeerActionUpdate
+	if idx < 0 {
+		action = PeerActionCreate
+	}
+	m.audit(ctx, PeerChangeEntry(action, rec.NodeID, rec.Name, rec.URL, prevURL, req.APIKey != "", req.InboundKey != "" || req.InboundKeySHA256 != "", rec.Revoked))
 	stored, err := m.store.ListPeers(ctx)
 	if err != nil {
 		return api.PeerView{}, err
@@ -217,8 +241,20 @@ func (m *Manager) Delete(ctx context.Context, nodeID string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var name, url string
+	if recs, err := m.store.ListPeers(ctx); err == nil {
+		for _, r := range recs {
+			if r.NodeID == nodeID {
+				name, url = r.Name, r.URL
+			}
+		}
+	}
 	if err := m.store.DeletePeer(ctx, nodeID); err != nil {
 		return err
 	}
-	return m.reloadLocked(ctx)
+	if err := m.reloadLocked(ctx); err != nil {
+		return err
+	}
+	m.audit(ctx, PeerChangeEntry(PeerActionDelete, nodeID, name, url, "", false, false, false))
+	return nil
 }

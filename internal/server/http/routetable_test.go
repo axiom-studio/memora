@@ -152,7 +152,7 @@ func routeTestServer(t *testing.T) (*httptest.Server, string, string, string) {
 	emb, _ := embedding.Open("hash:default")
 	self := types.NewID()
 	sum := sha256.Sum256([]byte(routeTestPeerKey))
-	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{{
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true, PrivatePeerHosts: []string{"127.0.0.1"}, Peers: []config.PeerConfig{{
 		NodeID: routeTestPeer, Name: "peer", URL: "http://127.0.0.1:1", InboundKeySHA256: hex.EncodeToString(sum[:]),
 	}}}, self)
 	if err != nil {
