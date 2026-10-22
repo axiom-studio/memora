@@ -136,7 +136,7 @@ func TestDispatch_UpdateWorkspace_RenamesAndPreservesOtherFields(t *testing.T) {
 
 func TestDispatch_UpdateWorkspace_Unknown_ReturnsNotFound(t *testing.T) {
 	s := NewServer(newTestService(t), testLogger())
-	_, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": "ws_missing", "name": "x"})
+	_, err := dispatchJSON(t, s, "memora_update_workspace", map[string]any{"workspace_id": types.NewID(), "name": "x"})
 	if !errors.Is(err, types.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -147,7 +147,7 @@ func TestDispatch_Lookup_FromOtherWorkspace_ReturnsNotFound(t *testing.T) {
 	s := NewServer(svc, testLogger())
 	owner := createWorkspace(t, s, map[string]any{"name": "owner"})
 	other := createWorkspace(t, s, map[string]any{"name": "other"})
-	imp, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": owner, "agent_id": "agent_opaque_t", "content": "owner secret"})
+	imp, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": owner, "agent_id": "2fe0f846-5778-4699-afb3-d64180692e07", "content": "owner secret"})
 	if err != nil {
 		t.Fatalf("imprint: %v", err)
 	}
@@ -181,5 +181,45 @@ func TestDispatch_PinSchemaRequiredMatchesHandler(t *testing.T) {
 	}
 	if pin["pin_id"] == "" || pin["watermark"] != "" {
 		t.Fatalf("memora_pin without watermark = %v, want a pin with an empty watermark", pin)
+	}
+}
+
+// TestDispatch_Search_NodeWide: memora_search finds memories in every
+// workspace and tags each hit with its workspace_id.
+func TestDispatch_Search_NodeWide(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	agent := types.NewID()
+	var wsIDs []string
+	for _, name := range []string{"mcp-search-a", "mcp-search-b"} {
+		ws := createWorkspace(t, s, map[string]any{"name": name})
+		if _, err := dispatchJSON(t, s, "memora_imprint", map[string]any{"workspace_id": ws, "agent_id": agent, "content": "mcp search phrase"}); err != nil {
+			t.Fatalf("imprint: %v", err)
+		}
+		wsIDs = append(wsIDs, ws)
+	}
+	out, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "mcp search phrase", "mode": "keyword"})
+	if err != nil {
+		t.Fatalf("memora_search: %v", err)
+	}
+	got := map[string]bool{}
+	for _, r := range out["results"].([]any) {
+		got[r.(map[string]any)["workspace_id"].(string)] = true
+	}
+	if !got[wsIDs[0]] || !got[wsIDs[1]] {
+		t.Fatalf("memora_search workspaces = %v, want %v", got, wsIDs)
+	}
+}
+
+// TestDispatch_Search_MultiTenantNeedsWorkspaceIDs (#6159): MCP has no
+// tenant header, so in multi-tenant mode memora_search refuses node-wide
+// scope and searches only the workspace_ids given.
+func TestDispatch_Search_MultiTenantNeedsWorkspaceIDs(t *testing.T) {
+	s := NewServerWithConfig(newTestService(t), testLogger(), Config{MultiTenant: true})
+	ws := createWorkspace(t, s, map[string]any{"name": "tenant"})
+	if _, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "x"}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("node-wide search in multi-tenant mode: err = %v, want ErrInvalidInput", err)
+	}
+	if _, err := dispatchJSON(t, s, "memora_search", map[string]any{"query": "x", "workspace_ids": []string{ws}}); err != nil {
+		t.Fatalf("scoped search in multi-tenant mode: %v", err)
 	}
 }

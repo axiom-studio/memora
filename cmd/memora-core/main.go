@@ -5,11 +5,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	stdlog "log"
 	"log/slog"
 	"net"
@@ -24,6 +27,7 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/mcp"
 	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
@@ -74,9 +78,14 @@ func main() {
 		runCheckConfig()
 		return
 	}
-	if len(os.Args) >= 2 && os.Args[1] == "federation" {
+	if len(os.Args) >= 2 && os.Args[1] == "reembed" {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
-		runFederation()
+		runReembed()
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "node" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		runNode()
 		return
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "version" {
@@ -96,7 +105,10 @@ func printHelp() {
 Usage:
   memora-core serve [flags]       start the HTTP + MCP server
   memora-core init-cert [flags]   generate self-signed TLS certificate
-  memora-core federation init      generate a federation UUID (fed_<ULID>)
+  memora-core node id [--config f] print this node's ID and name (minted on first use)
+  memora-core node peer-key       generate a federation peer key and its SHA-256
+  memora-core reembed [flags]     re-embed cells written by another embedding model
+                                  (--config f, --workspace id, --dry-run, --batch N)
   memora-core print-config        print resolved config (secrets redacted)
   memora-core check-config        validate config (exit 78 on error)
   memora-core version             print version info
@@ -239,6 +251,7 @@ func serve() {
 		bootLog.Fatalf("%v", err)
 	}
 	defer closeAdapters()
+	warnStaleVectors(ctx, svc, logger)
 
 	// Reclaims content blobs stranded when a content write succeeds and the
 	// metadata write fails. Deferred after closeAdapters, so it stops (and
@@ -250,24 +263,20 @@ func serve() {
 		logger.Info("orphan content GC started")
 	}
 
+	fedReg, fedPeers, err := setupFederation(ctx, cfg, svc, logger)
+	if err != nil {
+		bootLog.Fatalf("federation: %v", err)
+	}
+	for _, p := range fedReg.Peers() {
+		if !p.AcceptsInbound() {
+			logger.Warn("federation peer has no inbound_key_sha256 and cannot call this node",
+				"peer", p.Name, "node_id", p.ID)
+		}
+	}
+
 	var uiFederation *ui.FederationInfo
 	if cfg.Federation.Enabled {
-		uiFederation = &ui.FederationInfo{
-			FederationID: cfg.Federation.FederationID,
-			Peers:        make([]ui.PeerInfo, len(cfg.Federation.Peers)),
-		}
-		for i, p := range cfg.Federation.Peers {
-			trust := "api_key"
-			if p.TLSCert != "" {
-				trust = "mtls"
-			}
-			uiFederation.Peers[i] = ui.PeerInfo{
-				ID:        fmt.Sprintf("peer-%d", i),
-				Name:      p.Name,
-				Endpoint:  p.URL,
-				TrustMode: trust,
-			}
-		}
+		uiFederation = &ui.FederationInfo{FederationID: cfg.Federation.FederationID}
 	}
 
 	httpsrv := httpserver.New(httpserver.Config{
@@ -305,11 +314,15 @@ func serve() {
 			TelemetryLogLevel:  cfg.Telemetry.LogLevel,
 			TelemetryLogFormat: cfg.Telemetry.LogFormat,
 		},
-		UIFederation: uiFederation,
+		UIFederation:    uiFederation,
+		Federation:      fedReg,
+		FederationPeers: fedPeers,
+
+		FederationInboundQPS: cfg.Federation.InboundQPS,
 	})
 
 	if cfg.Server.MCPEnable {
-		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: resolvedKey})
+		mcp.MountMCP(httpsrv.Mux(), svc, mcp.Config{APIKey: resolvedKey, MultiTenant: cfg.Server.Mode == "multi-tenant"})
 		logger.Info("MCP WebSocket endpoint enabled", "path", "/mcp")
 	}
 
@@ -477,8 +490,13 @@ func runMCP() {
 		bootLog.Fatalf("%v", err)
 	}
 	defer closeAdapters()
+	// memora_search federated:true and memora_fetch with a node_id need
+	// the same peer registry serve has.
+	if _, _, err := setupFederation(ctx, cfg, svc, logger); err != nil {
+		bootLog.Fatalf("federation: %v", err)
+	}
 
-	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey})
+	server := mcp.NewServerWithConfig(svc, bootLog, mcp.Config{APIKey: resolvedKey, MultiTenant: cfg.Server.Mode == "multi-tenant"})
 	bootLog.Printf("MCP server ready on stdio (data-dir=%s, embedding=%s)", cfg.Storage.DataDir, svc.Embedder.ModelID())
 	if err := server.ServeStdio(ctx, os.Stdin, os.Stdout); err != nil {
 		bootLog.Fatalf("mcp serve: %v", err)
@@ -519,27 +537,54 @@ func runInitCert() {
 	fmt.Println(res.ConfigSnippet())
 }
 
-func runFederation() {
-	if len(os.Args) < 2 || os.Args[1] != "init" {
-		fmt.Fprintln(os.Stderr, "usage: memora-core federation init [--name <name>]")
+// runNode is `memora-core node id`: it prints the node identity that
+// serve would use, minting and persisting the ID if this is the first
+// start. Peers list this ID as their node_id for this node.
+func runNode() {
+	if len(os.Args) >= 2 && os.Args[1] == "peer-key" {
+		key, hash, err := newPeerKey()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Key:    %s\nSHA256: %s\n\n", key, hash)
+		fmt.Println("Give the key to the calling node as its peer api_key for this node,")
+		fmt.Println("and set inbound_key_sha256 to the SHA256 line in this node's entry for it.")
+		return
+	}
+	if len(os.Args) < 2 || os.Args[1] != "id" {
+		fmt.Fprintln(os.Stderr, "usage: memora-core node id [--config <file>] | memora-core node peer-key")
 		os.Exit(1)
 	}
-	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
-	fs := flag.NewFlagSet("federation-init", flag.ExitOnError)
-	name := fs.String("name", "", "human-readable name for this federation instance")
-	_ = fs.Parse(os.Args[1:])
+	fs := flag.NewFlagSet("node-id", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to TOML config file")
+	_ = fs.Parse(os.Args[2:])
 
-	fedID := types.NewID(types.FederationIDPrefix)
-	fmt.Printf("Federation ID: %s\n", fedID)
-	if *name != "" {
-		fmt.Printf("Name:          %s\n", *name)
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(config.EX_CONFIG)
 	}
-	fmt.Println()
-	fmt.Println("Add to your config.toml:")
-	fmt.Println()
-	fmt.Println("[federation]")
-	fmt.Println("enabled = true")
-	fmt.Printf("federation_id = %q\n", fedID)
+	cfg.ApplyEnv()
+	svc, closeAdapters, err := openCoreAdapters(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeAdapters()
+	fmt.Printf("Node ID:   %s\nNode name: %s\n", svc.NodeID, svc.NodeName)
+}
+
+// newPeerKey returns a fresh federation peer key (32 random bytes,
+// base64url) and the hex SHA-256 the receiving node configures.
+func newPeerKey() (key, hash string, err error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", "", err
+	}
+	key = base64.RawURLEncoding.EncodeToString(b[:])
+	sum := sha256.Sum256([]byte(key))
+	return key, hex.EncodeToString(sum[:]), nil
 }
 
 func runPrintConfig() {
@@ -573,11 +618,37 @@ func runCheckConfig() {
 	}
 	cfg.ApplyEnv()
 
-	if err := cfg.Validate(); err != nil {
+	if err := checkConfig(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "config validation failed: %v\n", err)
 		os.Exit(config.EX_CONFIG)
 	}
 	fmt.Println("config ok")
+}
+
+// checkConfig is what check-config validates: the config itself, and
+// the federation peers as serve would load them (#6230): the peer URL
+// policy, duplicate IDs and inbound keys, TLS files, and client
+// certificate pins without server.tls. Without a configured [node] id
+// the self-reference check cannot run (serve mints the ID).
+func checkConfig(cfg config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if !cfg.Federation.Enabled {
+		return nil
+	}
+	self := cfg.Node.ID
+	if self == "" {
+		self = types.NewID()
+	}
+	reg, err := federation.NewRegistry(cfg.Federation, self)
+	if err != nil {
+		return fmt.Errorf("federation: %w", err)
+	}
+	if reg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
+		return errors.New("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
+	}
+	return nil
 }
 
 type stringSlice []string

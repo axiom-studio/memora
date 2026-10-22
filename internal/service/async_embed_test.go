@@ -170,8 +170,6 @@ func TestAsyncEmbed_AutoLinkOptOutHonoured(t *testing.T) {
 		return resp.ID
 	}
 	edgesFrom := func(memID string) int {
-		// The hook runs after the flip, so give it a moment to land.
-		time.Sleep(50 * time.Millisecond)
 		edges, _, err := s.GraphNeighbors(ctx, ws, memID, adapter.NeighborsOpts{Direction: api.GraphDirOut})
 		if err != nil {
 			t.Fatalf("Neighbors: %v", err)
@@ -180,10 +178,20 @@ func TestAsyncEmbed_AutoLinkOptOutHonoured(t *testing.T) {
 	}
 
 	imprintWait(true) // target for the later imprints
-	if n := edgesFrom(imprintWait(false)); n != 0 {
-		t.Fatalf("auto_link=false imprint has %d outgoing edges, want 0", n)
+	optOut := imprintWait(false)
+	control := imprintWait(true)
+	// The hook runs after the recall_ready flip, so poll for the control
+	// link instead of sleeping a fixed time (#6162). The opt-out memory
+	// was embedded before the control was even imprinted, so once the
+	// control has linked, the opt-out's hook has run too.
+	deadline := time.Now().Add(5 * time.Second)
+	for edgesFrom(control) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("auto_link=true imprint has no outgoing edges after 5s; the control case should link")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if n := edgesFrom(imprintWait(true)); n == 0 {
-		t.Fatal("auto_link=true imprint has no outgoing edges; the control case should link")
+	if n := edgesFrom(optOut); n != 0 {
+		t.Fatalf("auto_link=false imprint has %d outgoing edges, want 0", n)
 	}
 }

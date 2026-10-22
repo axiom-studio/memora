@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/adapter/compliance"
 )
 
 func skipWithoutPostgres(t *testing.T) string {
@@ -102,4 +103,15 @@ func TestFloatsToVectorLiteral(t *testing.T) {
 	if got != expected {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}
+}
+
+func TestStore_QueryScope(t *testing.T) {
+	dsn := skipWithoutPostgres(t)
+	s := &Store{}
+	if err := s.Open(context.Background(), adapter.VectorConfig{DSN: dsn, Dim: 3}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	compliance.VectorScopeContract(t, s)
+	compliance.VectorDeleteContract(t, s)
 }

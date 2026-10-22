@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -25,8 +24,11 @@ func fixtureGemini(t *testing.T, handler http.HandlerFunc) *GeminiProvider {
 
 func TestGeminiProvider_Success(t *testing.T) {
 	p := fixtureGemini(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.RawQuery, "key=test-key") {
-			t.Errorf("missing api key in query: %s", r.URL.RawQuery)
+		if r.Header.Get("x-goog-api-key") != "test-key" {
+			t.Errorf("missing api key header")
+		}
+		if r.URL.RawQuery != "" {
+			t.Errorf("api key must not be in the query string: %s", r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(geminiResponse{
 			Embeddings: []struct {

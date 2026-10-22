@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -118,7 +120,7 @@ func assertGraphLinkWorks(t *testing.T, cfg config.Config) {
 	}
 	var ids []string
 	for _, body := range []string{"source", "target"} {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: body, WrittenByAgentID: "agent_opaque_local"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: body, WrittenByAgentID: "7c9517b4-7277-400b-959a-2ae960d295f6"}
 		if _, err := svc.Metadata.ImprintMemory(ctx, m); err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +128,7 @@ func assertGraphLinkWorks(t *testing.T, cfg config.Config) {
 	}
 	if _, err := svc.GraphLink(ctx, types.Edge{
 		WorkspaceID: ws.ID, SourceMemoryID: ids[0], TargetMemoryID: ids[1],
-		EdgeType: types.EdgeType("references"), CreatedByAgentID: "agent_opaque_local",
+		EdgeType: types.EdgeType("references"), CreatedByAgentID: "7c9517b4-7277-400b-959a-2ae960d295f6",
 	}); err != nil {
 		t.Fatalf("GraphLink through the wired GraphStore: %v", err)
 	}
@@ -287,7 +289,7 @@ func TestOpenCoreAdapters_AsyncEmbedPoolDrainsOnClose(t *testing.T) {
 		closeAll()
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
-	resp, err := svc.Imprint(ctx, ws.ID, "agent_async_test", api.ImprintRequest{Content: "queued before shutdown"})
+	resp, err := svc.Imprint(ctx, ws.ID, "8acd8ee5-bb49-40d3-814a-329358a35fa4", api.ImprintRequest{Content: "queued before shutdown"})
 	if err != nil {
 		closeAll()
 		t.Fatalf("Imprint: %v", err)
@@ -309,5 +311,91 @@ func TestOpenCoreAdapters_AsyncEmbedPoolDrainsOnClose(t *testing.T) {
 	}
 	if !m.RecallReady {
 		t.Fatal("memory not recall_ready after closeAll; the pool did not drain before the stores closed")
+	}
+}
+
+// TestOpenCoreAdapters_RefusesLegacyPrefixedIDs: a database written
+// before IDs were UUIDv4s (here, a "ws_…" workspace row) stops start-up
+// with a message naming the workspace and the upgrade doc, instead of
+// serving data every request would reject. A fresh database starts.
+func TestOpenCoreAdapters_RefusesLegacyPrefixedIDs(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	_, closeAll, err := openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("fresh database must start: %v", err)
+	}
+	closeAll()
+
+	db, err := sql.Open("sqlite", filepath.Join(cfg.Storage.DataDir, "memora.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const legacy = "ws_01HXYZABCDEFGHJKMNPQRSTVWX"
+	_, err = db.Exec(`INSERT INTO memora_workspaces (id, name, created_at, updated_at) VALUES (?, 'old', datetime('now'), datetime('now'))`, legacy)
+	_ = db.Close()
+	if err != nil {
+		t.Fatalf("insert legacy workspace: %v", err)
+	}
+
+	_, _, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err == nil || !strings.Contains(err.Error(), legacy) || !strings.Contains(err.Error(), "Upgrading from Prefixed IDs") {
+		t.Fatalf("openCoreAdapters on a legacy database = %v, want a refusal naming %s and the upgrade doc", err, legacy)
+	}
+}
+
+// TestOpenCoreAdapters_NodeIdentity: without config the node mints an ID
+// on first start and keeps it across restarts on the same data dir; a
+// configured [node] id wins, and [node] name is used as given.
+func TestOpenCoreAdapters_NodeIdentity(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	svc, closeAll, err := openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("openCoreAdapters: %v", err)
+	}
+	first := svc.NodeID
+	closeAll()
+	if _, err := types.ParseID("node_id", first); err != nil {
+		t.Fatalf("minted node ID: %v", err)
+	}
+	if svc.NodeName == "" {
+		t.Error("node name should default to the hostname")
+	}
+
+	svc, closeAll, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if svc.NodeID != first {
+		t.Fatalf("node ID after restart = %q, want %q", svc.NodeID, first)
+	}
+	closeAll()
+
+	cfg.Node.ID, cfg.Node.Name = types.NewID(), "edge-1"
+	svc, closeAll, err = openCoreAdapters(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("configured node: %v", err)
+	}
+	defer closeAll()
+	if svc.NodeID != cfg.Node.ID || svc.NodeName != "edge-1" {
+		t.Fatalf("node = %q/%q, want configured %q/edge-1", svc.NodeID, svc.NodeName, cfg.Node.ID)
+	}
+}
+
+// TestOpenCoreAdapters_WarnsOnPlaceholderEmbedder (S-6): booting with the
+// default noop model logs a warning that vector search is unavailable;
+// a searchable model does not.
+func TestOpenCoreAdapters_WarnsOnPlaceholderEmbedder(t *testing.T) {
+	for model, wantWarn := range map[string]bool{"noop:default": true, "hash:default": false} {
+		cfg := testAdapterConfig(t)
+		cfg.Embedding.Model = model
+		var buf bytes.Buffer
+		_, closeAll, err := openCoreAdapters(context.Background(), cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+		if err != nil {
+			t.Fatalf("%s: %v", model, err)
+		}
+		closeAll()
+		if got := strings.Contains(buf.String(), "vector search is unavailable"); got != wantWarn {
+			t.Errorf("%s: warning logged = %v, want %v", model, got, wantWarn)
+		}
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/adapter/compliance"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -40,7 +42,7 @@ func TestAppend_DurableAcrossReopen(t *testing.T) {
 		LedgerID:    "lg_durable",
 		WorkspaceID: "ws_a",
 		Op:          "imprint",
-		AgentID:     "agent_a",
+		AgentID:     "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp:   time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
@@ -69,8 +71,8 @@ func TestAppendBatch_RollsBackOnError(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.AppendBatch(ctx, []api.LedgerEntry{
-		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a", Timestamp: time.Now().UTC()},
-		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "update", AgentID: "agent_a", Timestamp: time.Now().UTC()},
+		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC()},
+		{LedgerID: "lg_ok", WorkspaceID: "ws_a", Op: "update", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC()},
 	})
 	if err == nil {
 		t.Fatal("expected PK violation error, got nil")
@@ -92,7 +94,7 @@ func TestQuery_FilterByOp(t *testing.T) {
 	for i, op := range []string{"imprint", "imprint", "update", "update", "forget"} {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%d", i), WorkspaceID: "ws_a",
-			Op: op, AgentID: "agent_a", Timestamp: time.Now().UTC(),
+			Op: op, AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: time.Now().UTC(),
 		})
 	}
 
@@ -118,7 +120,7 @@ func TestQuery_FilterByTimeRange(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%d", i), WorkspaceID: "ws_a",
-			Op: "imprint", AgentID: "agent_a", Timestamp: base.Add(time.Duration(i) * time.Hour),
+			Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: base.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
@@ -143,7 +145,7 @@ func TestQuery_CursorPagination(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = s.Append(ctx, api.LedgerEntry{
 			LedgerID: fmt.Sprintf("lg_%04d", i), WorkspaceID: "ws_a",
-			Op: "imprint", AgentID: "agent_a", Timestamp: base.Add(time.Duration(i) * time.Minute),
+			Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: base.Add(time.Duration(i) * time.Minute),
 		})
 	}
 
@@ -198,7 +200,7 @@ func TestRedact_ReplacesButDoesNotDelete(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Append(ctx, api.LedgerEntry{
-		LedgerID: "lg_redact", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a",
+		LedgerID: "lg_redact", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp: time.Now().UTC(), Metadata: map[string]any{"pii": "alice@example.com"},
 	})
 	if err := s.Redact(ctx, "lg_redact", []string{"metadata"}); err != nil {
@@ -225,7 +227,7 @@ func TestRedact_HonorsAllFieldNames(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Append(ctx, api.LedgerEntry{
-		LedgerID: "lg_full", WorkspaceID: "ws_a", Op: "imprint", AgentID: "agent_a",
+		LedgerID: "lg_full", WorkspaceID: "ws_a", Op: "imprint", AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9",
 		Timestamp: time.Now().UTC(), IP: "1.2.3.4", UserAgent: "curl/7.0",
 		APIKeyID: "key_123", UserID: "user_456", Target: "mem_abc",
 		WatermarkBefore: "wmk_old", WatermarkAfter: "wmk_new", RequestID: "req_789",
@@ -281,7 +283,7 @@ func TestQuery_TimestampRoundTrip(t *testing.T) {
 	ts := time.Date(2026, 5, 18, 14, 30, 45, 123456789, time.UTC)
 	_ = s.Append(ctx, api.LedgerEntry{
 		LedgerID: "lg_ts", WorkspaceID: "ws_a", Op: "imprint",
-		AgentID: "agent_a", Timestamp: ts,
+		AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", Timestamp: ts,
 	})
 
 	entries, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: "ws_a"})
@@ -301,5 +303,59 @@ func TestCapabilities(t *testing.T) {
 	caps := s.Capabilities()
 	if !caps.SupportsAppend || !caps.SupportsBatchAppend || !caps.SupportsQuery || !caps.SupportsRedaction || !caps.DurableOnAppend {
 		t.Errorf("unexpected capabilities: %+v", caps)
+	}
+}
+
+func TestQuery_CursorPagination_TiedTimestamps(t *testing.T) {
+	compliance.LedgerCursorContract(t, openLedger(t))
+}
+
+// TestQuery_SubSecondOrderAndRange (#6155): entries 100 ms and 120 ms
+// into the same second come back newest first, and a since boundary
+// between them is exact. RFC3339Nano text ("…05.1Z" vs "…05.12Z")
+// ordered these backwards.
+func TestQuery_SubSecondOrderAndRange(t *testing.T) {
+	s := openLedger(t)
+	ctx := context.Background()
+	ws := types.NewID()
+	base := time.Date(2026, 10, 21, 12, 0, 5, 0, time.UTC)
+	early := api.LedgerEntry{LedgerID: types.NewID(), WorkspaceID: ws, Op: "a", AgentID: "x", Timestamp: base.Add(100 * time.Millisecond)}
+	late := api.LedgerEntry{LedgerID: types.NewID(), WorkspaceID: ws, Op: "b", AgentID: "x", Timestamp: base.Add(120 * time.Millisecond)}
+	if err := s.AppendBatch(ctx, []api.LedgerEntry{early, late}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Limit: 10})
+	if err != nil || len(got) != 2 || got[0].LedgerID != late.LedgerID {
+		t.Fatalf("order = %v (%v), want the 120ms entry first", got, err)
+	}
+	since := base.Add(110 * time.Millisecond)
+	got, _, _ = s.Query(ctx, adapter.LedgerQuery{WorkspaceID: ws, Since: &since, Limit: 10})
+	if len(got) != 1 || got[0].LedgerID != late.LedgerID {
+		t.Fatalf("since 110ms = %v, want only the 120ms entry", got)
+	}
+}
+
+// TestOpen_NormalizesOldTimestamps: rows written in the old
+// variable-width format are rewritten on Open and then order correctly.
+func TestOpen_NormalizesOldTimestamps(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "ledger.db")
+	s := openLedgerAt(t, dsn)
+	ws := types.NewID()
+	for id, ts := range map[string]string{"old-a": "2026-10-21T12:00:05.1Z", "old-b": "2026-10-21T12:00:05.12Z"} {
+		if _, err := s.db.Exec(`INSERT INTO memora_ledger (ledger_id, workspace_id, op, agent_id, ts) VALUES (?, ?, 'op', 'x', ?)`, id, ws, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = s.Close()
+
+	s = openLedgerAt(t, dsn)
+	got, _, err := s.Query(context.Background(), adapter.LedgerQuery{WorkspaceID: ws, Limit: 10})
+	if err != nil || len(got) != 2 || got[0].LedgerID != "old-b" {
+		t.Fatalf("order after normalization = %v (%v), want old-b (.12s) first", got, err)
+	}
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM memora_ledger WHERE length(ts) != 30`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d rows still have variable-width ts", n)
 	}
 }

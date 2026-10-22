@@ -106,7 +106,7 @@ func TestWebSocket_FullToolCallRoundtrip(t *testing.T) {
 
 	imprintArgs, _ := json.Marshal(map[string]any{
 		"workspace_id": wsID,
-		"agent_id":     "ws_agent",
+		"agent_id":     "3fb843f5-046e-4ff3-b707-95a97088135a",
 		"content":      "hello via websocket",
 	})
 	frame := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":` + string(imprintArgs) + `}}`
@@ -120,8 +120,8 @@ func TestWebSocket_FullToolCallRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}
-	if mem.WrittenByAgentID != "ws_agent" {
-		t.Fatalf("WrittenByAgentID = %q, want ws_agent", mem.WrittenByAgentID)
+	if mem.WrittenByAgentID != "3fb843f5-046e-4ff3-b707-95a97088135a" {
+		t.Fatalf("WrittenByAgentID = %q, want 3fb843f5-046e-4ff3-b707-95a97088135a", mem.WrittenByAgentID)
 	}
 }
 

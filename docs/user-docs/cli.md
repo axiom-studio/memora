@@ -8,7 +8,7 @@
 memora-cli [global-flags] <command> [args...]
 ```
 
-Global flags may appear before or after the command name. Most commands operate inside a workspace and fail with a usage error when none is set, either through `--workspace` or `MEMORA_WORKSPACE`.
+Global flags may appear before or after the command name. A command's own flags may appear before, between or after its arguments: `search NVDA --mode keyword` and `search --mode keyword NVDA` are the same. Everything after a literal `--` is an argument, so `search -- --odd query` searches for `--odd query`. Most commands operate inside a workspace and fail with a usage error when none is set, either through `--workspace` or `MEMORA_WORKSPACE`.
 
 ## Global Flags
 
@@ -16,7 +16,7 @@ Global flags may appear before or after the command name. Most commands operate 
 |---|---|
 | `--endpoint` | Server URL. Environment `MEMORA_ENDPOINT`. Default `http://localhost:7777`. |
 | `--api-key` | Bearer token. Environment `MEMORA_API_KEY`. |
-| `--agent-id` | The writing agent. Environment `MEMORA_AGENT_ID`. Default `agent_opaque_local`. |
+| `--agent-id` | The writing agent, a UUID. Environment `MEMORA_AGENT_ID`. Default `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`, the shared local-CLI agent. |
 | `--workspace`, `-w` | Target workspace. Environment `MEMORA_WORKSPACE`. |
 | `--output`, `-o` | Output format. Environment `MEMORA_OUTPUT`. Default `text`. |
 | `--timeout` | Request timeout as a Go duration, such as `45s`. Default `30s`. |
@@ -24,7 +24,7 @@ Global flags may appear before or after the command name. Most commands operate 
 | `--quiet`, `-q` | Suppress normal output. |
 | `--verbose`, `-v` | Enable verbose output. |
 
-Every write the CLI sends carries an agent ID, defaulting to `agent_opaque_local`. Attributing writes from different services to different agents is worth doing early, because the ledger and recall filters both key on it and the attribution cannot be reconstructed afterwards.
+Every write the CLI sends carries an agent ID, defaulting to the shared local-CLI agent `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`. Attributing writes from different services to different agents is worth doing early, because the ledger and recall filters both key on it and the attribution cannot be reconstructed afterwards.
 
 ## Output Formats
 
@@ -119,10 +119,40 @@ A `--if-match` value that no longer matches the Memory's head returns `412` and 
 
 | Section | Description |
 |---|---|
+| `search <query>` | Search every workspace on the node, and with `--federated` its peers. On a `multi-tenant` server the search is pinned to the tenant named by `--workspace` / `$MEMORA_WORKSPACE` (sent as `X-Memora-Workspace`, as on every CLI request), and `--workspaces` cannot widen it; with neither set, a single `--workspaces` ID names the tenant. |
+| `fetch <memory_id>` | Read a full Memory from the node that holds it. |
 | `recall <query>` | Run a recall query. |
 | `pin create --query <text>` | Save a recall query. |
 | `pin list` | List saved queries. |
 | `pin delete <pin_id>` | Delete a saved query. |
+
+### search
+
+Searches every workspace on the node, not just `--workspace`. Each result shows its workspace.
+
+| Field | Value |
+|---|---|
+| `--mode` | `hybrid`, `keyword`, or `vector`. Default `hybrid`. |
+| `--k` | Number of results. Default `5`. |
+| `--workspaces` | Comma-separated workspace IDs to search instead of all of them. |
+| `--federated` | Also search this node's federation peers. Each hit shows the node it came from, and peers that did not answer are listed after the results. |
+| `--peers` | With `--federated`, comma-separated node IDs of the peers to ask. Default: all. |
+| `--per-peer-k` | With `--federated`, hits per peer. Default: `--k`. |
+| `--timeout-ms` | With `--federated`, how long to wait for each peer. Default: each peer's configured timeout. |
+| `--include-content` | Return each Memory's full content with its hit. |
+
+### fetch
+
+Reads a full Memory, with its Cells, from the node that holds it. A federated search hit names that node, so `fetch <memory_id> --node <node_id>` reads a peer's memory through this node.
+
+| Field | Value |
+|---|---|
+| `--node` | The node that holds the Memory. Default: this node. |
+
+```bash
+memora-cli search "glacier mass balance" --federated -o json | jq -r '.results[] | "\(.memory_id) \(.node_id)"'
+memora-cli fetch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 --node 1d0e5a01-6c1b-4a7e-9f20-000000000002
+```
 
 ### recall
 
@@ -172,7 +202,7 @@ A `--if-match` value that no longer matches the Memory's head returns `412` and 
 | Section | Description |
 |---|---|
 | `agents list` | List agents registered in the workspace. |
-| `agents register --agent-id <id>` | Register an agent. |
+| `agents register [--agent-id <uuid>] [--display-name <name>] [--provider <p>]` | Register an agent: the one `--agent-id` names, or else the agent the CLI writes as (`$MEMORA_AGENT_ID` or the shared CLI agent). |
 
 | Field | Value |
 |---|---|

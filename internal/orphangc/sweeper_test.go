@@ -53,8 +53,8 @@ type mockMetadata struct {
 	cells      map[string][]types.Cell  // keyed by memory ID
 }
 
-func (m *mockMetadata) ListWorkspaces(_ context.Context, _ int) ([]types.Workspace, error) {
-	return m.workspaces, nil
+func (m *mockMetadata) ListWorkspaces(_ context.Context, _ string, _ int) ([]types.Workspace, string, error) {
+	return m.workspaces, "", nil
 }
 
 func (m *mockMetadata) ListWorkspacesPaged(_ context.Context, cursor string, limit int) ([]types.Workspace, string, error) {

@@ -18,12 +18,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"log/slog"
 
 	"github.com/axiom-studio/memora/internal/autolink"
 	"github.com/axiom-studio/memora/internal/chunker"
 	embedqueue "github.com/axiom-studio/memora/internal/embed/queue"
+	"github.com/axiom-studio/memora/internal/federation"
+	"github.com/axiom-studio/memora/internal/rank"
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/embedding"
 	"github.com/axiom-studio/memora/pkg/types"
@@ -39,6 +43,16 @@ type Service struct {
 	Graph    adapter.GraphStore   // nil = graph ops unavailable
 	Embedder embedding.Provider
 	Identity map[string]adapter.IdentityProvider
+	// NodeID and NodeName identify this node to federation peers and in
+	// results (see cmd/memora-core resolveNode).
+	NodeID   string
+	NodeName string
+	// Federation, when set, serves Search requests with federated: true
+	// by fanning out to this node's peers. nil = federation off.
+	Federation *federation.Searcher
+	// Reranker re-scores merged federated hits when a search sets
+	// rerank: true. nil = federation.NoopReranker (keep the fused order).
+	Reranker federation.Reranker
 	// Pool, when set, takes cell embedding off the write path: writes
 	// queue vectorless cells and the pool flips recall_ready once they
 	// are all embedded (`embedding.async`). nil = embed inline.
@@ -47,6 +61,80 @@ type Service struct {
 	// noAutoLink holds memory IDs imprinted with auto_link=false while
 	// Pool is set, so the pool's post-embed hook skips them.
 	noAutoLink sync.Map
+}
+
+// requireAgent rejects a write whose agent is not a UUID. HTTP and MCP
+// check at their boundary; this guards every other caller (the console,
+// background workers, CLI tools), so no write can record a non-UUID
+// agent in last_modified_by, watermark history or the ledger (#4378).
+func requireAgent(agentID string) error {
+	_, err := types.ParseID("agent_id", agentID)
+	return err
+}
+
+// TouchAgent records that agentID wrote in workspaceID, registering it
+// there if the workspace has never seen it. Unlike RegisterAgent it never
+// reactivates a deactivated agent or overwrites its registration (#6169).
+func (s *Service) TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error {
+	if t, ok := s.Metadata.(adapter.AgentToucher); ok {
+		return t.TouchAgent(ctx, workspaceID, agentID, identityProvider)
+	}
+	if _, err := s.Metadata.GetAgent(ctx, workspaceID, agentID); !errors.Is(err, types.ErrNotFound) {
+		return err
+	}
+	return s.Metadata.RegisterAgent(ctx, &types.Agent{AgentID: agentID, WorkspaceID: workspaceID, IdentityProvider: identityProvider})
+}
+
+// RegisterAgent registers or re-registers an agent explicitly (REST,
+// console, MCP). It is the one way to reactivate a deactivated agent,
+// and it is ledgered as agent_register, noting a reactivation. byAgent
+// is who did it, when known.
+func (s *Service) RegisterAgent(ctx context.Context, a *types.Agent, byAgent string) error {
+	prev, err := s.Metadata.GetAgent(ctx, a.WorkspaceID, a.AgentID)
+	if err != nil && !errors.Is(err, types.ErrNotFound) {
+		return err
+	}
+	if err := s.Metadata.RegisterAgent(ctx, a); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{
+		WorkspaceID: a.WorkspaceID, Op: "agent_register", Target: a.AgentID, AgentID: byAgent,
+		Metadata: map[string]any{"reactivated": prev != nil && !prev.Active, "new": prev == nil},
+	})
+	return nil
+}
+
+// DeactivateAgent stops an agent writing in a workspace (#6169); it is
+// ledgered as agent_deactivate. byAgent is who did it, when known.
+func (s *Service) DeactivateAgent(ctx context.Context, workspaceID, agentID, byAgent string) error {
+	if err := s.Metadata.DeactivateAgent(ctx, workspaceID, agentID); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "agent_deactivate", Target: agentID, AgentID: byAgent})
+	return nil
+}
+
+// admitAgent is requireAgent plus revocation (#6169): an agent that is
+// registered in workspaceID and deactivated there may not write. An
+// agent the workspace has never registered is admitted (the write
+// middleware registers it).
+func (s *Service) admitAgent(ctx context.Context, workspaceID, agentID string) error {
+	if err := requireAgent(agentID); err != nil {
+		return err
+	}
+	if s.Metadata == nil || workspaceID == "" {
+		return nil
+	}
+	a, err := s.Metadata.GetAgent(ctx, workspaceID, agentID)
+	switch {
+	case errors.Is(err, types.ErrNotFound):
+		return nil
+	case err != nil:
+		return err
+	case !a.Active:
+		return fmt.Errorf("%w: agent %s is deactivated in workspace %s", types.ErrAgentDeactivated, agentID, workspaceID)
+	}
+	return nil
 }
 
 // PostEmbedAutoLinkHook returns a closure suitable for embedqueue.PoolConfig.PostEmbedHook.
@@ -69,20 +157,56 @@ func (s *Service) PostEmbedAutoLinkHook() func(ctx context.Context, workspaceID,
 	}
 }
 
-// GraphLink delegates to the configured GraphStore.
+// GraphLink links two memories; see Link.
 func (s *Service) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
+	out, _, err := s.Link(ctx, e)
+	return out, err
+}
+
+// Link creates an edge and ledgers it as "link", returning the ledger
+// ID. Every caller (REST, MCP, console) goes through it, so every link
+// is audited (#6171).
+func (s *Service) Link(ctx context.Context, e types.Edge) (types.Edge, string, error) {
 	if s.Graph == nil {
-		return types.Edge{}, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
+		return types.Edge{}, "", fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Graph.Link(ctx, e)
+	if err := s.admitAgent(ctx, e.WorkspaceID, e.CreatedByAgentID); err != nil {
+		return types.Edge{}, "", err
+	}
+	out, err := s.Graph.Link(ctx, e)
+	if err != nil {
+		return types.Edge{}, "", err
+	}
+	ledgerID := s.AppendLedger(ctx, linkEntry(out, false))
+	return out, ledgerID, nil
+}
+
+func linkEntry(e types.Edge, batch bool) api.LedgerEntry {
+	meta := map[string]any{"edge_type": string(e.EdgeType), "source_memory_id": e.SourceMemoryID, "target_memory_id": e.TargetMemoryID}
+	if batch {
+		meta["batch"] = true
+	}
+	return api.LedgerEntry{
+		WorkspaceID: e.WorkspaceID, Op: "link", Target: e.EdgeID, AgentID: e.CreatedByAgentID,
+		WatermarkAfter: e.Watermark, Metadata: meta,
+	}
 }
 
 // GraphUnlink delegates to the configured GraphStore.
 func (s *Service) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return err
+	}
 	if s.Graph == nil {
 		return fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Graph.Unlink(ctx, workspaceID, edgeID, agentID)
+	if err := s.Graph.Unlink(ctx, workspaceID, edgeID, agentID); err != nil {
+		return err
+	}
+	// The graph store keeps no record of who removed an edge; the ledger
+	// does.
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "unlink", Target: edgeID, AgentID: agentID})
+	return nil
 }
 
 // GraphLinkBatch delegates to the configured GraphStore.
@@ -90,11 +214,69 @@ func (s *Service) GraphLinkBatch(ctx context.Context, edges []types.Edge) ([]ada
 	if s.Graph == nil {
 		return nil, fmt.Errorf("%w: graph store not configured", types.ErrCapability)
 	}
-	return s.Graph.LinkBatch(ctx, edges)
+	checked := map[[2]string]bool{}
+	for _, e := range edges {
+		k := [2]string{e.WorkspaceID, e.CreatedByAgentID}
+		if checked[k] || requireAgent(e.CreatedByAgentID) != nil {
+			continue // a malformed agent fails its own edge in the store
+		}
+		checked[k] = true
+		if err := s.admitAgent(ctx, e.WorkspaceID, e.CreatedByAgentID); err != nil {
+			return nil, err
+		}
+	}
+	results, err := s.Graph.LinkBatch(ctx, edges)
+	if err != nil {
+		return nil, err
+	}
+	// One "link" entry per edge created, as a single link writes.
+	for _, r := range results {
+		if r.Status == "ok" && r.Index >= 0 && r.Index < len(edges) {
+			e := edges[r.Index]
+			e.EdgeID = r.EdgeID
+			s.AppendLedger(ctx, linkEntry(e, true))
+		}
+	}
+	return results, nil
+}
+
+// CreatePin saves a query and ledgers it as "pin" (#6171). p.CreatedBy
+// is the agent that pins it.
+func (s *Service) CreatePin(ctx context.Context, p *types.Pin) error {
+	if p.CreatedBy != "" {
+		if err := s.admitAgent(ctx, p.WorkspaceID, p.CreatedBy); err != nil {
+			return err
+		}
+	}
+	if err := s.Metadata.CreatePin(ctx, p); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{
+		WorkspaceID: p.WorkspaceID, Op: "pin", Target: p.PinID, AgentID: p.CreatedBy, WatermarkAfter: p.Watermark,
+		Metadata: map[string]any{"query": p.Query, "mode": p.Mode, "k": p.K, "label": p.Label},
+	})
+	return nil
+}
+
+// DeletePin removes a saved query and ledgers it as "unpin".
+func (s *Service) DeletePin(ctx context.Context, workspaceID, pinID, agentID string) error {
+	if agentID != "" {
+		if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+			return err
+		}
+	}
+	if err := s.Metadata.DeletePin(ctx, workspaceID, pinID); err != nil {
+		return err
+	}
+	s.AppendLedger(ctx, api.LedgerEntry{WorkspaceID: workspaceID, Op: "unpin", Target: pinID, AgentID: agentID})
+	return nil
 }
 
 // GraphCascadeForget delegates to the configured GraphStore.
 func (s *Service) GraphCascadeForget(ctx context.Context, workspaceID, memoryID, agentID string) (int, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return 0, err
+	}
 	if s.Graph == nil {
 		return 0, nil
 	}
@@ -136,6 +318,37 @@ func (s *Service) IdentityFor(name string) adapter.IdentityProvider {
 	return s.Identity[string(types.IdentityProviderOpaque)]
 }
 
+// ResolveAgent verifies an agent's identity and returns its agent_id.
+// Providers that identify the agent from its proof (adapter.IdentityKeyer)
+// get the UUIDv4 bound to that identity, minted the first time it is
+// seen; a claimedID, if given, must be that ID. Every other provider
+// verifies claimedID itself, which must be a UUID.
+func (s *Service) ResolveAgent(ctx context.Context, provider, claimedID string, proof map[string]any) (string, error) {
+	prov := s.IdentityFor(provider)
+	keyer, ok := prov.(adapter.IdentityKeyer)
+	if !ok {
+		if _, err := types.ParseID("agent_id", claimedID); err != nil {
+			return "", err
+		}
+		if err := prov.Verify(ctx, adapter.IdentityVerifyInput{AgentID: claimedID, IdentityProof: proof}); err != nil {
+			return "", err
+		}
+		return claimedID, nil
+	}
+	key, err := keyer.IdentityKey(ctx, proof)
+	if err != nil {
+		return "", err
+	}
+	agentID, err := s.Metadata.ResolveIdentityKey(ctx, key, types.NewID())
+	if err != nil {
+		return "", fmt.Errorf("resolve %s identity: %w", prov.Name(), err)
+	}
+	if claimedID != "" && claimedID != agentID {
+		return "", fmt.Errorf("%s: agent_id %q is not the agent this identity_proof identifies", prov.Name(), claimedID)
+	}
+	return agentID, nil
+}
+
 func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chunker.Chunker, error) {
 	ws, err := s.Metadata.GetWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -150,6 +363,9 @@ func (s *Service) workspaceChunker(ctx context.Context, workspaceID string) (chu
 // queued instead: the response says recall_ready=false and the pool
 // flips it once every cell has a vector.
 func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required for imprint", types.ErrInvalidInput)
 	}
@@ -187,7 +403,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	// reverse (metadata first, content second) would leave a memory
 	// visible but unreadable — a worse failure mode.
 
-	mem.ID = types.NewID(types.MemoryIDPrefix)
+	mem.ID = types.NewID()
 	cells, err := ck.Chunk(ctx, req.Content)
 	if err != nil {
 		return nil, err
@@ -195,7 +411,7 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 	for i := range cells {
 		cells[i].MemoryID = mem.ID
 		cells[i].WrittenByAgentID = agentID
-		cells[i].CellID = types.NewID(types.CellIDPrefix)
+		cells[i].CellID = types.NewID()
 	}
 
 	// Step 1: content writes (orphan-safe — GC reclaims if step 2 fails).
@@ -266,6 +482,9 @@ func (s *Service) Imprint(ctx context.Context, workspaceID, agentID string, req 
 
 // Update replaces a Memory's content with CAS.
 func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -336,6 +555,9 @@ func (s *Service) Update(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Patch is the moat operation: atomic diff-op apply + selective re-embed.
 func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -405,6 +627,9 @@ func (s *Service) Patch(ctx context.Context, workspaceID, memoryID, agentID, ifM
 
 // Append tacks body onto a Memory.
 func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return nil, err
+	}
 	if agentID == "" {
 		return nil, fmt.Errorf("%w: agent_id required", types.ErrInvalidInput)
 	}
@@ -461,6 +686,9 @@ func (s *Service) Append(ctx context.Context, workspaceID, memoryID, agentID, if
 
 // Forget removes a Memory and cascades incident edges.
 func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID string) (*api.ForgetResponse, error) {
+	if err := s.admitAgent(ctx, workspaceID, agentID); err != nil {
+		return nil, err
+	}
 	// INVARIANT: forget ordering is metadata → content → vector → ledger.
 	// Metadata goes first so the memory becomes invisible immediately.
 	// If content delete fails, the blob is orphaned but unreachable —
@@ -473,9 +701,15 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 		_ = s.Content.DeleteAllForMemory(ctx, workspaceID, memoryID)
 	}
 	if s.Vector != nil {
-		_ = s.Vector.DeleteVectors(ctx, []adapter.VectorKey{
+		// A memory key removes every vector of the memory. On failure the
+		// vectors are orphaned but never returned (hydrate drops deleted
+		// memories); `memora-core reembed` removes them.
+		if err := s.Vector.DeleteVectors(ctx, []adapter.VectorKey{
 			{WorkspaceID: workspaceID, MemoryID: memoryID},
-		})
+		}); err != nil {
+			slog.Default().Warn("forget: delete vectors failed; run memora-core reembed to remove them",
+				"workspace_id", workspaceID, "memory_id", memoryID, "err", err)
+		}
 	}
 	n, _ := s.GraphCascadeForget(ctx, workspaceID, memoryID, agentID)
 	wmk := types.NewWatermark()
@@ -494,9 +728,18 @@ func (s *Service) Forget(ctx context.Context, workspaceID, memoryID, agentID str
 // Recall dispatches to keyword / vector / hybrid / lookup.
 func (s *Service) Recall(ctx context.Context, workspaceID string, req api.RecallRequest) (*api.RecallResponse, error) {
 	start := time.Now()
+	if err := validateRecallIDs(req.Filters, req.MemoryIDs); err != nil {
+		return nil, err
+	}
 	mode := req.Mode
 	if mode == "" {
 		mode = api.RecallModeHybrid
+	}
+	switch {
+	case req.K > MaxK:
+		return nil, fmt.Errorf("%w: k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.K)
+	case len(req.MemoryIDs) > MaxK:
+		return nil, fmt.Errorf("%w: memory_ids takes at most %d IDs, got %d", types.ErrInvalidInput, MaxK, len(req.MemoryIDs))
 	}
 	k := req.K
 	if k <= 0 {
@@ -504,6 +747,7 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	}
 	var seeds []api.RecallHit
 	var totalScanned int
+	var degraded []string
 	switch mode {
 	case api.RecallModeLookup:
 		for _, id := range req.MemoryIDs {
@@ -517,26 +761,36 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 			})
 		}
 	case api.RecallModeKeyword:
-		hits, err := s.keywordSearch(ctx, workspaceID, req, k)
+		hits, err := s.keywordSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		if err != nil {
 			return nil, err
 		}
 		seeds = hits
 		totalScanned = len(hits)
 	case api.RecallModeVector:
-		hits, err := s.vectorSearch(ctx, workspaceID, req, k)
+		hits, err := s.vectorSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
 		if err != nil {
 			return nil, err
 		}
 		seeds = hits
 		totalScanned = len(hits)
 	case api.RecallModeHybrid:
-		kw, _ := s.keywordSearch(ctx, workspaceID, req, k)
-		vec, _ := s.vectorSearch(ctx, workspaceID, req, k)
-		seeds = hybridMerge(kw, vec, req.Weights, k)
-		totalScanned = len(kw) + len(vec)
+		hits, scanned, deg, err := s.hybridSearch(ctx, adapter.VectorQuery{WorkspaceID: workspaceID}, req, k)
+		if err != nil {
+			return nil, err
+		}
+		seeds, totalScanned, degraded = hits, scanned, deg
 	default:
 		return nil, fmt.Errorf("%w: unknown recall mode %q", types.ErrInvalidInput, mode)
+	}
+	if mode != api.RecallModeLookup {
+		var err error
+		if seeds, err = s.hydrate(ctx, seeds, hydrateOpts{
+			query: req.Query, filters: req.Filters, includeContent: req.IncludeContent,
+			maxContentBytes: req.MaxContentBytes, includeCells: req.IncludeCells,
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	results := seeds
@@ -560,10 +814,180 @@ func (s *Service) Recall(ctx context.Context, workspaceID string, req api.Recall
 	if len(results) > cap {
 		results = results[:cap]
 	}
+	applyResponseBudget(results, mode == api.RecallModeLookup)
 	return &api.RecallResponse{
 		Results:                results,
+		Degraded:               degraded,
 		TotalCandidatesScanned: totalScanned,
 		GraphNodesExpanded:     graphExpanded,
+		LatencyMS:              int(time.Since(start).Milliseconds()),
+	}, nil
+}
+
+// Search runs a keyword, vector or hybrid query across every workspace
+// on the node, or the subset in req.WorkspaceIDs, and returns the top k
+// hits, each carrying its workspace_id.
+//
+// Both sides are single store queries over the scope: the full-text
+// index for keyword, the vector store for vector.
+//
+// With req.Federated it also fans out to this node's peers (F-4): the
+// local search runs first, then every selected peer is asked in
+// parallel. A peer that fails, times out or is rate-limited is listed in
+// failed_peers and never fails the search.
+func (s *Service) Search(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	if !req.Federated {
+		if len(req.Peers) > 0 || req.PerPeerK != 0 || req.TimeoutMS != 0 || req.Rerank {
+			return nil, fmt.Errorf("%w: peers, per_peer_k, timeout_ms and rerank need federated: true", types.ErrInvalidInput)
+		}
+		return s.localSearch(ctx, req)
+	}
+	return s.federatedSearch(ctx, req)
+}
+
+func (s *Service) federatedSearch(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	start := time.Now()
+	switch {
+	case s.Federation == nil:
+		return nil, fmt.Errorf("%w: federation is not enabled on this node", types.ErrInvalidInput)
+	case len(req.WorkspaceIDs) > 0:
+		return nil, fmt.Errorf("%w: workspace_ids cannot be combined with federated: peers search their whole node", types.ErrInvalidInput)
+	case req.PerPeerK < 0 || req.TimeoutMS < 0:
+		return nil, fmt.Errorf("%w: per_peer_k and timeout_ms must not be negative", types.ErrInvalidInput)
+	case req.PerPeerK > MaxK:
+		return nil, fmt.Errorf("%w: per_peer_k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.PerPeerK)
+	}
+	local, err := s.localSearch(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	for i := range local.Results {
+		local.Results[i].NodeID, local.Results[i].NodeName = s.NodeID, s.NodeName
+	}
+	k := req.K
+	if k <= 0 {
+		k = 5
+	}
+	perPeerK := req.PerPeerK
+	if perPeerK == 0 {
+		perPeerK = k
+	}
+	fr, err := s.Federation.Fanout(ctx, local, api.FederationSearchRequest{
+		Query: req.Query, Mode: req.Mode, K: perPeerK,
+		IncludeContent: req.IncludeContent, MaxContentBytes: req.MaxContentBytes,
+	}, federation.SearchOpts{Peers: req.Peers, Timeout: time.Duration(req.TimeoutMS) * time.Millisecond})
+	if err != nil {
+		return nil, err
+	}
+	s.AppendLedger(ctx, federation.SearchEntry(req.Query, fr))
+	var hits []api.RecallHit
+	if req.Rerank {
+		// The re-scorer sees a wider pool than k, so it can promote hits
+		// that fusion ranked just below the cut.
+		pool := federation.Merge(fr, min(4*k, maxRerankPool))
+		reranker := s.Reranker
+		if reranker == nil {
+			reranker = federation.NoopReranker{}
+		}
+		if hits, err = reranker.Rerank(ctx, req.Query, pool); err != nil {
+			slog.Default().Warn("federated search: rerank failed; keeping the fused order", "err", err)
+			hits = pool
+		}
+		if len(hits) > k {
+			hits = hits[:k]
+		}
+	} else {
+		hits = federation.Merge(fr, k)
+	}
+	applyResponseBudget(hits, false)
+	return &api.RecallResponse{
+		Results:                hits,
+		Degraded:               local.Degraded,
+		TotalCandidatesScanned: fr.TotalScanned,
+		PartialSuccess:         fr.PartialSuccess(),
+		FailedPeers:            fr.FailedPeers(),
+		PeerLatencyMS:          fr.PeerLatencyMS,
+		LatencyMS:              int(time.Since(start).Milliseconds()),
+	}, nil
+}
+
+// Filter size limits (validateRecallIDs).
+const (
+	maxFilterTagKeys = 32
+	maxFilterValues  = 100
+)
+
+// maxRerankPool caps how many fused hits a Reranker is given.
+const maxRerankPool = 200
+
+// localSearch is Search on this node only.
+func (s *Service) localSearch(ctx context.Context, req api.SearchRequest) (*api.RecallResponse, error) {
+	start := time.Now()
+	if strings.TrimSpace(req.Query) == "" {
+		return nil, fmt.Errorf("%w: query is required", types.ErrInvalidInput)
+	}
+	for _, id := range req.WorkspaceIDs {
+		if _, err := types.ParseID("workspace_ids", id); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateRecallIDs(req.Filters, nil); err != nil {
+		return nil, err
+	}
+	mode := req.Mode
+	if mode == "" {
+		mode = api.RecallModeHybrid
+	}
+	if req.K > MaxK {
+		return nil, fmt.Errorf("%w: k is at most %d, got %d", types.ErrInvalidInput, MaxK, req.K)
+	}
+	k := req.K
+	if k <= 0 {
+		k = 5
+	}
+	recallReq := api.RecallRequest{Query: req.Query, Mode: mode, K: k, Filters: req.Filters, Weights: req.Weights}
+	scope := adapter.VectorQuery{WorkspaceIDs: req.WorkspaceIDs, AllWorkspaces: len(req.WorkspaceIDs) == 0}
+
+	var hits []api.RecallHit
+	var scanned int
+	var degraded []string
+	switch mode {
+	case api.RecallModeKeyword:
+		kw, err := s.keywordSearch(ctx, scope, recallReq, k)
+		if err != nil {
+			return nil, err
+		}
+		hits, scanned = kw, len(kw)
+	case api.RecallModeVector:
+		vec, err := s.vectorSearch(ctx, scope, recallReq, k)
+		if err != nil {
+			return nil, err
+		}
+		hits, scanned = vec, len(vec)
+	case api.RecallModeHybrid:
+		var err error
+		if hits, scanned, degraded, err = s.hybridSearch(ctx, scope, recallReq, k); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("%w: search mode must be keyword, vector or hybrid, got %q", types.ErrInvalidInput, mode)
+	}
+	sortHits(hits)
+	if len(hits) > k {
+		hits = hits[:k]
+	}
+	hits, err := s.hydrate(ctx, hits, hydrateOpts{
+		query: req.Query, filters: req.Filters, includeContent: req.IncludeContent,
+		maxContentBytes: req.MaxContentBytes, includeCells: req.IncludeCells,
+	})
+	if err != nil {
+		return nil, err
+	}
+	applyResponseBudget(hits, false)
+	return &api.RecallResponse{
+		Results:                hits,
+		Degraded:               degraded,
+		TotalCandidatesScanned: scanned,
 		LatencyMS:              int(time.Since(start).Milliseconds()),
 	}, nil
 }
@@ -673,7 +1097,10 @@ func (s *Service) AppendLedger(ctx context.Context, e api.LedgerEntry) string {
 		return ""
 	}
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
+	}
+	if e.RequestID == "" {
+		e.RequestID = reqctx.RequestID(ctx)
 	}
 	_ = s.Ledger.Append(ctx, e)
 	return e.LedgerID
@@ -686,84 +1113,294 @@ func max(a, b int) int {
 	return b
 }
 
-// keywordSearch hits the FTS5 virtual table on the SQLite MetadataStore.
-// Adapter-specific; falls back to a substring scan for adapters without FTS.
-func (s *Service) keywordSearch(ctx context.Context, workspaceID string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
-	// SQLite-specific FTS query exposed via a typed Querier interface
-	// would be cleaner. v0.1 lives without it by scanning ListMemories.
-	mems, err := s.Metadata.ListMemories(ctx, workspaceID, req.Filters.CollectionID, 500)
+// keywordSearch ranks memories in scope against the store's full-text
+// index (one query, node-wide or scoped) and returns the top k as
+// candidate hits: IDs and scores only, for hydrate to fill. scope carries
+// only workspace scope fields; WorkspaceID is mapped onto the keyword
+// query's list form.
+func (s *Service) keywordSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
+	kq := adapter.KeywordQuery{
+		WorkspaceIDs:  scope.WorkspaceIDs,
+		AllWorkspaces: scope.AllWorkspaces,
+		Query:         req.Query,
+		CollectionID:  req.Filters.CollectionID,
+		Filter:        memoryFilter(req.Filters),
+		K:             k,
+	}
+	if scope.WorkspaceID != "" {
+		kq.WorkspaceIDs = []string{scope.WorkspaceID}
+	}
+	ranked, err := s.Metadata.SearchKeyword(ctx, kq)
 	if err != nil {
 		return nil, err
 	}
-	var hits []api.RecallHit
-	q := strings.ToLower(req.Query)
-	for _, m := range mems {
-		if !passesFilter(m, req.Filters) {
-			continue
-		}
-		text := strings.ToLower(m.Content)
-		if !strings.Contains(text, q) {
-			continue
-		}
-		hits = append(hits, api.RecallHit{
-			MemoryID:         m.ID,
-			Text:             excerpt(m.Content, req.Query, 240),
-			Tags:             m.Tags,
-			Watermark:        m.HeadWatermark,
-			WrittenByAgentID: m.WrittenByAgentID,
-			KeywordScore:     keywordScore(text, q),
-			Score:            keywordScore(text, q),
-			Via:              "seed",
-		})
-	}
-	sortHits(hits)
-	if len(hits) > k {
-		hits = hits[:k]
+	hits := make([]api.RecallHit, len(ranked))
+	for i, r := range ranked {
+		hits[i] = api.RecallHit{MemoryID: r.MemoryID, WorkspaceID: r.WorkspaceID, KeywordScore: r.Score, Score: r.Score, Via: "seed"}
 	}
 	return hits, nil
 }
 
-func (s *Service) vectorSearch(ctx context.Context, workspaceID string, req api.RecallRequest, k int) ([]api.RecallHit, error) {
-	if s.Embedder == nil {
-		return nil, nil
+// vectorSearch embeds the query and searches the vector store within
+// scope, which carries only the workspace scope fields of a VectorQuery.
+func (s *Service) vectorSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) ([]api.RecallHit, error) {
+	if s.Embedder == nil || s.Vector == nil {
+		return nil, fmt.Errorf("%w: vector search: no embedder or vector store configured", types.ErrCapability)
+	}
+	if !embedding.Searchable(s.Embedder) {
+		return nil, fmt.Errorf("%w: vector search unavailable: embedding model %s produces no searchable vectors; configure a real model (e.g. hash:default offline, or openai/voyage/gemini/local)",
+			types.ErrCapability, s.Embedder.ModelID())
 	}
 	vecs, err := s.Embedder.Embed(ctx, []string{req.Query})
-	if err != nil || len(vecs) == 0 {
-		return nil, nil //nolint:nilerr // embedding failure degrades recall to keyword results by design
+	if err != nil {
+		// Provider error text can carry provider internals (and once
+		// carried an API key in a URL), so clients get a fixed message and
+		// the redacted detail stays in the server log.
+		slog.Default().Warn("vector search: embed query failed", "err", embedding.Redact(err.Error()))
+		return nil, fmt.Errorf("%w: vector search unavailable: embedding provider error", types.ErrCapability)
 	}
-	res, err := s.Vector.Query(ctx, adapter.VectorQuery{
-		WorkspaceID: workspaceID,
-		Embedding:   vecs[0],
-		K:           k,
-		Filter: adapter.VectorFilter{
-			CollectionID: req.Filters.CollectionID,
-		},
-	})
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("%w: vector search: embedder returned no vector", types.ErrCapability)
+	}
+	scope.Embedding = vecs[0]
+	scope.Filter = adapter.VectorFilter{CollectionID: req.Filters.CollectionID}
+	filter := memoryFilter(req.Filters)
+	// Hits are cells; over-fetch so that k distinct memories survive the
+	// collapse to one (best) cell per memory below. Vector stores hold no
+	// memory metadata, so agent, time and tag filters are checked here,
+	// and the store is asked again with a doubled limit until k memories
+	// pass or it has no more cells (S-4): a filter never leaves fewer than
+	// k results while more matches exist.
+	limit := min(k*cellsPerMemoryOverfetch, maxVectorCandidates)
+	// An exact store returns fewer rows than the limit only when it has
+	// no more. An ANN index may return a short page while more rows
+	// exist, so for it only a doubled limit that returns no more rows
+	// means exhausted (#4359 QA).
+	ann := s.Vector.Capabilities().SupportsANN
+	prev := -1
+	for {
+		scope.K = limit
+		res, err := s.Vector.Query(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]api.RecallHit, 0, k)
+		seen := make(map[string]bool, k)
+		for _, v := range res { // best first, so the first cell seen per memory is its best
+			if seen[v.Key.MemoryID] {
+				continue
+			}
+			seen[v.Key.MemoryID] = true
+			out = append(out, api.RecallHit{
+				MemoryID: v.Key.MemoryID, WorkspaceID: v.Key.WorkspaceID, CellID: v.Key.CellID,
+				Score: v.Score, VectorScore: v.Score, Via: "seed",
+			})
+		}
+		if filter.HasMemoryFields() {
+			if out, err = s.keepMatching(ctx, out, req.Filters); err != nil {
+				return nil, err
+			}
+		}
+		exhausted := len(res) < limit && (!ann || len(res) <= prev)
+		prev = len(res)
+		if len(out) >= k || exhausted || limit >= maxFilteredVectorCandidates {
+			if len(out) > k {
+				out = out[:k]
+			}
+			return out, nil
+		}
+		limit = min(limit*2, maxFilteredVectorCandidates)
+	}
+}
+
+// maxFilteredVectorCandidates caps how many cells a filtered vector
+// search reads while refilling.
+const maxFilteredVectorCandidates = 20000
+
+// memoryFilter maps recall filters onto the store-level filter.
+func memoryFilter(f api.RecallFilters) adapter.MemoryFilter {
+	return adapter.MemoryFilter{
+		CollectionID: f.CollectionID, Tags: f.Tags, TsAfter: f.TsAfter, TsBefore: f.TsBefore,
+		AgentID: f.AgentID, AgentIDIn: f.AgentIDIn, AgentIDNotIn: f.AgentIDNotIn,
+	}
+}
+
+// keepMatching drops hits whose memories fail the filters, in order,
+// with one batched metadata load.
+func (s *Service) keepMatching(ctx context.Context, hits []api.RecallHit, f api.RecallFilters) ([]api.RecallHit, error) {
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.MemoryID
+	}
+	mems, err := s.Metadata.GetMemories(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]api.RecallHit, 0, len(res))
-	for _, v := range res {
-		m, err := s.Metadata.GetMemory(ctx, v.Key.MemoryID)
-		if err != nil {
-			continue
+	byID := make(map[string]types.Memory, len(mems))
+	for _, m := range mems {
+		byID[m.ID] = m
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if m, ok := byID[h.MemoryID]; ok && passesFilter(m, f) {
+			out = append(out, h)
 		}
-		if !passesFilter(*m, req.Filters) {
-			continue
-		}
-		out = append(out, api.RecallHit{
-			MemoryID:         m.ID,
-			CellID:           v.Key.CellID,
-			Score:            v.Score,
-			VectorScore:      v.Score,
-			Text:             excerpt(m.Content, req.Query, 240),
-			Tags:             m.Tags,
-			Watermark:        m.HeadWatermark,
-			WrittenByAgentID: m.WrittenByAgentID,
-			Via:              "seed",
-		})
 	}
 	return out, nil
+}
+
+// Result size limits (#6166). MaxK bounds k and per_peer_k on search
+// and recall, and memory_ids in lookup mode; the MCP tool schemas
+// advertise the same bound.
+const (
+	MaxK = 100
+	// maxResponseContentBytes bounds the content and cell text one
+	// search or recall response carries, across all its hits.
+	maxResponseContentBytes = 8 << 20
+	// maxCellsPerHit bounds include_cells for one hit.
+	maxCellsPerHit = 256
+)
+
+// applyResponseBudget walks hits in rank order and keeps the content
+// and cell text they carry under maxResponseContentBytes in total. A hit
+// that would cross it has its content cut (ContentTruncated) and its
+// remaining cells omitted (CellsTruncated); every later hit keeps its
+// excerpt and matched cell only. textIsContent counts Text too, for
+// lookup mode, where Text is the memory's whole content.
+func applyResponseBudget(hits []api.RecallHit, textIsContent bool) {
+	left := maxResponseContentBytes
+	for i := range hits {
+		h := &hits[i]
+		if textIsContent {
+			var cut bool
+			h.Text, cut = truncateUTF8(h.Text, left)
+			h.ContentTruncated = h.ContentTruncated || cut
+			left -= len(h.Text)
+		}
+		if h.Content != "" {
+			var cut bool
+			h.Content, cut = truncateUTF8(h.Content, left)
+			h.ContentTruncated = h.ContentTruncated || cut
+			left -= len(h.Content)
+		}
+		for j, c := range h.Cells {
+			if len(c.Text) > left {
+				h.Cells, h.CellsTruncated = h.Cells[:j], true
+				break
+			}
+			left -= len(c.Text)
+		}
+	}
+}
+
+// hydrateOpts says what hydrate fills in beyond the always-present data.
+type hydrateOpts struct {
+	query           string
+	filters         api.RecallFilters
+	includeContent  bool
+	maxContentBytes int
+	includeCells    bool
+}
+
+// hydrate fills ranked candidate hits with their memories' data, in rank
+// order, dropping memories that are gone or fail the filters. It makes
+// two store calls whatever k is: one GetMemories and one
+// GetCellsForMemories. Each hit gets its matched cell: the vector side's
+// best cell, or for keyword hits the cell with the most query terms.
+func (s *Service) hydrate(ctx context.Context, hits []api.RecallHit, o hydrateOpts) ([]api.RecallHit, error) {
+	if len(hits) == 0 {
+		return hits, nil
+	}
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.MemoryID
+	}
+	mems, err := s.Metadata.GetMemories(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load search hits: %w", err)
+	}
+	byID := make(map[string]*types.Memory, len(mems))
+	for i := range mems {
+		byID[mems[i].ID] = &mems[i]
+	}
+	cells, err := s.Metadata.GetCellsForMemories(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load search hit cells: %w", err)
+	}
+	maxBytes := federation.EffectiveMaxContentBytes(o.maxContentBytes)
+	terms := adapter.KeywordTerms(o.query)
+
+	out := hits[:0]
+	for _, h := range hits {
+		m, ok := byID[h.MemoryID]
+		if !ok || !passesFilter(*m, o.filters) {
+			continue
+		}
+		h.WorkspaceID = m.WorkspaceID
+		h.Tags = m.Tags
+		h.Watermark = m.HeadWatermark
+		h.WrittenByAgentID = m.WrittenByAgentID
+		created := m.CreatedAt
+		h.CreatedAt = &created
+		h.Text = excerpt(m.Content, terms, 240)
+		if c := matchedCell(cells[m.ID], h.CellID, terms); c != nil {
+			h.CellID, h.MatchedText = c.CellID, c.Text
+			seq := c.Seq
+			h.CellIndex = &seq
+		}
+		if o.includeContent {
+			h.Content, h.ContentTruncated = truncateUTF8(m.Content, maxBytes)
+		}
+		if o.includeCells {
+			h.Cells = cells[m.ID]
+			if len(h.Cells) > maxCellsPerHit {
+				h.Cells, h.CellsTruncated = h.Cells[:maxCellsPerHit], true
+			}
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// matchedCell picks the hit's cell: cellID when the vector side named
+// one, otherwise the cell containing the most query terms (the first cell
+// when none do). nil when the memory has no cells.
+func matchedCell(cells []types.Cell, cellID string, terms []string) *types.Cell {
+	if len(cells) == 0 {
+		return nil
+	}
+	if cellID != "" {
+		for i := range cells {
+			if cells[i].CellID == cellID {
+				return &cells[i]
+			}
+		}
+	}
+	best, bestN := 0, -1
+	for i, c := range cells {
+		text := strings.ToLower(c.Text)
+		n := 0
+		for _, t := range terms {
+			n += strings.Count(text, t)
+		}
+		if n > bestN {
+			best, bestN = i, n
+		}
+	}
+	return &cells[best]
+}
+
+// truncateUTF8 cuts s to at most max bytes on a rune boundary and reports
+// whether it cut anything.
+func truncateUTF8(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
 }
 
 func passesFilter(m types.Memory, f api.RecallFilters) bool {
@@ -814,71 +1451,79 @@ func passesFilter(m types.Memory, f api.RecallFilters) bool {
 	return true
 }
 
-func excerpt(content, query string, max int) string {
+// excerpt returns up to max bytes of content around the earliest
+// occurrence of any term, or its start when no term occurs.
+func excerpt(content string, terms []string, max int) string {
 	if max <= 0 {
 		max = 200
 	}
 	lc := strings.ToLower(content)
-	lq := strings.ToLower(query)
-	idx := strings.Index(lc, lq)
-	if idx < 0 {
-		if len(content) > max {
-			return content[:max]
+	idx := -1
+	for _, t := range terms {
+		if i := strings.Index(lc, t); i >= 0 && (idx < 0 || i < idx) {
+			idx = i
 		}
-		return content
 	}
-	start := idx - max/2
-	if start < 0 {
-		start = 0
+	start := 0
+	if idx > max/2 {
+		start = idx - max/2
 	}
-	end := start + max
-	if end > len(content) {
-		end = len(content)
+	for start > 0 && !utf8.RuneStart(content[start]) {
+		start--
 	}
-	return content[start:end]
+	end, _ := truncateUTF8(content[start:], max)
+	return end
 }
 
-func keywordScore(content, q string) float64 {
-	if content == "" || q == "" {
-		return 0
-	}
-	c := float64(strings.Count(content, q))
-	if c == 0 {
-		return 0
-	}
-	return c / (1 + float64(len(content))/1000.0)
+// Vector hits are cells; a query asks for this many cells per wanted
+// memory, capped, so that collapsing to one cell per memory still leaves k.
+const (
+	cellsPerMemoryOverfetch = 4
+	maxVectorCandidates     = 1000
+)
+
+// Hybrid fuses candidate pools larger than k: with only k per side, the
+// two lists barely overlap at small k, fusion degenerates into single
+// votes, and top-k is no longer a prefix of top-(k+n).
+const (
+	minHybridPool = 50
+	maxHybridPool = 400
+)
+
+// hybridPool is the number of candidates each side contributes for a
+// final top k.
+func hybridPool(k int) int {
+	return min(max(4*k, minHybridPool), maxHybridPool)
 }
 
-func hybridMerge(kw, vec []api.RecallHit, w api.RecallWeights, k int) []api.RecallHit {
-	wv := w.Vector
-	wk := w.Keyword
+// hybridSearch runs keyword and vector search over scope, each returning a
+// candidate pool of hybridPool(k) memories, fuses the two full rankings by
+// weighted reciprocal rank fusion (rank.Fuse) and only then keeps the top
+// k, so top-k is a prefix of top-(k+n). BM25 and cosine scores never mix. req.Weights scale each source's votes (default
+// equal). A failing source is logged and reported in degraded instead of
+// failing the search; both failing is an error.
+func (s *Service) hybridSearch(ctx context.Context, scope adapter.VectorQuery, req api.RecallRequest, k int) (hits []api.RecallHit, scanned int, degraded []string, err error) {
+	pool := hybridPool(k)
+	kw, kwErr := s.keywordSearch(ctx, scope, req, pool)
+	vec, vecErr := s.vectorSearch(ctx, scope, req, pool)
+	if kwErr != nil && vecErr != nil {
+		return nil, 0, nil, fmt.Errorf("hybrid search: both sources failed: %w", errors.Join(kwErr, vecErr))
+	}
+	if kwErr != nil {
+		slog.Default().Warn("hybrid search degraded: keyword side failed", "err", kwErr)
+		degraded = append(degraded, api.DegradedKeyword)
+	}
+	if vecErr != nil {
+		slog.Default().Warn("hybrid search degraded: vector side failed", "err", vecErr)
+		degraded = append(degraded, api.DegradedVector)
+	}
+	wv, wk := req.Weights.Vector, req.Weights.Keyword
 	if wv == 0 && wk == 0 {
-		wv, wk = 0.7, 0.3
+		wv, wk = 1, 1
 	}
-	merged := map[string]api.RecallHit{}
-	for _, h := range vec {
-		h.Score = wv * h.Score
-		merged[h.MemoryID] = h
-	}
-	for _, h := range kw {
-		if existing, ok := merged[h.MemoryID]; ok {
-			existing.Score += wk * h.Score
-			existing.KeywordScore = h.KeywordScore
-			merged[h.MemoryID] = existing
-		} else {
-			h.Score = wk * h.Score
-			merged[h.MemoryID] = h
-		}
-	}
-	out := make([]api.RecallHit, 0, len(merged))
-	for _, h := range merged {
-		out = append(out, h)
-	}
-	sortHits(out)
-	if len(out) > k {
-		out = out[:k]
-	}
-	return out
+	hits = rank.Fuse([]rank.List{{Hits: vec, Weight: wv}, {Hits: kw, Weight: wk}},
+		func(h api.RecallHit) string { return h.MemoryID }, k)
+	return hits, len(kw) + len(vec), degraded, nil
 }
 
 func sortHits(h []api.RecallHit) {
@@ -932,7 +1577,7 @@ func (s *Service) graphExpand(ctx context.Context, workspaceID string, seeds []a
 				score := weight * pow(decay, hit.Layer) * seed.Score
 				out = append(out, api.RecallHit{
 					MemoryID:         m.ID,
-					Text:             excerpt(m.Content, "", 240),
+					Text:             excerpt(m.Content, nil, 240),
 					Tags:             m.Tags,
 					Watermark:        m.HeadWatermark,
 					WrittenByAgentID: m.WrittenByAgentID,
@@ -988,6 +1633,12 @@ func HTTPStatus(err error) int {
 		return 400
 	case errors.Is(err, types.ErrCapability):
 		return 501
+	case errors.Is(err, types.ErrFederationRevoked), errors.Is(err, types.ErrAgentDeactivated):
+		return 403
+	case errors.Is(err, types.ErrFederationAuth):
+		return 401
+	case errors.Is(err, types.ErrFederationLoop):
+		return 409
 	default:
 		return 500
 	}
@@ -1018,7 +1669,93 @@ func ErrorCode(err error) string {
 		return "not_empty"
 	case errors.Is(err, types.ErrInvalidInput):
 		return "invalid_input"
+	case errors.Is(err, types.ErrFederationRevoked):
+		return "federation_peer_revoked"
+	case errors.Is(err, types.ErrAgentDeactivated):
+		return "agent_deactivated"
+	case errors.Is(err, types.ErrFederationAuth):
+		return "federation_unauthorized"
+	case errors.Is(err, types.ErrFederationLoop):
+		return "federation_loop"
 	default:
 		return "internal_error"
 	}
+}
+
+// validateRecallIDs rejects a recall or search filter, or a lookup
+// memory_ids entry, that is not a UUID, naming the field. Empty values
+// are "not set".
+func validateRecallIDs(f api.RecallFilters, memoryIDs []string) error {
+	// Each tag key becomes a subquery and each value a bound parameter;
+	// keep a filter far below SQLite's parameter limit.
+	if len(f.Tags) > maxFilterTagKeys || len(f.AgentIDIn) > maxFilterValues || len(f.AgentIDNotIn) > maxFilterValues {
+		return fmt.Errorf("%w: filters allow at most %d tag keys and %d agents per list", types.ErrInvalidInput, maxFilterTagKeys, maxFilterValues)
+	}
+	for k, vs := range f.Tags {
+		if len(vs) > maxFilterValues {
+			return fmt.Errorf("%w: filters.tags[%q] has %d values, at most %d", types.ErrInvalidInput, k, len(vs), maxFilterValues)
+		}
+	}
+	for _, c := range []struct {
+		field string
+		ids   []string
+	}{
+		{"collection_id", []string{f.CollectionID}},
+		{"agent_id", []string{f.AgentID}},
+		{"agent_id_in", f.AgentIDIn},
+		{"agent_id_not_in", f.AgentIDNotIn},
+		{"memory_ids", memoryIDs},
+	} {
+		for _, id := range c.ids {
+			if id == "" {
+				continue
+			}
+			if _, err := types.ParseID(c.field, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// FetchMemory returns a memory with its cells by ID alone, from any
+// workspace on this node, stamped with this node's node_id and name.
+// Deleted and unknown memories are types.ErrNotFound.
+func (s *Service) FetchMemory(ctx context.Context, memoryID string) (*api.MemoryEnvelope, error) {
+	if _, err := types.ParseID("memory_id", memoryID); err != nil {
+		return nil, err
+	}
+	m, err := s.Metadata.GetMemory(ctx, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	cells, err := s.Metadata.GetCells(ctx, m.WorkspaceID, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	return &api.MemoryEnvelope{Memory: m, Cells: cells, NodeID: s.NodeID, NodeName: s.NodeName}, nil
+}
+
+// FetchMemoryFrom returns a memory from the node that holds it: this
+// node when nodeID is empty or this node's ID, otherwise the peer with
+// that node ID (F-6). A node that is not a usable peer is
+// federation.ErrUnknownNode; a peer failure is returned for
+// federation.PeerErrorCode to classify.
+func (s *Service) FetchMemoryFrom(ctx context.Context, nodeID, memoryID string) (*api.MemoryEnvelope, error) {
+	if nodeID == "" || nodeID == s.NodeID {
+		return s.FetchMemory(ctx, memoryID)
+	}
+	for _, f := range [...][2]string{{"node", nodeID}, {"memory_id", memoryID}} {
+		if _, err := types.ParseID(f[0], f[1]); err != nil {
+			return nil, err
+		}
+	}
+	if s.Federation == nil {
+		return nil, fmt.Errorf("%w: %s (federation is not enabled)", federation.ErrUnknownNode, nodeID)
+	}
+	env, err := s.Federation.Fetch(ctx, nodeID, memoryID)
+	if !errors.Is(err, federation.ErrUnknownNode) {
+		s.AppendLedger(ctx, federation.FetchEntry("outbound", nodeID, memoryID, "", federation.OutcomeOf(err)))
+	}
+	return env, err
 }

@@ -38,11 +38,19 @@ type MetadataStore interface {
 	Ping(ctx context.Context) error
 	Capabilities() MetadataCapabilities
 
+	// --- Federation peers (F-7) ---
+
+	PeerStore
+
 	// --- Workspace CRUD ---
 
 	CreateWorkspace(ctx context.Context, w *types.Workspace) error
 	GetWorkspace(ctx context.Context, id string) (*types.Workspace, error)
-	ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error)
+	// ListWorkspaces lists newest first, ordered by (created_at, id)
+	// descending. cursor is "" for the first page or a next cursor from
+	// a previous call (EncodeListCursor); next is "" on the last page.
+	ListWorkspaces(ctx context.Context, cursor string, limit int) (ws []types.Workspace, next string, err error)
+	// ListWorkspacesPaged scans in id order for internal sweeps.
 	ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error)
 	UpdateWorkspace(ctx context.Context, w *types.Workspace) error
 	DeleteWorkspace(ctx context.Context, id string) error
@@ -64,7 +72,10 @@ type MetadataStore interface {
 	ImprintMemory(ctx context.Context, m *types.Memory) (watermark string, err error)
 	GetMemory(ctx context.Context, id string) (*types.Memory, error)
 	GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error)
-	ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error)
+	// ListMemories lists live memories newest first, ordered by
+	// (created_at, id) descending, with cursors as in ListWorkspaces.
+	ListMemories(ctx context.Context, workspaceID, collectionID, cursor string, limit int) (mems []types.Memory, next string, err error)
+	// ListMemoriesPaged scans in id order for internal sweeps.
 	ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error)
 	UpdateMemory(ctx context.Context, workspaceID, id, expectedWatermark string, m *types.Memory) (newWatermark string, err error)
 	AppendMemory(ctx context.Context, workspaceID, id, expectedWatermark string, body string, agentID string) (newWatermark string, contentMD5 string, err error)
@@ -78,6 +89,12 @@ type MetadataStore interface {
 
 	UpsertCells(ctx context.Context, memoryID string, cells []types.Cell) error
 	GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error)
+	// GetMemories loads the live memories among ids in one call, in no
+	// particular order; unknown or forgotten IDs are omitted.
+	GetMemories(ctx context.Context, ids []string) ([]types.Memory, error)
+	// GetCellsForMemories loads the cells of every memory in memoryIDs in
+	// one call, keyed by memory ID, each list in seq order.
+	GetCellsForMemories(ctx context.Context, memoryIDs []string) (map[string][]types.Cell, error)
 	// DeleteCellsFrom removes the Memory's cells with seq >= fromSeq, which an
 	// edit that re-chunks to fewer cells no longer produces, and returns their
 	// cell_ids so the caller can drop their vectors and content. A Memory in
@@ -102,6 +119,23 @@ type MetadataStore interface {
 	GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error)
 	ListAgents(ctx context.Context, workspaceID string, limit int) ([]types.Agent, error)
 	DeactivateAgent(ctx context.Context, workspaceID, id string) error
+	// ResolveIdentityKey returns the agent_id bound to an identity key
+	// (see IdentityKeyer), binding candidateID — a fresh UUIDv4 — when
+	// the key is new. Concurrent calls for one key all get the same ID.
+	ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error)
+
+	// --- Full-text search ---
+
+	// SearchKeyword ranks live memories by full-text relevance to
+	// q.Query (any of its KeywordTerms), best first, at most q.K. A query
+	// with no terms returns no hits.
+	SearchKeyword(ctx context.Context, q KeywordQuery) ([]KeywordHit, error)
+
+	// --- Node identity ---
+
+	// EnsureNodeID returns this node's persisted ID, storing candidateID
+	// (a fresh UUIDv4) the first time it is called.
+	EnsureNodeID(ctx context.Context, candidateID string) (string, error)
 
 	// --- Recall pins ---
 

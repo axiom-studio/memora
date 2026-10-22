@@ -20,8 +20,8 @@ func TestTenantIsolation_MetadataStoreScopesByWorkspace(t *testing.T) {
 	}
 	defer ms.Close()
 
-	owner := &types.Workspace{Name: "iso-owner-" + types.NewID("t")}
-	other := &types.Workspace{Name: "iso-other-" + types.NewID("t")}
+	owner := &types.Workspace{Name: "iso-owner-" + types.NewID()}
+	other := &types.Workspace{Name: "iso-other-" + types.NewID()}
 	for _, w := range []*types.Workspace{owner, other} {
 		if err := ms.CreateWorkspace(ctx, w); err != nil {
 			t.Fatal(err)

@@ -1,6 +1,6 @@
 package mcp
 
-// toolCatalog returns the 25 OSS MCP tools, in display order. Schemas
+// toolCatalog returns the 27 OSS MCP tools, in display order. Schemas
 // are JSON Schema draft-07 fragments with the smallest precise set of
 // constraints — the LLM-facing description is what drives correct
 // usage, validation is best-effort.
@@ -35,6 +35,15 @@ func toolCatalog() []Tool {
 				"type":       "object",
 				"properties": map[string]any{"workspace_id": stringP(), "memory_id": stringP()},
 				"required":   []string{"workspace_id", "memory_id"},
+			},
+		},
+		{
+			Name:        "memora_fetch",
+			Description: "Fetch a full Memory (content, cells, tags, written_by_agent_id, created_at, workspace_id) from the node that holds it. Pass the memory_id and node_id of a memora_search hit; omit node_id for this node. The result names its node_id and node_name. In multi-tenant mode workspace_id is required and peers cannot be reached.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"memory_id": stringP(), "node_id": stringP(), "workspace_id": stringP()},
+				"required":   []string{"memory_id"},
 			},
 		},
 		{
@@ -130,6 +139,27 @@ func toolCatalog() []Tool {
 					},
 				},
 				"required": []string{"workspace_id", "query"},
+			},
+		},
+		{
+			Name:        "memora_search",
+			Description: "Search Memories across every workspace on this node (or workspace_ids). mode = keyword | vector | hybrid (default). federated: true also searches this node's federation peers (all, or only the node IDs in peers; per_peer_k hits each). Every hit names its source: node_id, node_name, workspace_id, memory_id and matched_text (the matching passage), so you can cite it. To read the whole Memory, call memora_fetch with the hit's memory_id and node_id. include_content returns each Memory's full content inline instead (up to max_content_bytes). Peers that did not answer are listed in failed_peers with an error_code.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":             stringP(),
+					"mode":              map[string]any{"type": "string", "enum": []string{"keyword", "vector", "hybrid"}, "default": "hybrid"},
+					"k":                 intP(1, 100, 5),
+					"workspace_ids":     map[string]any{"type": "array", "items": stringP()},
+					"include_content":   map[string]any{"type": "boolean", "default": false},
+					"max_content_bytes": intP(1, 1<<20, 64<<10),
+					"federated":         map[string]any{"type": "boolean", "default": false},
+					"peers":             map[string]any{"type": "array", "items": stringP()},
+					"per_peer_k":        intP(1, 100, 5),
+					"timeout_ms":        intP(1, 60000, 5000),
+					"rerank":            map[string]any{"type": "boolean", "default": false},
+				},
+				"required": []string{"query"},
 			},
 		},
 		{

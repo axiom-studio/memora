@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 
 	"github.com/axiom-studio/memora/internal/service"
-	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // Config configures an MCP Server. Zero-valued Config disables auth
@@ -27,6 +27,10 @@ type Config struct {
 	// local-dev mode. Operators who run memora-core mcp in any other
 	// context MUST set MEMORA_API_KEY.
 	APIKey string
+	// MultiTenant mirrors the server's multi-tenant mode: memora_search
+	// then refuses node-wide scope and requires workspace_ids, since MCP
+	// carries no X-Memora-Workspace tenant header.
+	MultiTenant bool
 }
 
 // Server hosts the MCP request handlers and the tool dispatch table.
@@ -37,6 +41,7 @@ type Server struct {
 	mu          sync.Mutex  // serializes writes to a single transport
 	initialized atomic.Bool // flipped by a successful initialize handshake
 	pinnedAgent string      // set once at initialize when auth verifies identity; read-only thereafter
+	multiTenant bool
 }
 
 // NewServer returns a ready Server with auth disabled. Equivalent to
@@ -52,7 +57,7 @@ func NewServerWithConfig(svc *service.Service, logger *stdlog.Logger, cfg Config
 	if logger == nil {
 		logger = stdlog.Default()
 	}
-	return &Server{svc: svc, logger: logger, apiKey: cfg.APIKey}
+	return &Server{svc: svc, logger: logger, apiKey: cfg.APIKey, multiTenant: cfg.MultiTenant}
 }
 
 func (s *Server) requireAuth() bool { return s.apiKey != "" }
@@ -115,23 +120,25 @@ func (s *Server) handle(ctx context.Context, req request) response {
 			if subtle.ConstantTimeCompare([]byte(p.APIKey), []byte(s.apiKey)) != 1 {
 				return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: invalid api key", nil)
 			}
-			if p.AgentID != "" {
-				prov := s.svc.IdentityFor(p.IdentityProvider)
-				if err := prov.Verify(ctx, adapter.IdentityVerifyInput{
-					AgentID:       p.AgentID,
-					IdentityProof: p.IdentityProof,
-				}); err != nil {
+			if p.AgentID != "" || p.IdentityProof != nil {
+				agentID, err := s.svc.ResolveAgent(ctx, p.IdentityProvider, p.AgentID, p.IdentityProof)
+				if err != nil {
 					return errResponse(req.ID, ErrCodeUnauthorized, "unauthorized: agent verification failed: "+err.Error(), nil)
 				}
-				s.pinnedAgent = p.AgentID
+				s.pinnedAgent = agentID
 			}
 		}
 		s.initialized.Store(true)
-		return okResponse(req.ID, map[string]any{
+		result := map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": "memora-core", "version": "0.1.0"},
-		})
+		}
+		if s.pinnedAgent != "" {
+			// Proof-identified agents learn their server-minted agent_id here.
+			result["agentId"] = s.pinnedAgent
+		}
+		return okResponse(req.ID, result)
 	}
 	// All non-initialize methods require a prior successful initialize
 	// when auth is enabled. The check applies to ping too — otherwise
@@ -167,7 +174,14 @@ func (s *Server) handleToolCall(ctx context.Context, req request) response {
 	}
 	result, err := s.dispatchTool(ctx, p.Name, p.Arguments)
 	if err != nil {
-		return errResponse(req.ID, -32603, err.Error(), map[string]any{"tool": p.Name})
+		code := -32603 // internal error
+		switch {
+		case errors.Is(err, types.ErrInvalidInput):
+			code = -32602 // invalid params
+		case errors.Is(err, types.ErrAgentDeactivated):
+			code = ErrCodeUnauthorized
+		}
+		return errResponse(req.ID, code, err.Error(), map[string]any{"tool": p.Name})
 	}
 	// MCP wraps tool output in a "content" array. We emit a single
 	// text item with the JSON-encoded result so clients can JSON-parse.

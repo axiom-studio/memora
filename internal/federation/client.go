@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -30,39 +32,27 @@ type PeerClient struct {
 	httpClient   *http.Client
 	federationID string
 	instanceID   string
+	// cleartextKeyOK allows the peer key on an http:// request: the
+	// peer's host is loopback or in federation.insecure_peer_hosts.
+	cleartextKeyOK bool
+	host           string // the URL's host, without port
 }
 
-// ClientPool holds a PeerClient per registered peer.
-type ClientPool struct {
-	clients      map[string]*PeerClient
-	federationID string
-	instanceID   string
-}
-
-// NewClientPool creates a PeerClient for each peer in the registry.
-func NewClientPool(reg *Registry) (*ClientPool, error) {
-	if reg == nil {
-		return nil, nil
+func newPeerClient(p Peer, federationID, nodeID string, policy *urlPolicy) (*PeerClient, error) {
+	u, err := url.Parse(p.Endpoint)
+	if err != nil {
+		return nil, err
 	}
-	pool := &ClientPool{
-		clients:      make(map[string]*PeerClient, len(reg.peers)),
-		federationID: reg.FederationID,
-		instanceID:   reg.FederationID,
-	}
-	for _, p := range reg.peers {
-		c, err := newPeerClient(p, reg.FederationID)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
-		}
-		pool.clients[p.ID] = c
-	}
-	return pool, nil
-}
-
-func newPeerClient(p Peer, federationID string) (*PeerClient, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if p.TrustMode == TrustMTLS && p.TLSCert != "" {
-		tlsCfg, err := buildMTLSConfig(p.TLSCert)
+	// No proxy: the dial check below must see the peer's own address.
+	transport.Proxy = nil
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   policy.dialControl(u.Hostname()),
+	}).DialContext
+	if p.TrustMode == TrustMTLS {
+		tlsCfg, err := buildMTLSConfig(p)
 		if err != nil {
 			return nil, err
 		}
@@ -72,23 +62,48 @@ func newPeerClient(p Peer, federationID string) (*PeerClient, error) {
 		peer: p,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   p.DefaultRequestTimeout(),
+			// A ceiling only: each call's context carries the peer's
+			// timeout or the request's timeout_ms, which may be longer.
+			Timeout: MaxFederatedTimeout,
+			// A peer never redirects a federation call. Following one
+			// would re-send the query and X-Memora-Federation-Auth (Go
+			// strips only Authorization and cookies) to whatever host the
+			// Location names, so a 3xx is returned as the answer and
+			// becomes a *PeerError.
+			CheckRedirect: noRedirects,
 		},
-		federationID: federationID,
-		instanceID:   federationID,
+		federationID:   federationID,
+		instanceID:     nodeID,
+		cleartextKeyOK: policy.cleartextAllowed(normHost(u.Hostname())),
+		host:           u.Hostname(),
 	}, nil
 }
 
-func buildMTLSConfig(caCertPath string) (*tls.Config, error) {
-	caCert, err := os.ReadFile(caCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("read CA cert %s: %w", caCertPath, err)
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// buildMTLSConfig trusts the peer's CA (TLSCert) when set, and presents
+// this node's client certificate when one is configured.
+func buildMTLSConfig(p Peer) (*tls.Config, error) {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if p.TLSCert != "" {
+		caCert, err := os.ReadFile(p.TLSCert)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert %s: %w", p.TLSCert, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA cert from %s", p.TLSCert)
+		}
+		cfg.RootCAs = pool
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to parse CA cert from %s", caCertPath)
+	if p.ClientCertFile != "" {
+		cert, err := tls.LoadX509KeyPair(p.ClientCertFile, p.ClientKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load client cert: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
 	}
-	return &tls.Config{RootCAs: pool}, nil
+	return cfg, nil
 }
 
 func (c *PeerClient) setHeaders(req *http.Request, path string) {
@@ -97,19 +112,23 @@ func (c *PeerClient) setHeaders(req *http.Request, path string) {
 	if path != "" {
 		req.Header.Set(HeaderFederationPath, path)
 	}
-	if c.peer.TrustMode == TrustAPIKey && c.peer.APIKey != "" {
+	// The registry refuses http:// peers it may not send keys to; this
+	// keeps the key off the wire should one get through.
+	if c.peer.APIKey != "" && (req.URL.Scheme == "https" || c.cleartextKeyOK) {
 		req.Header.Set(HeaderFederationAuth, "Bearer "+c.peer.APIKey)
 	}
 	req.Header.Set("Content-Type", "application/json")
 }
 
-// Recall sends a recall query to this peer and returns the response.
-func (c *PeerClient) Recall(ctx context.Context, wsID string, recallReq api.RecallRequest, federationPath string) (*api.RecallResponse, error) {
-	body, err := json.Marshal(recallReq)
+// Search sends a node-wide search to the peer's POST /v1/federation/search
+// and returns its hits. The peer embeds the query text itself. A non-200
+// answer is a *PeerError carrying the peer's status and error_code.
+func (c *PeerClient) Search(ctx context.Context, searchReq api.FederationSearchRequest, federationPath string) (*api.RecallResponse, error) {
+	body, err := json.Marshal(searchReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal recall request: %w", err)
+		return nil, fmt.Errorf("marshal search request: %w", err)
 	}
-	url := fmt.Sprintf("%s/v1/workspaces/%s/recall", strings.TrimRight(c.peer.Endpoint, "/"), wsID)
+	url := strings.TrimRight(c.peer.Endpoint, "/") + "/v1/federation/search"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -118,23 +137,53 @@ func (c *PeerClient) Recall(ctx context.Context, wsID string, recallReq api.Reca
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("peer %s recall: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s search: %w", c.peer.Name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("peer %s recall: HTTP %d", c.peer.Name, resp.StatusCode)
+		var env struct {
+			ErrorCode string `json:"error_code"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&env)
+		return nil, newPeerError(resp.StatusCode, env.ErrorCode)
 	}
 	var result api.RecallResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&result); err != nil {
-		return nil, fmt.Errorf("peer %s recall decode: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s search decode: %w", c.peer.Name, err)
 	}
 	return &result, nil
 }
 
-// Lookup fetches a single memory from this peer.
-func (c *PeerClient) Lookup(ctx context.Context, wsID, memoryID, federationPath string) (*types.Memory, error) {
-	url := fmt.Sprintf("%s/v1/workspaces/%s/memories/%s", strings.TrimRight(c.peer.Endpoint, "/"), wsID, memoryID)
+// PeerError is a peer's non-200 answer.
+type PeerError struct {
+	Status int
+	// Code is the peer's error_code when it is one a Memora node sends
+	// (knownPeerCodes), else "". The peer controls that string, and
+	// Error() text reaches callers, logs and MCP agents verbatim, so an
+	// unknown code is never kept (#6174).
+	Code string
+}
+
+func newPeerError(status int, code string) *PeerError {
+	if !knownPeerCodes[code] {
+		code = ""
+	}
+	return &PeerError{Status: status, Code: code}
+}
+
+func (e *PeerError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("peer answered HTTP %d (%s)", e.Status, e.Code)
+	}
+	return fmt.Sprintf("peer answered HTTP %d", e.Status)
+}
+
+// FetchMemory gets a full memory from the peer's
+// GET /v1/federation/memories/{id}. A memory the peer does not hold is
+// types.ErrNotFound; any other non-200 answer is a *PeerError.
+func (c *PeerClient) FetchMemory(ctx context.Context, memoryID, federationPath string) (*api.MemoryEnvelope, error) {
+	url := strings.TrimRight(c.peer.Endpoint, "/") + "/v1/federation/memories/" + memoryID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -143,29 +192,28 @@ func (c *PeerClient) Lookup(ctx context.Context, wsID, memoryID, federationPath 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("peer %s lookup: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s fetch: %w", c.peer.Name, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("peer %s lookup: HTTP %d", c.peer.Name, resp.StatusCode)
+		var env struct {
+			ErrorCode string `json:"error_code"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&env)
+		if resp.StatusCode == http.StatusNotFound && env.ErrorCode == "not_found" {
+			return nil, fmt.Errorf("%w: memory %s is not on node %s", types.ErrNotFound, memoryID, c.peer.ID)
+		}
+		return nil, newPeerError(resp.StatusCode, env.ErrorCode)
 	}
 	var envelope api.MemoryEnvelope
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("peer %s lookup decode: %w", c.peer.Name, err)
+		return nil, fmt.Errorf("peer %s fetch decode: %w", c.peer.Name, err)
 	}
-	return envelope.Memory, nil
-}
-
-// Client returns the PeerClient for a given peer ID, or nil.
-func (p *ClientPool) Client(peerID string) *PeerClient {
-	if p == nil {
-		return nil
+	if envelope.Memory == nil || envelope.Memory.ID != memoryID {
+		return nil, fmt.Errorf("peer %s fetch: answered with a different memory", c.peer.Name)
 	}
-	return p.clients[peerID]
+	return &envelope, nil
 }
 
 // PeerName returns the human-readable name of the peer.

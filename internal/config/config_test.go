@@ -121,11 +121,48 @@ func TestValidate_BadMode(t *testing.T) {
 	}
 }
 
-func TestValidate_FederationNeedsID(t *testing.T) {
+// TestValidate_NodeAndPeerIDs: federation no longer needs a
+// federation_id, but every peer needs a UUID node_id, and [node] id and
+// federation_id must be UUIDs when set.
+func TestValidate_NodeAndPeerIDs(t *testing.T) {
 	cfg := Defaults()
 	cfg.Federation.Enabled = true
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected error for federation without id")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("federation without federation_id should validate: %v", err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"peer without node_id": func(c *Config) { c.Federation.Peers = []PeerConfig{{Name: "p", URL: "http://p:7777"}} },
+		"peer prefixed node_id": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "fed_p", Name: "p", URL: "http://p:7777"}}
+		},
+		"inbound_key_sha256 not hex": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a", Name: "p", URL: "http://p:7777", InboundKeySHA256: "plaintext-key"}}
+		},
+		"client_cert_file without key": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a", Name: "p", URL: "http://p:7777", ClientCertFile: "/c.pem"}}
+		},
+		"client_cert_sha256 too short": func(c *Config) {
+			c.Federation.Peers = []PeerConfig{{NodeID: "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a", Name: "p", URL: "http://p:7777", ClientCertSHA256: "abcd"}}
+		},
+		"bad node.id":       func(c *Config) { c.Node.ID = "node-1" },
+		"bad federation_id": func(c *Config) { c.Federation.FederationID = "fed_cluster" },
+	} {
+		c := Defaults()
+		c.Federation.Enabled = true
+		mutate(&c)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: expected a validation error", name)
+		}
+	}
+}
+
+func TestApplyEnv_NodeIdentity(t *testing.T) {
+	t.Setenv("MEMORA_NODE_ID", "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a")
+	t.Setenv("MEMORA_NODE_NAME", "edge-1")
+	cfg := Defaults()
+	cfg.ApplyEnv()
+	if cfg.Node.ID != "6b1d0f2e-3c4a-4e5b-8f6a-7b8c9d0e1f2a" || cfg.Node.Name != "edge-1" {
+		t.Fatalf("node = %+v, want the env values", cfg.Node)
 	}
 }
 
@@ -353,14 +390,16 @@ func TestLoad_WithFederation(t *testing.T) {
 	content := `
 [federation]
 enabled = true
-federation_id = "fed_01HQ1234ABCDEF"
+federation_id = "8c5e2f1a-3d4b-4c6e-9f7a-0b1c2d3e4f5a"
 
 [[federation.peers]]
+node_id = "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d"
 name = "us-west"
 url = "https://west.memora.internal:7777"
 api_key = "peer-key-1"
 
 [[federation.peers]]
+node_id = "4b5c6d7e-8f9a-4b1c-8d2e-3f4a5b6c7d8e"
 name = "eu-central"
 url = "https://eu.memora.internal:7777"
 tls_cert = "/etc/memora/eu.pem"
@@ -479,5 +518,24 @@ func TestDocsWorkedExampleValidates(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("worked example in configuration.md does not validate: %v", err)
+	}
+}
+
+func TestValidate_PeerHostAllowlists(t *testing.T) {
+	for _, fc := range []FederationConfig{
+		{PrivatePeerHosts: []string{"10.0.0.0/33"}},
+		{PrivatePeerHosts: []string{" "}},
+		{InsecurePeerHosts: []string{""}},
+	} {
+		c := Defaults()
+		c.Federation = fc
+		if err := c.Validate(); err == nil {
+			t.Errorf("%+v validated", fc)
+		}
+	}
+	c := Defaults()
+	c.Federation = FederationConfig{InsecurePeerHosts: []string{"peer-a"}, PrivatePeerHosts: []string{"peer-a", "10.0.0.0/8", "fd00::/8"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

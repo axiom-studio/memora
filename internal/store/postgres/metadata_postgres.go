@@ -34,9 +34,35 @@ func (s *MetadataStore) Open(ctx context.Context, cfg adapter.MetadataConfig) er
 		return err
 	}
 	s.pool = pool
+	// Before any migration or seeding: a database from before UUIDv4 IDs
+	// is refused untouched, so the old release can still open it.
+	if err := s.refuseLegacyIDs(ctx); err != nil {
+		pool.Close()
+		return err
+	}
 	if err := runMigrations(ctx, pool); err != nil {
 		pool.Close()
 		return fmt.Errorf("postgres: migrate: %w", err)
+	}
+	if err := s.seedReservedAgents(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("postgres: seed reserved agents: %w", err)
+	}
+	return nil
+}
+
+// seedReservedAgents registers every reserved sentinel agent in every
+// workspace, once per sentinel with one INSERT … SELECT over all
+// workspaces. Idempotent; it back-fills workspaces created before
+// agents were per-workspace (#6154).
+func (s *MetadataStore) seedReservedAgents(ctx context.Context) error {
+	for _, id := range types.ReservedAgentIDs {
+		if _, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+SELECT $1, id, $2, 'opaque', now(), TRUE FROM memora_workspaces
+ON CONFLICT (workspace_id, agent_id) DO NOTHING`, id, types.ReservedAgentDisplayNames[id]); err != nil {
+			return fmt.Errorf("seed agent %s: %w", id, err)
+		}
 	}
 	return nil
 }
@@ -69,7 +95,7 @@ func (s *MetadataStore) Capabilities() adapter.MetadataCapabilities {
 
 func (s *MetadataStore) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if w.ID == "" {
-		w.ID = types.NewID(types.WorkspaceIDPrefix)
+		w.ID = types.NewID()
 	}
 	if err := w.Validate(); err != nil {
 		return err
@@ -98,9 +124,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 	}
 	for _, agentID := range types.ReservedAgentIDs {
 		_, _ = s.pool.Exec(ctx, `
-INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
-VALUES ($1, $2, 'opaque', now(), TRUE)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID)
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+VALUES ($1, $2, $3, 'opaque', now(), TRUE)
+ON CONFLICT(workspace_id, agent_id) DO NOTHING`, agentID, w.ID, types.ReservedAgentDisplayNames[agentID])
 	}
 	return nil
 }
@@ -138,28 +164,50 @@ FROM memora_workspaces WHERE id = $1`, id).Scan(
 	return w, nil
 }
 
-func (s *MetadataStore) ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error) {
+// ListWorkspaces lists workspaces newest first by (created_at, id); see
+// adapter.MetadataStore.
+func (s *MetadataStore) ListWorkspaces(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.pool.Query(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json,
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json,
     auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
     created_at, updated_at
-FROM memora_workspaces ORDER BY created_at DESC LIMIT $1`, limit)
+FROM memora_workspaces`
+	args := []any{}
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += " WHERE (created_at, id) < ($1, $2)"
+		args = append(args, ts, id)
+	}
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit+1)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
 		w, err := scanWorkspacePg(rows)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 func (s *MetadataStore) ListWorkspacesPaged(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
@@ -280,7 +328,7 @@ func scanWorkspacePg(row pgScanner) (types.Workspace, error) {
 
 func (s *MetadataStore) CreateCollection(ctx context.Context, c *types.Collection) error {
 	if c.ID == "" {
-		c.ID = types.NewID(types.CollectionIDPrefix)
+		c.ID = types.NewID()
 	}
 	if err := c.Validate(); err != nil {
 		return err
@@ -347,7 +395,7 @@ func (s *MetadataStore) DeleteCollection(ctx context.Context, id string) error {
 
 func (s *MetadataStore) ImprintMemory(ctx context.Context, m *types.Memory) (string, error) {
 	if m.ID == "" {
-		m.ID = types.NewID(types.MemoryIDPrefix)
+		m.ID = types.NewID()
 	}
 	if err := m.Validate(); err != nil {
 		return "", err
@@ -432,6 +480,40 @@ FROM memora_memories WHERE id = $1 AND deleted_at IS NULL`, id).Scan(
 	return m, nil
 }
 
+// GetMemories implements adapter.MetadataStore in one query.
+func (s *MetadataStore) GetMemories(ctx context.Context, ids []string) ([]types.Memory, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE deleted_at IS NULL AND id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+	}
+	defer rows.Close()
+	out := make([]types.Memory, 0, len(ids))
+	for rows.Next() {
+		var m types.Memory
+		var coll *string
+		var tagsJSON []byte
+		if err := rows.Scan(&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5, &m.HeadWatermark, &m.CreatedWatermark,
+			&m.WrittenByAgentID, &m.LastModifiedByAgentID, &tagsJSON, &m.RecallReady,
+			&m.CreatedAt, &m.UpdatedAt, &m.DeletedAt); err != nil {
+			return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+		}
+		if coll != nil {
+			m.CollectionID = *coll
+		}
+		if len(tagsJSON) > 0 {
+			_ = json.Unmarshal(tagsJSON, &m.Tags)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *MetadataStore) GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error) {
 	m, err := s.GetMemory(ctx, id)
 	if err != nil {
@@ -443,7 +525,9 @@ func (s *MetadataStore) GetMemoryAtWatermark(ctx context.Context, id, watermark 
 	return nil, fmt.Errorf("%w: at-watermark read for historical wmk %s requires Snapshot (v0.5+)", types.ErrCapability, watermark)
 }
 
-func (s *MetadataStore) ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error) {
+// ListMemories lists live memories newest first by (created_at, id);
+// see adapter.MetadataStore.
+func (s *MetadataStore) ListMemories(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -457,12 +541,21 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		args = append(args, collectionID)
 		argN++
 	}
-	q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", argN)
-	args = append(args, limit)
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", argN, argN+1)
+		args = append(args, ts, id)
+		argN += 2
+	}
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", argN)
+	args = append(args, limit+1)
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Memory
@@ -474,7 +567,7 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		if err := rows.Scan(&m.ID, &m.WorkspaceID, &coll, &m.Content, &m.ContentMD5,
 			&m.HeadWatermark, &m.CreatedWatermark, &m.WrittenByAgentID, &m.LastModifiedByAgentID,
 			&tagsJSON, &m.RecallReady, &m.CreatedAt, &m.UpdatedAt, &deletedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if coll != nil {
 			m.CollectionID = *coll
@@ -485,7 +578,16 @@ FROM memora_memories WHERE workspace_id = $1 AND deleted_at IS NULL`
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 func (s *MetadataStore) ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
@@ -746,7 +848,7 @@ func (s *MetadataStore) UpsertCells(ctx context.Context, memoryID string, cells 
 	for i := range cells {
 		c := &cells[i]
 		if c.CellID == "" {
-			c.CellID = types.NewID(types.CellIDPrefix)
+			c.CellID = types.NewID()
 		}
 		c.MemoryID = memoryID
 		if c.CreatedAt.IsZero() {
@@ -771,6 +873,14 @@ ON CONFLICT(memory_id, seq) DO UPDATE SET
 	return tx.Commit(ctx)
 }
 
+// CountLiveCells implements adapter.CellCounter.
+func (s *MetadataStore) CountLiveCells(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM memora_cells c
+JOIN memora_memories m ON m.id = c.memory_id WHERE m.deleted_at IS NULL`).Scan(&n)
+	return n, err
+}
+
 func (s *MetadataStore) GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error) {
 	// memora_cells has no workspace_id column; scope through the parent memory.
 	rows, err := s.pool.Query(ctx, `
@@ -782,6 +892,35 @@ ORDER BY seq`, memoryID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
+	return scanCellsPG(rows)
+}
+
+// GetCellsForMemories implements adapter.MetadataStore in one query.
+func (s *MetadataStore) GetCellsForMemories(ctx context.Context, memoryIDs []string) (map[string][]types.Cell, error) {
+	out := make(map[string][]types.Cell, len(memoryIDs))
+	if len(memoryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT cell_id, memory_id, seq, text, text_md5, written_by_agent_id, embedding_model, vector_key, metadata_json, created_at
+FROM memora_cells WHERE memory_id = ANY($1)
+ORDER BY memory_id, seq`, memoryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	cells, err := scanCellsPG(rows)
+	if err != nil {
+		return nil, fmt.Errorf("load cells for %d memories: %w", len(memoryIDs), err)
+	}
+	for _, c := range cells {
+		out[c.MemoryID] = append(out[c.MemoryID], c)
+	}
+	return out, nil
+}
+
+// scanCellsPG reads memora_cells rows in the GetCells column order and
+// closes rows.
+func scanCellsPG(rows pgx.Rows) ([]types.Cell, error) {
 	defer rows.Close()
 	var out []types.Cell
 	for rows.Next() {
@@ -928,11 +1067,19 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 
 // --- Tags ---
 
+// UpsertTag sets one tag. memora_tags is the source of truth for a
+// memory's tags; tags_json, which GetMemory and the search filter
+// re-check read, is rewritten from it in the same transaction (#6182).
 func (s *MetadataStore) UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error {
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 INSERT INTO memora_tags(memory_id, key, value)
 SELECT $1, $2, $3
-WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $4)
+WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $4 AND deleted_at IS NULL)
 ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 		memoryID, key, value, workspaceID)
 	if err != nil {
@@ -941,14 +1088,40 @@ ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 	if tag.RowsAffected() == 0 {
 		return types.ErrNotFound
 	}
-	return nil
+	if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
+// DeleteTag removes one tag and rewrites tags_json to match.
 func (s *MetadataStore) DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error {
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 DELETE FROM memora_tags WHERE memory_id = $1 AND key = $2
 AND EXISTS (SELECT 1 FROM memora_memories WHERE id = $1 AND workspace_id = $3)`,
 		memoryID, key, workspaceID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// syncTagsJSON rewrites a memory's tags_json from its memora_tags rows
+// (NULL when it has none).
+func syncTagsJSON(ctx context.Context, tx pgx.Tx, memoryID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE memora_memories SET tags_json = (SELECT jsonb_object_agg(key, value) FROM memora_tags WHERE memory_id = $1)
+WHERE id = $1`, memoryID)
 	return err
 }
 
@@ -968,7 +1141,7 @@ func (s *MetadataStore) RegisterAgent(ctx context.Context, a *types.Agent) error
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, identity_proof,
     agent_type, model, capabilities_json, registered_at, last_seen_at, active)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
-ON CONFLICT(agent_id) DO UPDATE SET
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
     display_name=excluded.display_name,
     identity_provider=excluded.identity_provider,
     identity_proof=excluded.identity_proof,
@@ -981,6 +1154,48 @@ ON CONFLICT(agent_id) DO UPDATE SET
 		nullableStr(a.IdentityProofHash), nullableStr(a.AgentType), nullableStr(a.Model),
 		nullableJSON(capsJSON), a.RegisteredAt, time.Now().UTC())
 	return err
+}
+
+// TouchAgent implements adapter.AgentToucher.
+func (s *MetadataStore) TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error {
+	now := time.Now().UTC()
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, last_seen_at, active)
+VALUES ($1, $2, $3, $4, $5, TRUE)
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+		agentID, workspaceID, identityProvider, now, now)
+	return err
+}
+
+// ResolveIdentityKey implements adapter.MetadataStore. The insert is a
+// no-op when the key is already bound, so the select always returns the
+// first binding.
+func (s *MetadataStore) ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error) {
+	if _, err := s.pool.Exec(ctx, `
+INSERT INTO memora_agent_identities (identity_key, agent_id) VALUES ($1, $2)
+ON CONFLICT (identity_key) DO NOTHING`, identityKey, candidateID); err != nil {
+		return "", fmt.Errorf("bind identity key: %w", err)
+	}
+	var agentID string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT agent_id FROM memora_agent_identities WHERE identity_key = $1`, identityKey).Scan(&agentID); err != nil {
+		return "", fmt.Errorf("read identity key binding: %w", err)
+	}
+	return agentID, nil
+}
+
+// EnsureNodeID implements adapter.MetadataStore: the single row of
+// memora_node is written once and read thereafter.
+func (s *MetadataStore) EnsureNodeID(ctx context.Context, candidateID string) (string, error) {
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO memora_node (singleton, node_id) VALUES (1, $1) ON CONFLICT (singleton) DO NOTHING`, candidateID); err != nil {
+		return "", fmt.Errorf("store node id: %w", err)
+	}
+	var id string
+	if err := s.pool.QueryRow(ctx, `SELECT node_id FROM memora_node WHERE singleton = 1`).Scan(&id); err != nil {
+		return "", fmt.Errorf("read node id: %w", err)
+	}
+	return id, nil
 }
 
 func (s *MetadataStore) GetAgent(ctx context.Context, workspaceID, id string) (*types.Agent, error) {
@@ -1084,7 +1299,10 @@ func nullableJSON(b []byte) any {
 
 func (s *MetadataStore) CreatePin(ctx context.Context, p *types.Pin) error {
 	if p.PinID == "" {
-		p.PinID = types.NewID("pin")
+		p.PinID = types.NewID()
+	}
+	if err := p.Validate(); err != nil {
+		return err
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()
@@ -1125,4 +1343,28 @@ func (s *MetadataStore) DeletePin(ctx context.Context, workspaceID, pinID string
 		return types.ErrNotFound
 	}
 	return nil
+}
+
+// refuseLegacyIDs reads, without writing, whether an existing database
+// holds a workspace whose id is not a UUID (adapter.ErrLegacyIDs).
+func (s *MetadataStore) refuseLegacyIDs(ctx context.Context) error {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT to_regclass('memora_workspaces') IS NOT NULL`).Scan(&exists); err != nil || !exists {
+		return err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id FROM memora_workspaces`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if _, err := types.ParseID("workspace_id", id); err != nil {
+			return adapter.LegacyIDsError(id)
+		}
+	}
+	return rows.Err()
 }

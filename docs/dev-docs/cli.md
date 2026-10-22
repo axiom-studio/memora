@@ -15,23 +15,23 @@ export MEMORA_ENDPOINT=http://localhost:7777
 
 # Create a workspace.
 memora-cli workspaces create --name my-app
-# → ws_01HXYZ...
+# → 3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90
 
 # Set it as the active workspace.
-export MEMORA_WORKSPACE=ws_01HXYZ...
+export MEMORA_WORKSPACE=3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90
 
 # Imprint a memory.
 memora-cli imprint --text "Customer wants the enterprise plan."
-# → mem_01HXYZ... (watermark wmk_01HXYZ...)
+# → 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 (watermark b2c9e4f1-8a7d-4e3b-9f6c-1d5a0e8b7c42)
 
 # Recall it.
 memora-cli recall enterprise
-# → [1] score=0.4 via=seed mem=mem_01HXYZ... "Customer wants the enterprise plan."
+# → [1] score=0.4 via=seed mem=7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 "Customer wants the enterprise plan."
 
 # Patch — only the changed cell re-embeds.
-memora-cli patch mem_01HXYZ... \
+memora-cli patch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 \
     --patch '[{"old_string":"enterprise","new_string":"premium"}]' \
-    --if-match wmk_01HXYZ...
+    --if-match b2c9e4f1-8a7d-4e3b-9f6c-1d5a0e8b7c42
 # → Cells re-embed: 1
 #   Cells skipped:  0 (the moat)
 ```
@@ -42,7 +42,7 @@ memora-cli patch mem_01HXYZ... \
 |---|---|---|
 | `--endpoint URL` | `MEMORA_ENDPOINT` | `http://localhost:7777` |
 | `--api-key KEY` | `MEMORA_API_KEY` | (empty — local-dev mode) |
-| `--agent-id ID` | `MEMORA_AGENT_ID` | `agent_opaque_local` |
+| `--agent-id ID` | `MEMORA_AGENT_ID` | `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` (shared local-CLI agent) |
 | `--workspace ID`, `-w ID` | `MEMORA_WORKSPACE` | (required for memory verbs) |
 | `--output FMT`, `-o FMT` | `MEMORA_OUTPUT` | `text` (`json`, `jsonl`) |
 | `--timeout DURATION` | — | `30s` |
@@ -79,15 +79,15 @@ memora-cli recall "pricing decision" \
 ### Link two memories
 
 ```bash
-memora-cli link mem_abc mem_def --type references
-memora-cli neighbors mem_abc --direction both
+memora-cli link 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 4c7e9b2a-1d3f-4e5a-b6c8-0f2d4a6e8b1c --type references
+memora-cli neighbors 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 --direction both
 ```
 
 ### Patch a long memory and verify the moat
 
 ```bash
-WMK=$(memora-cli lookup mem_abc -o json | jq -r .head_watermark)
-memora-cli patch mem_abc \
+WMK=$(memora-cli lookup 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 -o json | jq -r .head_watermark)
+memora-cli patch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 \
   --patch '[{"old_string":"old phrase","new_string":"new phrase"}]' \
   --if-match "$WMK" \
   -o json | jq .cells_re_embedded
@@ -114,7 +114,7 @@ memora-cli list -o json | jq -r '.memories[] | .id + "\t" + (.content | .[:60])'
 ```bash
 memora-cli --endpoint https://memora.example.com \
   --api-key mka_live_xxx \
-  -w ws_prod \
+  -w 3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90 \
   imprint --text "..."
 ```
 
@@ -147,5 +147,5 @@ Wire it from Claude Code via `.mcp.json`:
 }
 ```
 
-The MCP server exposes all 25 OSS tools (memora_imprint, _recall,
+The MCP server exposes all 26 OSS tools (memora_imprint, _recall,
 _patch, _link, _neighbors, _traverse, etc.).

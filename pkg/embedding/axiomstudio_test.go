@@ -1,32 +1,15 @@
 package embedding
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
 
-func TestAxiomStudioProvider_Returns501(t *testing.T) {
-	p, err := Open("axiomstudio:default")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = p.Embed(context.Background(), []string{"hello"})
-	if err == nil {
-		t.Fatal("expected 501 error")
-	}
-	if !errors.Is(err, errNotImplemented) {
-		t.Errorf("wrong error: %v", err)
-	}
-}
-
-func TestAxiomStudioProvider_Capabilities(t *testing.T) {
-	p, _ := Open("axiomstudio:default")
-	caps := p.Capabilities()
-	if caps.Quality != "placeholder" {
-		t.Errorf("quality = %q, want placeholder", caps.Quality)
-	}
-	if caps.SupportsBatch {
-		t.Error("placeholder should not claim batch support")
+// TestAxiomStudioProvider_FailsAtOpen: the Cloud gateway is not wired in
+// OSS, so a node configured for it fails at start-up (Open) instead of
+// serving keyword-only results while every embed silently fails.
+func TestAxiomStudioProvider_FailsAtOpen(t *testing.T) {
+	if _, err := Open("axiomstudio:default"); !errors.Is(err, errNotImplemented) {
+		t.Fatalf("Open(axiomstudio) err = %v, want errNotImplemented", err)
 	}
 }

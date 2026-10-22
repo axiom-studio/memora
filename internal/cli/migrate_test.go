@@ -45,7 +45,7 @@ func TestMigrateContent_DryRun(t *testing.T) {
 		t.Fatalf("create ws: %v", err)
 	}
 	for i := 0; i < 5; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: "test content", WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "test content", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		if _, err := primary.ImprintMemory(ctx, m); err != nil {
 			t.Fatalf("imprint: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestMigrateContent_CommitAndVerify(t *testing.T) {
 
 	var memIDs []string
 	for i := 0; i < 10; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: "content " + string(rune('A'+i)), WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "content " + string(rune('A'+i)), WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		_, _ = primary.ImprintMemory(ctx, m)
 		memIDs = append(memIDs, m.ID)
 	}
@@ -131,7 +131,7 @@ func TestMigrateContent_Idempotent(t *testing.T) {
 
 	ws := &types.Workspace{Name: "migrate-idempotent"}
 	_ = primary.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "idempotent test", WrittenByAgentID: "agent"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "idempotent test", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 	_, _ = primary.ImprintMemory(ctx, m)
 
 	// Run twice.
@@ -158,7 +158,7 @@ func TestMigrateContent_ResumeFrom(t *testing.T) {
 
 	var memIDs []string
 	for i := 0; i < 5; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: "content", WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "content", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		_, _ = primary.ImprintMemory(ctx, m)
 		memIDs = append(memIDs, m.ID)
 	}
@@ -184,7 +184,7 @@ func TestMigrateContent_ProgressNDJSON(t *testing.T) {
 	ws := &types.Workspace{Name: "migrate-progress"}
 	_ = primary.CreateWorkspace(ctx, ws)
 	for i := 0; i < 150; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: "c", WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "c", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		_, _ = primary.ImprintMemory(ctx, m)
 	}
 
@@ -216,7 +216,7 @@ func TestMigrateContent_ResumeFromTypoErrors(t *testing.T) {
 
 	ws := &types.Workspace{Name: "migrate-resume-typo"}
 	_ = primary.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "agent"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "x", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 	_, _ = primary.ImprintMemory(ctx, m)
 
 	_, err := MigrateContent(ctx, primary, content, MigrateContentConfig{
@@ -236,12 +236,12 @@ func TestMigrateContent_CellWriteFailureCounted(t *testing.T) {
 
 	ws := &types.Workspace{Name: "migrate-cellfail"}
 	_ = primary.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "cell test", WrittenByAgentID: "agent"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "cell test", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 	_, _ = primary.ImprintMemory(ctx, m)
 
 	cells := []types.Cell{
-		{CellID: "cell_001", MemoryID: m.ID, Text: "chunk one", TextMD5: "abc", WrittenByAgentID: "agent"},
-		{CellID: "cell_002", MemoryID: m.ID, Text: "chunk two", TextMD5: "def", WrittenByAgentID: "agent"},
+		{CellID: "cell_001", MemoryID: m.ID, Text: "chunk one", TextMD5: "abc", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"},
+		{CellID: "cell_002", MemoryID: m.ID, Text: "chunk two", TextMD5: "def", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"},
 	}
 	if err := primary.UpsertCells(ctx, m.ID, cells); err != nil {
 		t.Fatalf("upsert cells: %v", err)
@@ -292,7 +292,7 @@ func TestMigrateContent_PaginationExceedsOnePage(t *testing.T) {
 
 	total := 10
 	for i := 0; i < total; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("content-%d", i), WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: fmt.Sprintf("content-%d", i), WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		_, _ = primary.ImprintMemory(ctx, m)
 	}
 
@@ -316,7 +316,7 @@ func TestMigrateContent_VerifyChecksCells(t *testing.T) {
 
 	ws := &types.Workspace{Name: "migrate-verify-cells"}
 	_ = primary.CreateWorkspace(ctx, ws)
-	m := &types.Memory{WorkspaceID: ws.ID, Content: "verify cells", WrittenByAgentID: "agent"}
+	m := &types.Memory{WorkspaceID: ws.ID, Content: "verify cells", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 	_, _ = primary.ImprintMemory(ctx, m)
 
 	// Migrate memory content only (not cells) by using PutMemoryContent directly.

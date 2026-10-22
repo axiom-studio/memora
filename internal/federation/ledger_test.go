@@ -1,91 +1,84 @@
 package federation
 
 import (
-	"strings"
+	"errors"
 	"testing"
 
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-func TestNewOutboundRecallEntry(t *testing.T) {
+func TestSearchEntry(t *testing.T) {
 	fr := &FanoutResult{
-		Results:        []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}},
-		TotalScanned:   50,
-		PartialSuccess: true,
-		FailedPeers:    []string{"dead-peer"},
-		PeerLatencyMS:  map[string]int{"peer1": 10},
+		Asked: []string{"b", "c"},
+		Lists: []NodeHits{
+			{NodeID: "a", Hits: []api.RecallHit{{MemoryID: "m1"}, {MemoryID: "m2"}}},
+			{NodeID: "b", Hits: []api.RecallHit{{MemoryID: "m3"}}},
+		},
+		Failures: []PeerFailure{{NodeID: "c", Name: "c", Err: ErrOutboundRateLimited}},
 	}
-	e := NewOutboundRecallEntry("ws_test", "fed_abc", fr)
-	if e.Op != "federation_recall" {
-		t.Errorf("expected federation_recall, got %s", e.Op)
+	e := SearchEntry("secret query", fr)
+	if e.Op != OpSearch || e.WorkspaceID != "" {
+		t.Fatalf("entry = %+v", e)
 	}
-	if !strings.HasPrefix(e.LedgerID, "lg_") {
-		t.Errorf("expected lg_ prefix, got %s", e.LedgerID)
+	if _, err := types.ParseID("ledger_id", e.LedgerID); err != nil {
+		t.Fatal(err)
 	}
-	if e.Metadata["federation_id"] != "fed_abc" {
-		t.Errorf("expected fed_abc, got %v", e.Metadata["federation_id"])
+	m := e.Metadata
+	hits := m["hits_per_node"].(map[string]int)
+	if m["query"] != "secret query" || m["total_hits"] != 3 || hits["a"] != 2 || hits["b"] != 1 {
+		t.Fatalf("metadata = %v", m)
 	}
-	if e.Metadata["partial_success"] != true {
-		t.Error("expected partial_success=true")
+	if fp := m["failed_peers"].([]api.FailedPeer); len(fp) != 1 || fp[0].ErrorCode != "outbound_rate_limited" {
+		t.Fatalf("failed_peers = %v", m["failed_peers"])
 	}
-}
-
-func TestNewOutboundRecallEntry_NoFailures(t *testing.T) {
-	fr := &FanoutResult{
-		Results:      []api.RecallHit{{MemoryID: "m1"}},
-		TotalScanned: 10,
-	}
-	e := NewOutboundRecallEntry("ws_test", "fed_abc", fr)
-	if _, ok := e.Metadata["partial_success"]; ok {
-		t.Error("should not have partial_success when no failures")
+	if _, ok := SearchEntry("q", &FanoutResult{}).Metadata["failed_peers"]; ok {
+		t.Fatal("failed_peers set without failures")
 	}
 }
 
-func TestNewOutboundLookupEntry_Found(t *testing.T) {
-	e := NewOutboundLookupEntry("ws_test", "fed_abc", "mem_123", true, "peer-a")
-	if e.Op != "federation_lookup" {
-		t.Errorf("expected federation_lookup, got %s", e.Op)
+func TestPeerEntries_ActorIsPeer(t *testing.T) {
+	for _, e := range []api.LedgerEntry{
+		InboundSearchEntry("peer-x", "q", []string{"peer-x"}, 4),
+		RejectedEntry("peer-x", ReasonBadKey, "/v1/federation/search"),
+		FetchEntry("inbound", "peer-x", "mem", "ws", OutcomeOK),
+	} {
+		if e.APIKeyID != "peer-x" {
+			t.Fatalf("%s actor = %q, want the peer", e.Op, e.APIKeyID)
+		}
 	}
-	if e.Target != "mem_123" {
-		t.Errorf("expected mem_123 target, got %s", e.Target)
-	}
-	if e.Metadata["found"] != true {
-		t.Error("expected found=true")
-	}
-	if e.Metadata["found_on_peer"] != "peer-a" {
-		t.Errorf("expected found_on_peer=peer-a, got %v", e.Metadata["found_on_peer"])
-	}
-}
-
-func TestNewOutboundLookupEntry_NotFound(t *testing.T) {
-	e := NewOutboundLookupEntry("ws_test", "fed_abc", "mem_404", false, "")
-	if e.Metadata["found"] != false {
-		t.Error("expected found=false")
-	}
-	if _, ok := e.Metadata["found_on_peer"]; ok {
-		t.Error("should not have found_on_peer when not found")
+	if e := FetchEntry("outbound", "n", "mem", "", OutcomeNotFound); e.Target != "mem" || e.Metadata["outcome"] != OutcomeNotFound {
+		t.Fatalf("fetch entry = %+v", e)
 	}
 }
 
-func TestNewInboundEntry(t *testing.T) {
-	e := NewInboundEntry("ws_test", "peer-x", "fed_a,fed_b", "recall")
-	if e.Op != "federation_inbound" {
-		t.Errorf("expected federation_inbound, got %s", e.Op)
+func TestRejectReason(t *testing.T) {
+	if got := RejectReason(refuse(ReasonBadCert, "x")); got != ReasonBadCert {
+		t.Fatalf("got %s", got)
 	}
-	if e.AgentID != "peer-x" {
-		t.Errorf("expected peer-x agent, got %s", e.AgentID)
+	if got := RejectReason(types.ErrFederationLoop); got != ReasonLoop {
+		t.Fatalf("got %s", got)
 	}
-	if e.Metadata["inbound_op"] != "recall" {
-		t.Errorf("expected recall, got %v", e.Metadata["inbound_op"])
+	if got := RejectReason(errors.New("other")); got != "error" {
+		t.Fatalf("got %s", got)
+	}
+	if !errors.Is(refuse(ReasonBadKey, "x"), types.ErrFederationAuth) {
+		t.Fatal("refusal does not wrap ErrFederationAuth")
 	}
 }
 
-func TestNewRejectedEntry(t *testing.T) {
-	e := NewRejectedEntry("ws_test", "bad-peer", "not authorized")
-	if e.Op != "federation_rejected" {
-		t.Errorf("expected federation_rejected, got %s", e.Op)
+func TestOutcomeOf(t *testing.T) {
+	cases := map[error]string{
+		nil:                     OutcomeOK,
+		ErrOutboundRateLimited:  OutcomeRateLimited,
+		&PeerError{Status: 401}: OutcomeRejected,
+		&PeerError{Status: 502}: OutcomeError,
+		types.ErrNotFound:       OutcomeNotFound,
+		errors.New("garbled"):   OutcomeError,
 	}
-	if e.Metadata["reason"] != "not authorized" {
-		t.Errorf("unexpected reason: %v", e.Metadata["reason"])
+	for err, want := range cases {
+		if got := OutcomeOf(err); got != want {
+			t.Errorf("OutcomeOf(%v) = %s, want %s", err, got, want)
+		}
 	}
 }

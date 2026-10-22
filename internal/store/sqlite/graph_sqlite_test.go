@@ -42,7 +42,7 @@ func createTestWorkspaceAndMemories(t *testing.T, primary *Store, ctx context.Co
 	}
 	var ids []string
 	for i := 0; i < n; i++ {
-		m := &types.Memory{WorkspaceID: ws.ID, Content: "content", WrittenByAgentID: "agent"}
+		m := &types.Memory{WorkspaceID: ws.ID, Content: "content", WrittenByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"}
 		if _, err := primary.ImprintMemory(ctx, m); err != nil {
 			t.Fatalf("imprint: %v", err)
 		}
@@ -60,7 +60,7 @@ func TestGraphStore_LinkAndNeighbors(t *testing.T) {
 		SourceMemoryID:   mems[0],
 		TargetMemoryID:   mems[1],
 		EdgeType:         types.EdgeTypeReferences,
-		CreatedByAgentID: "agent",
+		CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783",
 	})
 	if err != nil {
 		t.Fatalf("Link: %v", err)
@@ -85,8 +85,8 @@ func TestGraphStore_UnlinkAndCascade(t *testing.T) {
 	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-unlink-test", 3)
 
-	e1, _ := gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
-	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[1], TargetMemoryID: mems[2], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
+	e1, _ := gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"})
+	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[1], TargetMemoryID: mems[2], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"})
 
 	if err := gs.Unlink(ctx, wsID, e1.EdgeID, "agent"); err != nil {
 		t.Fatalf("Unlink: %v", err)
@@ -110,8 +110,8 @@ func TestGraphStore_Traverse(t *testing.T) {
 	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-traverse-test", 3)
 
-	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeDerivedFrom, CreatedByAgentID: "agent"})
-	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[1], TargetMemoryID: mems[2], EdgeType: types.EdgeTypeDerivedFrom, CreatedByAgentID: "agent"})
+	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeDerivedFrom, CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"})
+	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[1], TargetMemoryID: mems[2], EdgeType: types.EdgeTypeDerivedFrom, CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"})
 
 	tr, err := gs.Traverse(ctx, wsID, mems[0], adapter.TraverseOpts{Depth: 2, Direction: api.GraphDirOut})
 	if err != nil {
@@ -138,7 +138,7 @@ func TestGraphStore_Stats(t *testing.T) {
 	gs, primary, ctx := openGraphAndMetadata(t)
 	wsID, mems := createTestWorkspaceAndMemories(t, primary, ctx, "graph-stats-test", 2)
 
-	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "agent"})
+	_, _ = gs.Link(ctx, types.Edge{WorkspaceID: wsID, SourceMemoryID: mems[0], TargetMemoryID: mems[1], EdgeType: types.EdgeTypeReferences, CreatedByAgentID: "b33aed8f-3134-4967-83dc-39f9a7c95783"})
 
 	nodeCount, byType, err := gs.Stats(ctx, wsID)
 	if err != nil {

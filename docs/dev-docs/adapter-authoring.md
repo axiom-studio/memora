@@ -45,6 +45,8 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error { /* ... */ return nil }
 ```
 
+`DeleteVectors` takes two kinds of key. A key with a `CellID` removes that cell's vector. A key with only `WorkspaceID` and `MemoryID` removes every vector of that memory in that workspace; `Forget` uses it, so a store that ignores it leaves a forgotten memory's embeddings behind. `adapter.SplitVectorKeys` separates the two and refuses keys that name neither. `compliance.VectorDeleteContract` checks the behaviour. A store that also implements `adapter.ModelAwareVectorStore` lists the memories it holds vectors for with `VectorMemories`, which `memora-core reembed` uses to remove the vectors of memories that no longer exist.
+
 Then in your `memora-core` build, add a blank import:
 
 ```go

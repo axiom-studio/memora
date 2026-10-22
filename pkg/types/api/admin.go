@@ -80,6 +80,12 @@ type HealthResponse struct {
 	Status  string            `json:"status"`            // "live" | "ready" | "degraded"
 	Adapter map[string]string `json:"adapter,omitempty"` // primary/vector/ledger -> "ok" | "down" | "degraded"
 	Version string            `json:"version,omitempty"`
+	// StaleVectors and MissingVectors (readiness only) count vector rows
+	// from another embedding model, and live cells with no vector from
+	// the active one; vector search reaches neither until
+	// `memora-core reembed`. Absent when the stores cannot tell.
+	StaleVectors   *int `json:"stale_vectors,omitempty"`
+	MissingVectors *int `json:"missing_vectors,omitempty"`
 }
 
 // ErrorEnvelope is the standard error response shape.
@@ -87,4 +93,45 @@ type ErrorEnvelope struct {
 	ErrorCode string         `json:"error_code"`
 	Message   string         `json:"message"`
 	Details   map[string]any `json:"details,omitempty"`
+}
+
+// PeerRequest is POST /v1/federation/peers: create or replace the peer
+// with NodeID. Keys are write-only: an empty InboundKey/InboundKeySHA256
+// or APIKey keeps the stored one. InboundKey is the key the peer will
+// present (stored only as its SHA-256); APIKey is the key this node
+// presents to the peer (stored sealed). TLS file paths are config-only.
+type PeerRequest struct {
+	NodeID           string  `json:"node_id"`
+	Name             string  `json:"name"`
+	URL              string  `json:"url"`
+	InboundKey       string  `json:"inbound_key,omitempty"`
+	InboundKeySHA256 string  `json:"inbound_key_sha256,omitempty"`
+	APIKey           string  `json:"api_key,omitempty"`
+	ClientCertSHA256 string  `json:"client_cert_sha256,omitempty"`
+	TimeoutMS        int     `json:"timeout_ms,omitempty"`
+	RateLimitQPS     float64 `json:"rate_limit_qps,omitempty"`
+	InboundQPS       float64 `json:"inbound_qps,omitempty"`
+	Revoked          bool    `json:"revoked,omitempty"`
+}
+
+// PeerView is a federation peer as the API shows it: never a key, only
+// whether one is set.
+type PeerView struct {
+	NodeID        string `json:"node_id"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	TrustMode     string `json:"trust_mode"`
+	HasInboundKey bool   `json:"has_inbound_key"`
+	HasAPIKey     bool   `json:"has_api_key"`
+	// APIKeyStatus is "unreadable" when a stored api_key does not open
+	// with this node's federation secret (has_api_key is then false):
+	// the peer is not searched until its api_key is set again.
+	APIKeyStatus     string    `json:"api_key_status,omitempty"`
+	ClientCertSHA256 string    `json:"client_cert_sha256,omitempty"`
+	TimeoutMS        int       `json:"timeout_ms,omitempty"`
+	RateLimitQPS     float64   `json:"rate_limit_qps,omitempty"`
+	InboundQPS       float64   `json:"inbound_qps,omitempty"`
+	Revoked          bool      `json:"revoked"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }

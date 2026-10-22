@@ -20,9 +20,43 @@ func agentFrom(ctx context.Context) string {
 	return v
 }
 
+// validateIDArgs rejects any present, non-empty top-level ID argument
+// (types.IDField) that is not a UUID. Missing values and values of the wrong
+// JSON type are left to the tool's own decode and required-field checks.
+func validateIDArgs(args json.RawMessage) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(args, &m); err != nil {
+		return nil // the tool's decode reports malformed arguments
+	}
+	for k, raw := range m {
+		isID, isList := types.IDField(k)
+		if !isID {
+			continue
+		}
+		var ids []string
+		if isList {
+			_ = json.Unmarshal(raw, &ids)
+		} else {
+			var id string
+			if json.Unmarshal(raw, &id) == nil && id != "" {
+				ids = []string{id}
+			}
+		}
+		for _, id := range ids {
+			if _, err := types.ParseID(k, id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // dispatchTool routes a tool call to the corresponding service-layer
 // method. Returns a JSON-marshallable result or an error.
 func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	if err := validateIDArgs(args); err != nil {
+		return nil, err
+	}
 	pinned := agentFrom(ctx)
 
 	switch name {
@@ -64,6 +98,28 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			return nil, fmt.Errorf("memory %q in workspace %q: %w", in.MemoryID, in.WorkspaceID, types.ErrNotFound)
 		}
 		return m, nil
+	case "memora_fetch":
+		var in struct {
+			MemoryID    string `json:"memory_id"`
+			NodeID      string `json:"node_id"`
+			WorkspaceID string `json:"workspace_id"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		remote := in.NodeID != "" && in.NodeID != s.svc.NodeID
+		if s.multiTenant && (remote || in.WorkspaceID == "") {
+			// Fail closed: peers are trusted per node, not per tenant.
+			return nil, fmt.Errorf("%w: multi-tenant mode needs workspace_id and cannot fetch from peers", types.ErrInvalidInput)
+		}
+		env, err := s.svc.FetchMemoryFrom(ctx, in.NodeID, in.MemoryID)
+		if err != nil {
+			return nil, err
+		}
+		if in.WorkspaceID != "" && !remote && env.WorkspaceID != in.WorkspaceID {
+			return nil, fmt.Errorf("memory %q in workspace %q: %w", in.MemoryID, in.WorkspaceID, types.ErrNotFound)
+		}
+		return env, nil
 	case "memora_update":
 		var in struct {
 			WorkspaceID       string `json:"workspace_id"`
@@ -138,6 +194,16 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		}
 		_ = json.Unmarshal(args, &wrapper)
 		return s.svc.Recall(ctx, wrapper.WorkspaceID, in)
+	case "memora_search":
+		var in api.SearchRequest
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, err
+		}
+		if s.multiTenant && len(in.WorkspaceIDs) == 0 {
+			// Fail closed: node-wide must never mean cross-tenant.
+			return nil, fmt.Errorf("%w: workspace_ids is required in multi-tenant mode", types.ErrInvalidInput)
+		}
+		return s.svc.Search(ctx, in)
 	case "memora_pin":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`
@@ -160,7 +226,7 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			WorkspaceID: in.WorkspaceID, Query: in.Query, Mode: in.Mode, K: in.K,
 			Watermark: in.Watermark, Label: in.Label, CreatedBy: pinned,
 		}
-		if err := s.svc.Metadata.CreatePin(ctx, p); err != nil {
+		if err := s.svc.CreatePin(ctx, p); err != nil {
 			return nil, err
 		}
 		return api.PinResponse{PinID: p.PinID, Watermark: p.Watermark}, nil
@@ -172,12 +238,14 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		if err := s.svc.Metadata.DeletePin(ctx, in.WorkspaceID, in.PinID); err != nil {
+		by, _ := ctx.Value(ctxKeyAgent).(string)
+		if err := s.svc.DeletePin(ctx, in.WorkspaceID, in.PinID, by); err != nil {
 			return nil, err
 		}
 		return map[string]any{"pin_id": in.PinID, "unpinned": true}, nil
 	case "memora_list_workspaces":
-		return s.svc.Metadata.ListWorkspaces(ctx, 100)
+		ws, _, err := s.svc.Metadata.ListWorkspaces(ctx, "", 100)
+		return ws, err
 	case "memora_create_workspace":
 		var in api.CreateWorkspaceRequest
 		if err := json.Unmarshal(args, &in); err != nil {
@@ -269,7 +337,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, err
 		}
-		return s.svc.Metadata.ListMemories(ctx, in.WorkspaceID, in.CollectionID, in.Limit)
+		mems, _, err := s.svc.Metadata.ListMemories(ctx, in.WorkspaceID, in.CollectionID, "", in.Limit)
+		return mems, err
 	case "memora_get_watermark_history":
 		var in struct {
 			WorkspaceID string `json:"workspace_id"`
@@ -305,7 +374,8 @@ func (s *Server) dispatchTool(ctx context.Context, name string, args json.RawMes
 			Model:            in.Model,
 			Capabilities:     in.Capabilities,
 		}
-		if err := s.svc.Metadata.RegisterAgent(ctx, a); err != nil {
+		by, _ := ctx.Value(ctxKeyAgent).(string)
+		if err := s.svc.RegisterAgent(ctx, a, by); err != nil {
 			return nil, err
 		}
 		return a, nil

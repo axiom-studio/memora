@@ -43,6 +43,11 @@ const exitClient = 4
 const exitCAS = 5
 const exitNotFound = 8
 
+// defaultAgentID is the agent the CLI writes as when neither
+// --agent-id nor $MEMORA_AGENT_ID is set: one fixed UUIDv4 shared by
+// every local CLI user, as "agent_opaque_local" was before IDs were UUIDs.
+const defaultAgentID = "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d"
+
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
 		printRootHelp()
@@ -90,6 +95,10 @@ func main() {
 		cmdForget(ctx, c, g)
 	case "recall":
 		cmdRecall(ctx, c, g)
+	case "search":
+		cmdSearch(ctx, c, g)
+	case "fetch":
+		cmdFetch(ctx, c, g)
 	case "list":
 		cmdList(ctx, c, g)
 	case "watermarks":
@@ -136,7 +145,7 @@ func parseGlobal(args []string) globalFlags {
 	g := globalFlags{
 		Endpoint:  getenv("MEMORA_ENDPOINT", "http://localhost:7777"),
 		APIKey:    os.Getenv("MEMORA_API_KEY"),
-		AgentID:   getenv("MEMORA_AGENT_ID", "agent_opaque_local"),
+		AgentID:   getenv("MEMORA_AGENT_ID", defaultAgentID),
 		Workspace: os.Getenv("MEMORA_WORKSPACE"),
 		Output:    getenv("MEMORA_OUTPUT", "text"),
 		Timeout:   30 * time.Second,
@@ -406,16 +415,15 @@ func cmdLookup(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdUpdate(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "update <mem_id> --text|--from-file ... --if-match <wmk>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	text := fs.String("text", "", "new content")
 	fromFile := fs.String("from-file", "", "load content from file")
 	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "update <mem_id> --text|--from-file ... --if-match <wmk>")
+		os.Exit(exitUsage)
+	}
 	content, err := loadContent(*text, *fromFile)
 	die(err)
 	resp, err := c.Update(ctx, g.Workspace, memID, *ifMatch, api.UpdateRequest{Content: content, ExpectedWatermark: *ifMatch})
@@ -425,16 +433,15 @@ func cmdUpdate(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdPatch(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "patch <mem_id> --patch '[{...}]' --if-match <wmk>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("patch", flag.ExitOnError)
 	patchJSON := fs.String("patch", "", "inline patch JSON: [{\"old_string\":...,\"new_string\":...}]")
 	patchFile := fs.String("patch-file", "", "read patch ops from file")
 	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "patch <mem_id> --patch '[{...}]' --if-match <wmk>")
+		os.Exit(exitUsage)
+	}
 	raw := *patchJSON
 	if *patchFile != "" {
 		b, err := os.ReadFile(*patchFile)
@@ -464,15 +471,14 @@ func cmdPatch(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdAppend(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
+	fs := flag.NewFlagSet("append", flag.ExitOnError)
+	text := fs.String("text", "", "content to append (use - for stdin)")
+	ifMatch := fs.String("if-match", "", "expected head watermark")
+	memID := positional(parseArgs(fs, g.Args), 0)
 	if memID == "" {
 		fmt.Fprintln(os.Stderr, "append <mem_id> --text ... [--if-match <wmk>]")
 		os.Exit(exitUsage)
 	}
-	fs := flag.NewFlagSet("append", flag.ExitOnError)
-	text := fs.String("text", "", "content to append (use - for stdin)")
-	ifMatch := fs.String("if-match", "", "expected head watermark")
-	_ = fs.Parse(rest)
 	content, err := loadContent(*text, "")
 	die(err)
 	resp, err := c.Append(ctx, g.Workspace, memID, *ifMatch, api.AppendRequest{Content: content, ExpectedWatermark: *ifMatch})
@@ -504,28 +510,12 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	depth := fs.Int("neighbor-depth", 0, "graph_expansion.depth (0 = no expansion)")
 	edgeTypes := fs.String("edge-types", "", "comma-separated edge_types for expansion")
 
-	// Extract flags before and after positional argument (allow interspersed flags)
-	var flagsBefore []string
-	var queryAndFlags []string
-	foundQuery := false
-	for i := 0; i < len(g.Args); i++ {
-		arg := g.Args[i]
-		if !foundQuery && strings.HasPrefix(arg, "-") {
-			flagsBefore = append(flagsBefore, arg)
-		} else if !foundQuery {
-			foundQuery = true
-			queryAndFlags = append(queryAndFlags, arg)
-		} else {
-			queryAndFlags = append(queryAndFlags, arg)
-		}
-	}
-
-	_ = fs.Parse(append(flagsBefore, queryAndFlags...))
-	if len(fs.Args()) == 0 {
+	args := parseArgs(fs, g.Args)
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "recall <query>")
 		os.Exit(exitUsage)
 	}
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(args, " ")
 	req := api.RecallRequest{
 		Query:   query,
 		Mode:    api.RecallMode(*mode),
@@ -564,6 +554,81 @@ func cmdRecall(ctx context.Context, c *client.Client, g globalFlags) {
 	}
 }
 
+// cmdSearch is `search <query>`: node-wide search, every workspace unless
+// --workspaces narrows it. --workspace is ignored.
+func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
+	fs := flag.NewFlagSet("search", flag.ExitOnError)
+	mode := fs.String("mode", "hybrid", "keyword|vector|hybrid")
+	k := fs.Int("k", 5, "max results")
+	workspaces := fs.String("workspaces", "", "comma-separated workspace IDs to search (default: all)")
+	federated := fs.Bool("federated", false, "also search this node's federation peers")
+	peers := fs.String("peers", "", "with --federated: comma-separated peer node IDs (default: all)")
+	perPeerK := fs.Int("per-peer-k", 0, "with --federated: hits per peer (default: --k)")
+	timeoutMS := fs.Int("timeout-ms", 0, "with --federated: per-peer timeout in ms (default: each peer's)")
+	includeContent := fs.Bool("include-content", false, "return each Memory's full content")
+	args := parseArgs(fs, g.Args)
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...] [--federated [--peers id,...] [--per-peer-k N] [--timeout-ms N]] [--include-content]")
+		os.Exit(exitUsage)
+	}
+	req := api.SearchRequest{
+		Query: strings.Join(args, " "), Mode: api.RecallMode(*mode), K: *k,
+		Federated: *federated, PerPeerK: *perPeerK, TimeoutMS: *timeoutMS, IncludeContent: *includeContent,
+	}
+	if *workspaces != "" {
+		req.WorkspaceIDs = strings.Split(*workspaces, ",")
+		// On a multi-tenant server the search is pinned to the tenant in
+		// X-Memora-Workspace (--workspace / $MEMORA_WORKSPACE); a single
+		// --workspaces ID names that tenant when none is set (#4379).
+		if c.Workspace == "" && len(req.WorkspaceIDs) == 1 {
+			c.Workspace = req.WorkspaceIDs[0]
+		}
+	}
+	if *peers != "" {
+		req.Peers = strings.Split(*peers, ",")
+	}
+	resp, err := c.Search(ctx, req)
+	die(err)
+	if g.Output != "text" {
+		emit(g, resp)
+		return
+	}
+	if len(resp.Results) == 0 {
+		fmt.Println("(no results)")
+	}
+	for i, h := range resp.Results {
+		node := ""
+		if h.NodeName != "" {
+			node = " node=" + h.NodeName
+		}
+		fmt.Printf("[%d] score=%.4f%s ws=%s mem=%s\n    %s\n", i+1, h.Score, node, h.WorkspaceID, h.MemoryID, truncate(h.Text, 140))
+	}
+	for _, f := range resp.FailedPeers {
+		fmt.Printf("peer %s (%s) did not answer: %s\n", f.Name, f.NodeID, f.ErrorCode)
+	}
+	fmt.Printf("(%d results, %d candidates, %dms)\n", len(resp.Results), resp.TotalCandidatesScanned, resp.LatencyMS)
+}
+
+// cmdFetch is `fetch <memory_id> [--node <node_id>]`: a full Memory from
+// the node that holds it (this node without --node).
+func cmdFetch(ctx context.Context, c *client.Client, g globalFlags) {
+	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
+	node := fs.String("node", "", "node ID of the peer that holds it (default: this node)")
+	args := parseArgs(fs, g.Args)
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "fetch <memory_id> [--node <node_id>]")
+		os.Exit(exitUsage)
+	}
+	env, err := c.FetchMemory(ctx, args[0], *node)
+	die(err)
+	if g.Output != "text" {
+		emit(g, env)
+		return
+	}
+	fmt.Printf("memory:    %s\nnode:      %s (%s)\nworkspace: %s\nwatermark: %s\ncells:     %d\n\n%s\n",
+		env.ID, env.NodeName, env.NodeID, env.WorkspaceID, env.HeadWatermark, len(env.Cells), env.Content)
+}
+
 func cmdList(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
@@ -596,15 +661,14 @@ func cmdWatermarks(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdLink(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	pos, rest := popTwoPositionals(g.Args)
+	fs := flag.NewFlagSet("link", flag.ExitOnError)
+	edgeType := fs.String("type", "references", "parent_of|derived_from|supersedes|references|session_of|mentions")
+	props := fs.String("properties", "", "optional JSON object of free-form properties")
+	pos := parseArgs(fs, g.Args)
 	if len(pos) < 2 {
 		fmt.Fprintln(os.Stderr, "link <source_mem_id> <target_mem_id> --type <edge_type>")
 		os.Exit(exitUsage)
 	}
-	fs := flag.NewFlagSet("link", flag.ExitOnError)
-	edgeType := fs.String("type", "references", "parent_of|derived_from|supersedes|references|session_of|mentions")
-	props := fs.String("properties", "", "optional JSON object of free-form properties")
-	_ = fs.Parse(rest)
 	var p map[string]any
 	if *props != "" {
 		die(json.Unmarshal([]byte(*props), &p))
@@ -634,16 +698,15 @@ func cmdUnlink(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdNeighbors(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	memID, rest := popPositional(g.Args)
-	if memID == "" {
-		fmt.Fprintln(os.Stderr, "neighbors <mem_id>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("neighbors", flag.ExitOnError)
 	direction := fs.String("direction", "both", "out|in|both")
 	edgeTypes := fs.String("types", "", "comma-separated edge_types")
 	k := fs.Int("k", 50, "max neighbors")
-	_ = fs.Parse(rest)
+	memID := positional(parseArgs(fs, g.Args), 0)
+	if memID == "" {
+		fmt.Fprintln(os.Stderr, "neighbors <mem_id>")
+		os.Exit(exitUsage)
+	}
 	req := api.NeighborsRequest{
 		MemoryID:  memID,
 		Direction: api.GraphDirection(*direction),
@@ -659,16 +722,15 @@ func cmdNeighbors(ctx context.Context, c *client.Client, g globalFlags) {
 
 func cmdTraverse(ctx context.Context, c *client.Client, g globalFlags) {
 	requireWorkspace(g)
-	seedID, rest := popPositional(g.Args)
-	if seedID == "" {
-		fmt.Fprintln(os.Stderr, "traverse <seed_mem_id>")
-		os.Exit(exitUsage)
-	}
 	fs := flag.NewFlagSet("traverse", flag.ExitOnError)
 	depth := fs.Int("depth", 1, "BFS depth (max 3 in OSS)")
 	direction := fs.String("direction", "out", "out|in|both")
 	edgeTypes := fs.String("types", "", "comma-separated edge_types")
-	_ = fs.Parse(rest)
+	seedID := positional(parseArgs(fs, g.Args), 0)
+	if seedID == "" {
+		fmt.Fprintln(os.Stderr, "traverse <seed_mem_id>")
+		os.Exit(exitUsage)
+	}
 	req := api.TraverseRequest{
 		SeedMemoryID: seedID,
 		Depth:        *depth,
@@ -707,13 +769,19 @@ func cmdAgents(ctx context.Context, c *client.Client, g globalFlags) {
 		die(err)
 		emit(g, map[string]any{"agents": ags})
 	case "register":
+		// --agent-id is a global flag (parseGlobal consumes it wherever it
+		// appears), so the agent registered is the global one: the one
+		// --agent-id names, or else the agent this CLI writes as (#6175).
 		fs := flag.NewFlagSet("agents register", flag.ExitOnError)
-		id := fs.String("agent-id", "", "agent id (required)")
+		id := fs.String("id", "", "agent id (default: --agent-id, $MEMORA_AGENT_ID or the shared CLI agent)")
 		provider := fs.String("provider", "opaque", "identity provider")
 		name := fs.String("display-name", "", "display name")
 		_ = fs.Parse(g.Args[1:])
 		if *id == "" {
-			fmt.Fprintln(os.Stderr, "agents register --agent-id <id>")
+			*id = g.AgentID
+		}
+		if *id == "" {
+			fmt.Fprintln(os.Stderr, "agents register [--agent-id <uuid>] [--display-name <name>]")
 			os.Exit(exitUsage)
 		}
 		a, err := c.RegisterAgent(ctx, g.Workspace, api.RegisterAgentRequest{
@@ -888,33 +956,37 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// popPositional pulls the first non-flag arg off the front of args and
-// returns it plus the remainder (suitable for fs.Parse). Returns ""
-// if no positional is present.
-func popPositional(args []string) (string, []string) {
+// parseArgs parses args into fs and returns the positional arguments in
+// order. Unlike fs.Parse, which stops at the first positional, flags may
+// come before, between or after positionals, as the usage lines show. A
+// literal "--" ends flag parsing; everything after it is positional, so a
+// query can contain text that starts with "-".
+func parseArgs(fs *flag.FlagSet, args []string) []string {
+	var tail []string
 	for i, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		out := append([]string{}, args[:i]...)
-		out = append(out, args[i+1:]...)
-		return a, out
-	}
-	return "", args
-}
-
-func popTwoPositionals(args []string) ([]string, []string) {
-	var pos []string
-	rest := args
-	for len(pos) < 2 {
-		p, r := popPositional(rest)
-		if p == "" {
+		if a == "--" {
+			args, tail = args[:i], args[i+1:]
 			break
 		}
-		pos = append(pos, p)
-		rest = r
 	}
-	return pos, rest
+	var pos []string
+	for {
+		_ = fs.Parse(args) // ExitOnError: a bad flag exits with usage
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return append(pos, tail...)
+		}
+		pos = append(pos, rest[0])
+		args = rest[1:]
+	}
+}
+
+// positional returns pos[i], or "" when there are fewer positionals.
+func positional(pos []string, i int) string {
+	if i < len(pos) {
+		return pos[i]
+	}
+	return ""
 }
 
 type repeatable struct{ values []string }
@@ -947,11 +1019,14 @@ Commands:
   list [--collection <id>] [--limit N]
   watermarks <mem_id>
   link <src_mem_id> <tgt_mem_id> --type references|...
+  search <query> [--mode keyword|vector|hybrid] [--k N] [--workspaces id,...]
+         [--federated [--peers id,...] [--per-peer-k N] [--timeout-ms N]] [--include-content]
+  fetch <memory_id> [--node <node_id>]
   unlink <edge_id>
   neighbors <mem_id> [--direction out|in|both] [--types ...] [--k N]
   traverse <seed_mem_id> [--depth 1..3] [--direction ...] [--types ...]
   graph stats
-  agents list|register --agent-id <id>
+  agents list|register [--agent-id <uuid>] [--display-name <name>]
   health
   ready
   migrate content [--workspace ...] [--dry-run|--verify] [--resume-from ...]
@@ -960,7 +1035,8 @@ Commands:
 Global flags:
   --endpoint <url>       (default: $MEMORA_ENDPOINT or http://localhost:7777)
   --api-key <key>        (default: $MEMORA_API_KEY)
-  --agent-id <id>        (default: $MEMORA_AGENT_ID or agent_opaque_local)
+  --agent-id <uuid>      (default: $MEMORA_AGENT_ID or the shared local-CLI agent
+                         ` + defaultAgentID + `)
   --workspace, -w <id>   (default: $MEMORA_WORKSPACE)
   --output, -o text|json|jsonl|yaml
   --timeout <duration>   (default: 30s)

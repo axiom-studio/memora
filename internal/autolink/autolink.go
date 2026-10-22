@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -148,7 +149,7 @@ func AutoLink(
 	edges := make([]types.Edge, 0, len(candidates))
 	for _, c := range candidates {
 		edges = append(edges, types.Edge{
-			EdgeID:         types.NewID(types.EdgeIDPrefix),
+			EdgeID:         types.NewID(),
 			WorkspaceID:    workspaceID,
 			SourceMemoryID: newMemory.ID,
 			TargetMemoryID: c.MemoryID,
@@ -180,6 +181,7 @@ func AutoLink(
 		e.EdgeID = r.EdgeID
 		created = append(created, e)
 		_ = deps.Ledger.Append(ctx, api.LedgerEntry{
+			RequestID:   reqctx.RequestID(ctx),
 			WorkspaceID: workspaceID,
 			Op:          "graph_link",
 			Target:      newMemory.ID,
@@ -209,6 +211,7 @@ func AutoLink(
 func ledgerSkip(ctx context.Context, deps Deps, workspaceID, memoryID string, cause error) {
 	deps.Logger.Warn("auto_link_skipped", "workspace", workspaceID, "memory", memoryID, "reason", cause)
 	_ = deps.Ledger.Append(ctx, api.LedgerEntry{
+		RequestID:   reqctx.RequestID(ctx),
 		WorkspaceID: workspaceID,
 		Op:          "auto_link_skipped",
 		Target:      memoryID,

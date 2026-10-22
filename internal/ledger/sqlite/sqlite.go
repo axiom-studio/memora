@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -65,11 +66,54 @@ CREATE TABLE IF NOT EXISTS memora_ledger (
     redacted         INTEGER NOT NULL DEFAULT 0,
     redacted_fields  TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts    ON memora_ledger(workspace_id, ts);
+DROP INDEX IF EXISTS idx_ledger_ws_ts;
+CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts_id ON memora_ledger(workspace_id, ts, ledger_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_agent ON memora_ledger(workspace_id, agent_id, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_op    ON memora_ledger(workspace_id, op, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_target   ON memora_ledger(workspace_id, target, ts);`)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.normalizeTimestamps(ctx)
+}
+
+// tsLayout is the fixed-width UTC layout ts is stored in. Text comparison
+// in ORDER BY, the since/until filters and the keyset cursor is then
+// chronological. RFC3339Nano trims trailing zeros, and "…05.1Z" sorts
+// after "…05.12Z" (#6155).
+const tsLayout = "2006-01-02T15:04:05.000000000Z"
+
+// formatTS renders t for the ts column.
+func formatTS(t time.Time) string { return t.UTC().Format(tsLayout) }
+
+// normalizeTimestamps rewrites ts values written before tsLayout. Every
+// tsLayout value is 30 bytes, so only other rows are touched; idempotent.
+// O(old rows), once.
+func (s *Store) normalizeTimestamps(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT ledger_id, ts FROM memora_ledger WHERE length(ts) != 30`)
+	if err != nil {
+		return fmt.Errorf("scan ledger timestamps: %w", err)
+	}
+	fixed := map[string]string{}
+	for rows.Next() {
+		var id, ts string
+		if err := rows.Scan(&id, &ts); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan ledger timestamps: %w", err)
+		}
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			fixed[id] = formatTS(t)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for id, ts := range fixed {
+		if _, err := s.db.ExecContext(ctx, `UPDATE memora_ledger SET ts = ? WHERE ledger_id = ?`, ts, id); err != nil {
+			return fmt.Errorf("normalize ledger timestamp %s: %w", id, err)
+		}
+	}
+	return nil
 }
 
 // Close implements adapter.LedgerStore.
@@ -103,7 +147,7 @@ func (s *Store) Capabilities() adapter.LedgerCapabilities {
 // Append implements adapter.LedgerStore.
 func (s *Store) Append(ctx context.Context, e api.LedgerEntry) error {
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
@@ -118,7 +162,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.LedgerID, e.WorkspaceID, e.Op, nullableStr(e.Target), e.AgentID,
 		nullableStr(e.APIKeyID), nullableStr(e.UserID),
 		nullableStr(e.WatermarkBefore), nullableStr(e.WatermarkAfter),
-		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp.UTC().Format(time.RFC3339Nano),
+		nullableStr(e.IP), nullableStr(e.UserAgent), formatTS(e.Timestamp),
 		nullableStr(e.RequestID), e.LatencyMS, nullableStr(string(metaJSON)),
 		boolToInt(e.Redacted), nullableStr(string(redactedFieldsJSON)))
 	return err
@@ -141,7 +185,7 @@ func (s *Store) AppendBatch(ctx context.Context, entries []api.LedgerEntry) erro
 
 func (s *Store) appendIn(ctx context.Context, tx *sql.Tx, e *api.LedgerEntry) error {
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
@@ -156,7 +200,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.LedgerID, e.WorkspaceID, e.Op, nullableStr(e.Target), e.AgentID,
 		nullableStr(e.APIKeyID), nullableStr(e.UserID),
 		nullableStr(e.WatermarkBefore), nullableStr(e.WatermarkAfter),
-		nullableStr(e.IP), nullableStr(e.UserAgent), e.Timestamp.UTC().Format(time.RFC3339Nano),
+		nullableStr(e.IP), nullableStr(e.UserAgent), formatTS(e.Timestamp),
 		nullableStr(e.RequestID), e.LatencyMS, nullableStr(string(metaJSON)),
 		boolToInt(e.Redacted), nullableStr(string(redactedFieldsJSON)))
 	return err
@@ -172,11 +216,11 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 	}
 	if q.Since != nil {
 		where = append(where, "ts >= ?")
-		args = append(args, q.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, formatTS(*q.Since))
 	}
 	if q.Until != nil {
 		where = append(where, "ts <= ?")
-		args = append(args, q.Until.UTC().Format(time.RFC3339Nano))
+		args = append(args, formatTS(*q.Until))
 	}
 	if q.Actor != "" {
 		where = append(where, "api_key_id = ?")
@@ -203,8 +247,11 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 		where = append(where, "op IN ("+strings.Join(ph, ",")+")")
 	}
 	if q.SinceLedgerID != "" {
-		where = append(where, "ledger_id < ?")
-		args = append(args, q.SinceLedgerID)
+		// Keyset cursor matching ORDER BY ts DESC, ledger_id DESC: rows
+		// strictly after the cursor entry. Ledger IDs are random UUIDs, so
+		// the cursor's own ts must be part of the comparison.
+		where = append(where, "(ts, ledger_id) < ((SELECT ts FROM memora_ledger WHERE ledger_id = ?), ?)")
+		args = append(args, q.SinceLedgerID, q.SinceLedgerID)
 	}
 
 	sqlStr := "SELECT ledger_id, workspace_id, op, target, agent_id, api_key_id, user_id, watermark_before, watermark_after, ip, user_agent, ts, request_id, latency_ms, metadata_json, redacted, redacted_fields FROM memora_ledger"

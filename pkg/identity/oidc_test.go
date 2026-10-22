@@ -161,27 +161,28 @@ func TestOIDCAgent_BadSignature(t *testing.T) {
 	}
 }
 
-func TestOIDCAgent_AgentIDMismatch(t *testing.T) {
+// TestOIDCAgent_IdentityKey_FromClaim: the key names the issuer, the
+// claim and its value; a token without the claim is refused.
+func TestOIDCAgent_IdentityKey_FromClaim(t *testing.T) {
 	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
 	kid := "test-key-1"
-	jwks := jwksResponse{Keys: []jwkKey{rsaJWK(&priv.PublicKey, kid)}}
-
-	srv := setupOIDCServer(t, jwks)
+	srv := setupOIDCServer(t, jwksResponse{Keys: []jwkKey{rsaJWK(&priv.PublicKey, kid)}})
 	defer srv.Close()
-
-	token := makeJWT(t, priv, kid, map[string]any{
-		"iss": srv.URL,
-		"sub": "agent_different",
-		"exp": float64(time.Now().Add(1 * time.Hour).Unix()),
-	})
-
 	o := &OIDCAgent{IssuerURL: srv.URL, Client: srv.Client()}
-	err := o.Verify(context.Background(), adapter.IdentityVerifyInput{
-		AgentID:       "agent_expected",
-		IdentityProof: map[string]any{"id_token": token},
-	})
-	if err == nil {
-		t.Fatal("expected error for agent_id mismatch")
+	exp := float64(time.Now().Add(1 * time.Hour).Unix())
+
+	token := makeJWT(t, priv, kid, map[string]any{"iss": srv.URL, "sub": "user-1", "exp": exp})
+	key, err := o.IdentityKey(context.Background(), map[string]any{"id_token": token})
+	if err != nil {
+		t.Fatalf("IdentityKey: %v", err)
+	}
+	if want := "oidc_agent|" + srv.URL + "|sub|user-1"; key != want {
+		t.Fatalf("key = %q, want %q", key, want)
+	}
+
+	noSub := makeJWT(t, priv, kid, map[string]any{"iss": srv.URL, "exp": exp})
+	if _, err := o.IdentityKey(context.Background(), map[string]any{"id_token": noSub}); err == nil {
+		t.Fatal("a token without sub must be refused")
 	}
 }
 

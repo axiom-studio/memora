@@ -12,6 +12,13 @@
   })();
   </script>
   <script src="/ui/static/js/htmx.min.js" defer></script>
+  <script>
+  // A 400 from the console names the bad field (an invalid ID); show it
+  // in place like any other form error instead of dropping it.
+  document.addEventListener('htmx:beforeSwap', function (e) {
+    if (e.detail.xhr.status === 400) { e.detail.shouldSwap = true; e.detail.isError = false; }
+  });
+  </script>
 </head>
 <body>
   <a href="#main-content" class="sr-only">Skip to content</a>

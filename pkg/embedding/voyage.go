@@ -97,7 +97,7 @@ func (p *VoyageProvider) embedBatch(ctx context.Context, texts []string) ([][]fl
 
 		resp, err := p.client.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("voyage: %w", err)
+			lastErr = transportError("voyage", err)
 			continue
 		}
 

@@ -136,17 +136,10 @@ type SettingsInfo struct {
 	IdentityProviders  []IdentityProviderSummary
 }
 
+// FederationInfo is the node's static federation settings; peers come
+// from the runtime registry (Handler.SetPeers).
 type FederationInfo struct {
 	FederationID string
-	Peers        []PeerInfo
-}
-
-type PeerInfo struct {
-	ID         string
-	Name       string
-	Endpoint   string
-	TrustMode  string
-	Workspaces []string
 }
 
 type RegisterAgentInput struct {
@@ -235,9 +228,6 @@ type DataSource interface {
 	GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error)
 	UpsertTag(ctx context.Context, wsID, memID, key, value string) error
 	DeleteTag(ctx context.Context, wsID, memID, key string) error
-	AddPeer(ctx context.Context, peer PeerInfo) error
-	UpdatePeer(ctx context.Context, peerID string, peer PeerInfo) error
-	RemovePeer(ctx context.Context, peerID string) error
 	AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error)
 	ListPins(ctx context.Context, wsID string) ([]PinSummary, error)
 	CreatePin(ctx context.Context, wsID string, query, mode string, k int, watermark, label string) (string, error)

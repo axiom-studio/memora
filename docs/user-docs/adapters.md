@@ -60,14 +60,15 @@ The provider is chosen by a `prefix:model` string, set globally through `embeddi
 
 | Section | Description |
 |---|---|
-| `noop` | Stub provider returning meaningless vectors. The default. |
+| `noop` | No embeddings. The default. Vector search is unavailable and hybrid search uses keywords only. |
+| `hash` | Offline lexical vectors (feature hashing of words): texts that share words are similar. Needs no network, model or native library. `hash:default` is 384-dimensional; `hash:<n>` gives `n` dimensions (8–4096). |
 | `local` | A locally hosted embedding model. |
 | `openai` | OpenAI embedding endpoints. |
 | `voyage` | Voyage AI. |
 | `gemini` | Google Gemini. |
-| `axiomstudio` | Axiom Studio hosted embeddings. |
+| `axiomstudio` | Axiom Studio hosted embeddings. Not available in this edition: a node configured for it fails at start-up. |
 
-> **The default is `noop:default`.** Out of the box, vector search runs against stub embeddings, so `vector` and `hybrid` recall return results with no semantic meaning. This is a deliberate default — it keeps a fresh instance from requiring an API key or a downloaded model — but it means recall quality cannot be judged until `embedding.model` or `MEMORA_EMBEDDING_MODEL` names a real provider.
+> **The default is `noop:default`, which produces no searchable vectors.** On it, `vector` recall and search return `501 capability_unavailable`, and `hybrid` returns keyword results with `degraded: ["vector_unavailable"]`. The server logs a warning at start-up. This default keeps a fresh instance from needing an API key or a downloaded model. Set `embedding.model` or `MEMORA_EMBEDDING_MODEL` to `hash:default` for offline lexical vectors, or to a semantic provider for meaning-based recall.
 
 Changing the embedding model does not re-embed existing Cells. Each Cell records the model that produced its vector, so a workspace whose model changes will hold vectors from both until its content is rewritten.
 

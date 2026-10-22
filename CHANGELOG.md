@@ -13,7 +13,203 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 
 ## [Unreleased]
 
+### Fixed
+- `memora-core check-config` now validates federation peers the way
+  `serve` loads them (#6230): the peer URL policy (cleartext and
+  non-public addresses), duplicate node IDs and inbound keys, a peer
+  naming this node, unreadable TLS files and client-certificate pins
+  without `server.tls`. Before this it said `config ok` for configs that
+  `serve` refused.
+- `memora-cli search` and the Go SDK work against multi-tenant servers
+  (#4379). `client.Client.Workspace` is now sent as `X-Memora-Workspace`
+  on every request, and the CLI sets it from `--workspace` /
+  `$MEMORA_WORKSPACE` (or a single `--workspaces` ID), so a
+  multi-tenant search is pinned to that tenant instead of being refused.
+  Single-tenant servers ignore the header.
+- A peer whose stored `api_key` no longer opens (for example after a
+  restore without `federation.key`) is reported instead of silently
+  skipped (#6177). `GET /v1/federation/peers` shows `has_api_key: false`
+  with `api_key_status: "unreadable"` (the console says so too), a
+  federated search lists the peer in `failed_peers` as `key_unavailable`
+  with `partial_success: true`, a fetch from it is `502
+  key_unavailable`, and `/metrics` counts the outcome. Setting the key
+  again restores the peer.
+- Partial vector rebuilds are no longer invisible (#6180). `memora-core
+  reembed --workspace` with a pgvector dimension change dropped every
+  workspace's vectors and re-embedded one; it now refuses and asks for a
+  full run. `/readyz` and the start-up warning now also count
+  `missing_vectors` (live cells with no vector from the active model),
+  so an interrupted rebuild shows up; `/readyz` reports `stale_vectors`
+  and `missing_vectors` as top-level integers too.
+- `memora-cli agents register --agent-id <uuid>` registers that agent
+  (#6175). The global `--agent-id` flag consumed the option before the
+  subcommand saw it, so the command only ever printed its usage. It now
+  registers the global agent ID (the one `--agent-id` names, or the
+  agent the CLI writes as); `--id` is also accepted.
+- Console memory and edge writes work again (#6183). The REST
+  middleware's agent-header check matched paths by substring, so every
+  console `POST /ui/api/memories/*`, `/ui/api/edges/*` and
+  `/ui/api/graph/*` request got `400 missing_agent_id` before the
+  console ran. The check now applies only to
+  `/v1/workspaces/{ws}/{memories|edges|graph|recall/pins}` routes; the
+  console keeps attributing its writes to the console agent.
+- Tag edits are visible everywhere (#6182). `PUT`/`DELETE
+  /v1/workspaces/{ws}/memories/{id}/tags/{key}` and the console's tag
+  actions wrote only the tag index, so `GET` memory kept showing the
+  imprint-time tags and tag-filtered search and recall matched neither
+  the old nor the new tags. Both stores now rewrite the memory's tags
+  from the index in the same transaction, and a migration (SQLite 0013,
+  Postgres 0010) reconciles memories edited by earlier builds. Tagging a
+  forgotten memory is now `404`.
+
+### Added
+- `ghcr.io/axiom-studio/memora-core:<version>-local` (#4380): the server
+  with the local semantic embedder (`local:nomic-embed-text-v1.5`), the
+  llama.cpp library and a pinned, verified model baked in, for offline
+  nodes. linux/amd64 only (needs AVX2/FMA/F16C); about 180 MB. Built from
+  `Dockerfile.local`, which compiles the llama.cpp library from pinned
+  source for portable x86-64 (the prebuilt upstream library uses AVX-VNNI
+  and crashes on most CPUs, #6245) and checks the model's SHA-256; smoke-tested
+  by the `Local embedder image` workflow and on release, then signed.
+
 ### Security
+- Peer URL errors no longer repeat credentials (#6247). A refused peer
+  URL with userinfo (`https://user:pass@host`) was printed in full by
+  `check-config`, in start-up errors and in API/console errors. Errors
+  now show the URL with its userinfo replaced by `REDACTED`, and do not
+  show an unparseable URL at all.
+- `-local` image supply chain (#6244): base images are pinned by digest,
+  the release job's actions by commit SHA, and releases attach an SPDX
+  SBOM (listing `libllama_go.so` and the model with their SHA-256) plus
+  a component manifest (`/usr/share/memora/local-components.json`:
+  source commits, build flags, hashes) as cosign attestations. The CI
+  and release CPU check now requires AVX2, FMA and F16C.
+- Peer-route audit and limiter hardening (#6232). A graceful shutdown now
+  writes the open window of `federation_rejected` summaries instead of
+  dropping it. The pre-auth limiter evicts its least recently used
+  address instead of clearing its table, and admits previously unseen
+  addresses through one node-wide limiter, so rotating addresses (a
+  botnet or an IPv6 /48) no longer resets the limit. `unknown_peer`
+  summaries are no longer split by the attacker-chosen claimed node ID:
+  one summary per address and route, with up to 5 claimed IDs in
+  `sample_claimed_peers`.
+- The `local` embedder's model is pinned (#4380, first part). It used to
+  download `resolve/main` (a moving branch) with no hash check and hand
+  the file to native code. It now downloads from a fixed commit, keeps
+  the file only if its SHA-256 matches, and verifies an existing model
+  file on every load. An empty pin is refused, not skipped.
+- Every graph and pin write is now audited (#6171). Batch link
+  (`POST /edges/:batch`, one `link` entry per edge created), pin
+  create (`pin`) and pin delete (`unpin`) wrote no ledger entry, and
+  links made over MCP or in the console were not ledgered either. All
+  of them now go through the service, which records the op, target,
+  agent and request ID, whichever interface was used. Pin writes also
+  refuse a deactivated agent.
+- Deactivating an agent now stops it writing (#6169). Before this the
+  `active` flag was never checked, and the write middleware's
+  auto-register set `active` back on (and cleared the display name and
+  identity provider) on every write. Writes by an agent deactivated in a
+  workspace are refused with `403 agent_deactivated` (MCP `-32001`) on
+  every path (imprint, update, patch, append, forget, link, batch link,
+  unlink). The middleware records first use only (insert if absent,
+  then `last_seen_at`); reactivation is an explicit register. Register
+  and deactivate are ledgered (`agent_register` with `reactivated`,
+  `agent_deactivate`).
+- Forgetting a memory now deletes its vectors (#6179). Since #4231,
+  `Forget` asked both vector stores to delete by a key with no cell ID,
+  which matched nothing, and the error was discarded, so a forgotten
+  memory's embeddings stayed in the index (an erasure gap, GDPR Art.
+  17), kept `stale_vectors` above 0 after a full re-embed, and took
+  top-k slots. `DeleteVectors` now treats a key with only a workspace
+  and memory ID as "every vector of that memory" and refuses keys that
+  name nothing; a failure is logged. `memora-core reembed` removes the
+  vectors already left behind (`orphan_memories`). Vector store authors:
+  see `compliance.VectorDeleteContract` and the new
+  `ModelAwareVectorStore.VectorMemories`.
+- Unauthenticated callers can no longer flood the audit ledger through
+  the peer routes (#6178). Before this, every refused call to
+  `/v1/federation/search` or `/v1/federation/memories/*`, reachable
+  without the API key, wrote one ledger row carrying the raw request
+  path (up to 1 MiB), before any rate limit. Now each client address
+  is limited before authentication (2 × `federation.inbound_qps`, at
+  least 200/s; `429`, nothing ledgered), malformed paths are refused by
+  the route table first, `unknown_peer`/`bad_key` refusals are written
+  as one summary per caller and minute with a `count`, entries record
+  the route template instead of the path, and the server caps the
+  request line and headers at 64 KiB (`431`). Refusals that need a
+  valid key (`revoked`, `bad_cert`, `loop`, `rate_limited`,
+  `federation_mismatch`) are still one entry each.
+- Search and recall results are bounded (#6166). `k` and `per_peer_k`
+  are at most 100 and lookup `memory_ids` at most 100 IDs (more is
+  `400 invalid_input`; the MCP schema already advertised 100). One
+  response carries at most 8 MiB of content and cell text in total; the
+  hit that reaches the limit is cut (`content_truncated`, new
+  `cells_truncated`) and later hits keep only their excerpt and matched
+  cell. `include_cells` returns at most 256 cells per hit. Before this,
+  one `k: 30000, include_content, include_cells` request could hold
+  gigabytes in memory, and a peer could ask for the same through
+  `POST /v1/federation/search`.
+- A peer's search answer is checked before it is merged (#6174). Hits
+  whose IDs are not UUIDs are dropped, at most `per_peer_k` hits are
+  kept, `content` is cut to the requested `max_content_bytes` (and
+  removed when content was not requested), excerpts, tags and matched
+  text are bounded, and cells and graph provenance are cleared. Before
+  this, a peer could flood a search with any number of hits and
+  arbitrarily large content. `failed_peers[].error_code` now passes on
+  only the codes a Memora node sends; anything else becomes
+  `http_<status>`, so a peer cannot inject text there. Dropped hits are
+  counted per peer in the `federation_search` ledger entry.
+- **Breaking:** peer URLs follow a URL policy set only in the config file
+  (#6172, #6176). Before this, any API key holder could point a runtime
+  peer at internal addresses (`http://169.254.169.254`, `localhost:5432`,
+  `10.x`) and use federated search as an SSRF and port-scan oracle, and
+  `http://` peers got the peer key in cleartext. Now `http://` is refused
+  unless the host is loopback or in `federation.insecure_peer_hosts`, and
+  loopback, private, link-local and other non-public addresses are
+  refused unless listed in `federation.private_peer_hosts` (host or CIDR).
+  The address check runs when a peer is added, on the addresses the host
+  resolves to, and again on every connection (DNS rebinding). Peer calls
+  ignore proxy environment variables, URLs carrying credentials are
+  refused, a refused call is `peer_address_refused` in `failed_peers`,
+  and the key is never set on a cleartext request the policy did not
+  allow. Changing a peer's `url` now requires its `api_key` again, so a
+  stored key never goes to a new host. Every runtime peer edit is
+  ledgered as `federation_peer` (no keys). Two peers can no longer share
+  an `inbound_key_sha256`. The shipped compose demos list their peers in
+  both settings. **Upgrade:** a node whose peers use `http://` to
+  non-loopback hosts or reach private addresses will not start until
+  those hosts are listed.
+- Federation peer calls no longer follow redirects (#6173). Before
+  this, a peer answering `307`/`308` made the node re-send the query
+  and its `X-Memora-Federation-Auth` key to any host (Go strips only
+  `Authorization` and cookies on cross-host redirects), which leaked
+  the key and let a peer point the node at internal addresses. A `3xx`
+  now fails the call and the peer is listed in `failed_peers` as
+  `http_<status>`.
+- Federation peers authenticate with per-peer keys (F-3, #4362). The
+  routes peers call (`POST /v1/federation/search`,
+  `GET /v1/federation/memories/{id}`) take
+  `X-Memora-Federation-Auth: Bearer <key>` and the caller's node ID
+  instead of the server API key. They need these credentials even in
+  no-auth mode. Each peer entry stores only `inbound_key_sha256`, and
+  the check runs in constant time. An unknown node or wrong key gets
+  `401`. A peer marked `revoked` gets `403`. `client_cert_sha256`
+  optionally pins a TLS client certificate.
+  `memora-core node peer-key` generates a key and its hash. The
+  outbound key is now sent in mTLS trust mode too, and
+  `client_cert_file`/`client_key_file` make outbound calls present a
+  client certificate (before, mTLS only set the CA). Before this, nothing
+  checked a peer's key: inbound calls were matched only by the claimed
+  node ID.
+- The Gemini embedding provider sent its API key as a URL query parameter
+  (`?key=`), and Go transport errors print the full URL. The key could
+  reach vector-search error responses (HTTP and MCP), server logs, and
+  `embed_failed` ledger entries (#6165). The key now goes in the
+  `x-goog-api-key` header. Provider transport errors drop URL query
+  strings. Search returns a fixed `embedding provider error` message
+  and logs only the redacted detail. Ledger entries are redacted too.
+  **Operators who ran Gemini embeddings should rotate the key** if logs
+  or the ledger may hold it.
 - Edits that re-chunk a Memory to fewer cells now delete the removed cells,
   their vectors and their content blobs (#6037). Before, the cell rows and
   content stayed, so `GET /v1/workspaces/{ws}/memories/{id}`, the console
@@ -41,6 +237,151 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   head watermark.
 
 ### Changed
+- The start-up refusal of a database with pre-UUID IDs is now read-only
+  (#4377). SQLite and Postgres check before any migration or seeding, so
+  the refused database keeps its schema and rows and the old build can
+  still open it. Before, the refused start had already applied new
+  migrations and seeded agents. The upgrade guide now says to securely
+  retire the old stores once the new deployment is verified.
+- Every service write checks that its agent is a UUID (#4378). That
+  covers imprint, update, patch, append, forget, link, unlink and
+  cascade-forget, and pins check their creator. Callers that bypass
+  the HTTP and MCP boundary (the console, workers, tools) can no longer
+  record a non-UUID agent. Unlinking an edge now writes an `unlink`
+  ledger entry with the agent, and the console unlinks through the
+  service.
+- The web console validates IDs too (#4371). Workspace, memory,
+  collection, agent, edge, pin, ledger, peer and seed IDs, in
+  `/ui/workspaces/{ws}/memories/{id}` paths and in query and form
+  parameters, must be UUIDs. Otherwise the console answers `400` naming
+  the field, shown in place, instead of an empty page or "not found".
+  Memory ID fields show a UUID example.
+- Agent, tag and time filters no longer cut recall and search short
+  (S-4, #4359).
+  - Keyword search applies them in SQL (SQLite FTS5 and Postgres). It
+    uses the `memora_tags` table for tags.
+  - Vector search refills, asking the vector store again with a doubled
+    limit until `k` memories match or the store is exhausted (capped at
+    20,000 cells).
+  - Before, the top `k` were taken first and then filtered, so a filter
+    could return few or no hits while plenty of matches existed.
+  - On pgvector the HNSW index scan is widened per query
+    (`hnsw.ef_search` up to 1,000, and `iterative_scan = relaxed_order`
+    on pgvector 0.8 or later), so a large limit or a filter no longer
+    gets a short page. For ANN stores a short page is not taken to
+    mean the store is exhausted (#4359 QA).
+  - Filters allow at most 32 tag keys and 100 values per key or agent
+    list.
+  - `adapter.VectorFilter` is now `adapter.MemoryFilter` (alias kept),
+    and `KeywordQuery` gains `Filter`.
+- Federated search merges by rank, not score (F-5, #4365). Local and
+  peer hit lists are fused with reciprocal rank fusion, the same
+  function hybrid search uses, keyed on `(node_id, memory_id)`. The
+  z-score `Aggregate` is removed.
+  - Peer hits take `node_id`, `node_name` and
+    `via: "federation:<node_id>"` from this node's peer config, so a
+    peer cannot attribute hits to another node.
+  - Response changes: `failed_peers` is now
+    `[{node_id, name, error_code}]` instead of names, and
+    `peer_latency_ms` keys this node by its node ID, not `local`. The
+    never-filled `federation_id` and per-hit `peer_id` are removed.
+  - New `rerank: true` with a pluggable `federation.Reranker` (default:
+    keep the fused order).
+- Non-UUID IDs are rejected everywhere (ID-9, #4353).
+  - HTTP: the `/v1` routes are declared in one table that the
+    middleware enforces. An unknown path is `404`, an unsupported method
+    is `405` with `Allow`, and every ID path segment is validated before
+    any handler runs. A test walks the table and plants legacy,
+    uppercase and garbage IDs into every ID path segment, body field
+    and query parameter (231 cases).
+  - MCP: every argument named `*_id`, `*_ids` or `peers` is validated
+    (`types.IDField`), replacing a hand-kept list. A test walks the tool
+    catalog.
+  - The walk found gaps, now closed: recall and search filter IDs and
+    lookup `memory_ids`, the ledger's `agent_id` and `edge_id`, and
+    edge-batch items. A malformed edge-batch ID now fails the whole
+    batch with `400`.
+  - Docs and README examples use UUIDs.
+- Workspace and memory listings are ordered newest first by
+  `(created_at, id)` and page with an opaque `cursor`/`next_cursor`
+  (ID-6, #4350). `GET /v1/workspaces` used to return a `next_cursor` it
+  then ignored, and memory listing could not page at all. SQLite now
+  writes `created_at` fixed-width in UTC. The driver's zone-dependent
+  text did not sort by instant once a `created_at` arrived in another
+  zone. Existing rows are rewritten once at startup. The
+  `MetadataStore.ListWorkspaces` and `ListMemories` signatures take a
+  cursor and return the next one (adapter authors: see the new
+  `list_chronological` compliance check). The SDK gains
+  `ListWorkspacesPage` and `ListMemoriesPage`.
+- The `noop` embedding model (the default) no longer feeds vector
+  search with byte-histogram noise. Vector recall and search return
+  `501 capability_unavailable`, and hybrid uses keywords only with
+  `degraded: ["vector_unavailable"]`. The server warns at start-up. New
+  `hash:default` provider: offline lexical vectors that need no network
+  or model (the federation demo configs use it). `axiomstudio` fails at
+  start-up instead of on every embed.
+- The SQLite ledger stores `ts` in a fixed-width UTC layout, so audit
+  order and `since`/`until` filters are chronological within a second
+  (#6155). Before, `RFC3339Nano` text put `…05.1Z` after `…05.12Z`.
+  Existing rows are rewritten once when the ledger opens.
+- The default chunker (also used by `markdown` and `code-go`) produced
+  cumulative cells on long paragraphs: each cell repeated everything
+  before it, so the last cell was the whole document. That stored and
+  embedded several times the text (#6164). Cells are now bounded windows
+  with the documented 64-token overlap, which never applied before
+  because the registered chunker is a zero value. Splits fall on UTF-8
+  boundaries. Existing memories keep their cells until they are next
+  edited.
+- `memora-cli` subcommands accept their flags anywhere among their
+  arguments (`search NVDA --mode keyword --k 1`). Before, a flag after
+  the first argument was silently folded into the query or ignored
+  (#6161). `--` ends flag parsing.
+- Agents are registered per workspace: `memora_agents` is keyed
+  `(workspace_id, agent_id)` (sqlite migration 0009, postgres 0006), so
+  the reserved agents (auto-link, legacy shim, console) and any shared
+  agent ID such as the CLI default are registered in every workspace
+  that uses them. Before, the first workspace claimed the ID node-wide
+  and others returned 404 (#6154). Both stores back-fill the reserved
+  agents into existing workspaces at startup.
+- Hybrid recall and search fuse the keyword and vector rankings by
+  reciprocal rank fusion (`internal/rank`, k=60) instead of
+  `0.7·cosine + 0.3·keyword`. `weights` now scale each ranking's votes
+  (default equal). Vector results list each Memory once, with its best
+  cell (before, the last matching cell won). A failing side is reported
+  in the new `degraded` response field (`vector_unavailable`,
+  `keyword_unavailable`) instead of being swallowed. Pure vector mode
+  returns an error, not an empty list, when it cannot embed the query.
+- Keyword recall and search use a full-text index: SQLite FTS5 with BM25
+  ranking, and Postgres `tsvector` + GIN with `ts_rank` (postgres
+  migration 0005). The index covers every Memory, replacing the
+  substring scan of the 500 newest. Matching is by word, with English
+  stemming; query punctuation and operators are plain text. New
+  `MetadataStore.SearchKeyword` (adapter API).
+- **BREAKING (IDs)**: new workspaces, collections, memories, cells, edges,
+  watermarks, ledger entries and pins get canonical lowercase UUIDv4 IDs
+  instead of prefixed ULIDs (`mem_01H…`). The API, MCP and type validators
+  reject any other ID form with `400 invalid_input` (MCP: `-32602`) naming
+  the field, e.g. `memory_id must be a UUID`. `types.NewID()` takes no
+  prefix; `types.ParseID(field, id)` replaces `MustHavePrefix`; the
+  `oklog/ulid` dependency is gone. `federation.federation_id` must be a
+  UUID. Agent IDs are UUIDs too (`Memora-Agent-Id`, MCP `agent_id`,
+  `written_by_agent_id`); names go in `display_name`. The sentinel agents
+  have fixed UUIDs (`AgentLegacyVibeflowID`, `AgentSystemAutoLinkID`) and
+  the CLI's default agent is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d`.
+  Synthetic `parent_of` edges from the vibeflow shim get persisted UUIDs
+  (sqlite migration 0007, `memora_synthetic_edges`) and are recognised by
+  the view's `is_synthetic` column, not an `edg_synthetic_` prefix.
+  Existing prefixed data is not migrated: no release shipped with it,
+  so start with an empty database. `serve` and `mcp` refuse to start on
+  a metadata store holding a prefixed workspace ID (see
+  docs/user-docs/operations.md, "Upgrading from Prefixed IDs").
+- **BREAKING (identity)**: `anthropic_session`, `oauth_agent` and
+  `oidc_agent` no longer require the agent ID to equal a derived string or
+  token claim. They implement the new `adapter.IdentityKeyer`: the proven
+  identity is mapped to a UUIDv4 agent ID minted on first sight (new
+  `MetadataStore.ResolveIdentityKey`, adapter API) and returned as
+  `agentId` from MCP `initialize`. `identity.DeriveAnthropicSessionID` is
+  replaced by `identity.AnthropicSessionKey`.
 - **BREAKING (adapter API)**: `MetadataStore` gains
   `DeleteCellsFrom(ctx, workspaceID, memoryID, fromSeq)` (#6037); see
   `pkg/adapter/compliance.DeleteCellsFromContract`.
@@ -82,6 +423,122 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   explicit graph ops return 501 `capability_unavailable`).
 
 ### Added
+- Safe embedding-model changes (S-7, #4360).
+  - Every vector row records its model, as well as its dimension.
+    Search compares only rows from the active model and dimension, and
+    the count of others is shown as `stale_vectors` in `/readyz` and at
+    start-up.
+  - New `memora-core reembed [--workspace] [--dry-run] [--batch]`
+    re-embeds just the stale or missing cells. It is resumable and
+    batched.
+  - pgvector refuses to start when its column is sized for another
+    dimension, pointing at `reembed`, which rebuilds the column.
+  - Vectors written before this change are adopted by the model that
+    opens them at their width.
+- Federation acceptance suite (F-10, #4370). `test/federation_e2e` runs
+  real in-process nodes with different embedders. Peers are registered
+  at runtime over the API. It covers federated search across both
+  nodes, fetch by `(node_id, memory_id)`, peer removal, unknown (401)
+  and revoked (403) callers, a stopped peer (`partial_success`), the
+  loop guard on a three-node mesh, and the audit on both nodes. It
+  passes under `-race`. The docker-compose CLI script now checks
+  federated search and fetch output instead of an exit code.
+- Federation audit, limits and metrics (F-8, #4368).
+  - Ledger ops `federation_search` (caller), `federation_inbound` and
+    `federation_rejected` (receiver), and `federation_fetch` (both
+    sides). The peer's node ID is the entry's actor.
+  - Refusals record their reason (`unknown_peer`, `bad_key`, `bad_cert`,
+    `revoked`, `federation_mismatch`, `loop`, `rate_limited`), which the
+    caller never sees. Query text sits in metadata, so redaction hides
+    it.
+  - Per-peer `inbound_qps` (config, API, store) with
+    `federation.inbound_qps` as the default.
+  - `/metrics` adds `memora_federation_peer_requests_total`,
+    `memora_federation_peer_latency_seconds` and
+    `memora_federation_inbound_total`, with bounded labels.
+- Agent and CLI access to federation (F-9, #4369):
+  - `memora-cli search --federated [--peers …] [--per-peer-k N]
+    [--timeout-ms N] [--include-content]`, with each hit's node in text
+    output.
+  - New `memora-cli fetch <memory_id> [--node <node_id>]`, in every
+    output format.
+  - MCP `memora_search` documents how to cite and fetch a hit, and takes
+    `include_content`/`max_content_bytes`.
+  - The stdio `memora-core mcp` server now builds the federation peer
+    registry, so federated search and peer fetch work there as under
+    `serve`.
+- Runtime federation peer registry (F-7, #4367).
+  - Peers live in the metadata store (SQLite and Postgres migrations)
+    and are edited with `GET`/`POST /v1/federation/peers` and
+    `DELETE /v1/federation/peers/{node_id}` (API key) or the console's
+    Federation page. Edits apply to the next request, with no restart.
+  - Keys are write-only: inbound keys are stored as SHA-256 and
+    outbound keys sealed with AES-256-GCM under a node secret
+    (`MEMORA_FEDERATION_SECRET` or `federation.secret_key_file`, default
+    `<data_dir>/federation.key`).
+  - Config-file peers are a one-time seed and never overwrite runtime
+    edits or bring back removed peers.
+  - The per-peer workspace allowlist (`Peer.Workspaces`,
+    `IsAuthorizedPeer`) is removed, as the PRD drops it.
+- Fetching a memory from its owning node (F-6, #4366):
+  - `GET /v1/memories/{id}` reads a full memory with its cells across
+    this node's workspaces.
+  - With `?node={node_id}` it proxies to that peer's new
+    peer-authenticated `GET /v1/federation/memories/{id}`, using the
+    peer's key and timeout. Results carry `node_id` and `node_name`.
+  - Errors: an unknown node is `404 unknown_node`; a peer that does not
+    answer is `502` with the same codes as `failed_peers`.
+  - Multi-tenant nodes keep the fetch inside the tenant and refuse
+    peers.
+  - New SDK `FetchMemory` and MCP tool `memora_fetch`.
+  - The workspace-scoped peer `Lookup`/`FanoutLookup` is removed.
+- Federated search (F-4, #4364): `POST /v1/search` (and MCP
+  `memora_search`) with `federated: true` searches this node plus each
+  peer's `/v1/federation/search` in parallel, sending the path header
+  with this node's ID. Options: `peers` (node IDs), `per_peer_k` and
+  `timeout_ms`. Peers get per-peer `timeout_ms` and `rate_limit_qps`,
+  with defaults from `federation.peer_timeout_ms` and
+  `federation.outbound_qps`; these replace the fixed 5 s and 50 QPS. A
+  failed, slow or rate-limited peer is listed in `failed_peers` with
+  `partial_success: true` and does not fail the search. Peer clients no
+  longer call the workspace-scoped `/v1/workspaces/{ws}/recall` on
+  peers. Merging is still the score-based `Aggregate` until F-5.
+- `POST /v1/federation/search` (F-2, #4363): an authenticated peer
+  searches every workspace on this node. The query arrives as text and
+  is embedded by this node's own embedder. Hits carry `node_id` and
+  `node_name`. The route never forwards the query to other peers. It
+  enforces the two-hop loop guard (`409 federation_loop`) and a
+  per-peer inbound limit, `federation.inbound_qps` (default 100), which
+  answers `429 rate_limited` with `Retry-After`. Both refusals are
+  ledgered as `federation_rejected`. Multi-tenant nodes refuse with
+  `403`.
+- `hash:<n>` sets the offline hash embedder's dimension.
+- Recall and search hits carry their data: `matched_text` (the matching
+  Cell's full text, with `cell_id` and `cell_index`), `created_at`, and
+  with `include_content` the Memory's `content` (capped by
+  `max_content_bytes`, default 64 KiB, at most 1 MiB, cut on a UTF-8
+  boundary, flagged `content_truncated`). `include_cells` is now
+  honoured. Hits are loaded with two batched store calls whatever `k`
+  is, instead of one `GetMemory` per hit. New
+  `MetadataStore.GetMemories` and `GetCellsForMemories` (adapter API).
+- Node identity: `[node] id` / `name` (`MEMORA_NODE_ID`, `MEMORA_NODE_NAME`).
+  Without config the node mints a UUIDv4 on first start and keeps it in
+  the metadata store (new `MetadataStore.EnsureNodeID`; sqlite 0008,
+  postgres 0004). `memora-core node id` prints it. Federation peers are
+  keyed by `node_id`, which every `[[federation.peers]]` entry now
+  requires. `federation_id` is an optional UUIDv4 cluster label, and
+  `memora-core federation init` is removed.
+- Node-wide search: `POST /v1/search`, MCP tool `memora_search` and
+  `memora-cli search` query every workspace on the node, or those in
+  `workspace_ids`, in keyword, vector or hybrid mode. Hits carry
+  `workspace_id`. In `multi-tenant` mode `/v1/search` requires the
+  `X-Memora-Workspace` header (400 `missing_workspace` without it; the
+  header must be a UUID) and stays inside that workspace. `memora_search`
+  requires `workspace_ids` (#6159). This is a scoping aid, not tenant
+  isolation: holders of the shared API key can read every workspace.
+  `adapter.VectorQuery` gains `WorkspaceIDs`
+  and `AllWorkspaces`; a query with no scope is now invalid input
+  rather than matching nothing.
 - Opt-in async embedding (`embedding.async`, `MEMORA_EMBEDDING_ASYNC`,
   `serve --async-embed`; default off). Writes return once their Cells are
   stored and the in-process embed pool fills in vectors; imprint responds

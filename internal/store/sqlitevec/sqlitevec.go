@@ -32,8 +32,9 @@ func init() {
 
 // Store implements adapter.VectorStore against SQLite.
 type Store struct {
-	db  *sql.DB
-	dim int
+	db    *sql.DB
+	dim   int
+	model string // active embedder model ID; rows record theirs
 }
 
 // Open implements adapter.VectorStore.
@@ -75,7 +76,74 @@ CREATE INDEX IF NOT EXISTS idx_cellvec_memory   ON memora_cell_vectors(memory_id
 		_ = db.Close()
 		return fmt.Errorf("sqlite-vec: migrate: %w", err)
 	}
+	s.model = cfg.Model
+	if err := s.migrateModel(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("sqlite-vec: migrate model column: %w", err)
+	}
 	return nil
+}
+
+// migrateModel adds the per-row model column (S-7). Rows written before
+// it have no model: those at the active dimension are adopted as the
+// active model's, as they were treated until now; others stay stale.
+func (s *Store) migrateModel(ctx context.Context) error {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('memora_cell_vectors') WHERE name = 'model'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE memora_cell_vectors ADD COLUMN model TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if s.model != "" {
+		if _, err := s.db.ExecContext(ctx, `UPDATE memora_cell_vectors SET model = ? WHERE model = '' AND dim = ?`, s.model, s.dim); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StaleVectors implements adapter.ModelAwareVectorStore.
+func (s *Store) StaleVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM memora_cell_vectors WHERE dim != ? OR model != ?`, s.dim, s.model).Scan(&n)
+	return n, err
+}
+
+// FreshVectors implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM memora_cell_vectors WHERE dim = ? AND model = ?`, s.dim, s.model).Scan(&n)
+	return n, err
+}
+
+// FreshCells implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cellIDs))
+	if len(cellIDs) == 0 {
+		return out, nil
+	}
+	args := []any{s.dim, s.model}
+	for _, id := range cellIDs {
+		args = append(args, id)
+	}
+	//nolint:gosec // G202: only "?" placeholders are concatenated; values stay parameterized
+	rows, err := s.db.QueryContext(ctx, `SELECT cell_id FROM memora_cell_vectors WHERE dim = ? AND model = ? AND cell_id IN (`+
+		strings.TrimSuffix(strings.Repeat("?,", len(cellIDs)), ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
 
 // Close implements adapter.VectorStore.
@@ -126,13 +194,14 @@ func (s *Store) PutVectorsBatch(ctx context.Context, puts []adapter.VectorPut) e
 	}
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, dim, vector_blob, metadata_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, dim, model, vector_blob, metadata_json, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(cell_id) DO UPDATE SET
     workspace_id=excluded.workspace_id,
     collection_id=excluded.collection_id,
     memory_id=excluded.memory_id,
     dim=excluded.dim,
+    model=excluded.model,
     vector_blob=excluded.vector_blob,
     metadata_json=excluded.metadata_json`)
 	if err != nil {
@@ -144,7 +213,7 @@ ON CONFLICT(cell_id) DO UPDATE SET
 		mdJSON, _ := json.Marshal(p.Metadata)
 		if _, err := stmt.ExecContext(ctx,
 			p.Key.WorkspaceID, nullableStr(p.Key.CollectionID), p.Key.MemoryID, p.Key.CellID,
-			len(p.Embedding), encodeFloats(p.Embedding), nullableStr(string(mdJSON)), now); err != nil {
+			len(p.Embedding), s.model, encodeFloats(p.Embedding), nullableStr(string(mdJSON)), now); err != nil {
 			return err
 		}
 	}
@@ -153,19 +222,51 @@ ON CONFLICT(cell_id) DO UPDATE SET
 
 // DeleteVectors implements adapter.VectorStore.
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error {
-	if len(keys) == 0 {
-		return nil
+	cellIDs, memories, err := adapter.SplitVectorKeys(keys)
+	if err != nil || len(keys) == 0 {
+		return err
 	}
-	args := make([]any, len(keys))
-	ph := make([]string, len(keys))
-	for i, k := range keys {
-		args[i] = k.CellID
-		ph[i] = "?"
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
-	q := "DELETE FROM memora_cell_vectors WHERE cell_id IN (" + strings.Join(ph, ",") + ")"
-	_, err := s.db.ExecContext(ctx, q, args...)
-	return err
+	defer func() { _ = tx.Rollback() }()
+	if len(cellIDs) > 0 {
+		args := make([]any, len(cellIDs))
+		for i, id := range cellIDs {
+			args[i] = id
+		}
+		//nolint:gosec // G202: only fixed SQL fragments and "?" placeholders are concatenated; values stay parameterized
+		q := "DELETE FROM memora_cell_vectors WHERE cell_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(cellIDs)), ",") + ")"
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+			return err
+		}
+	}
+	for _, k := range memories {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM memora_cell_vectors WHERE workspace_id = ? AND memory_id = ?`, k.WorkspaceID, k.MemoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// VectorMemories implements adapter.ModelAwareVectorStore.
+func (s *Store) VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT memory_id FROM memora_cell_vectors
+WHERE workspace_id = ? AND memory_id > ? ORDER BY memory_id LIMIT ?`, workspaceID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // Query implements adapter.VectorStore via cosine similarity over the
@@ -177,10 +278,21 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 	if len(q.Embedding) != s.dim {
 		return nil, fmt.Errorf("%w: query vector has %d dimensions, store is sized for %d", types.ErrInvalidInput, len(q.Embedding), s.dim)
 	}
-	// Rows written at another width (before an embedding-model change) are
-	// not comparable; skip them rather than returning zero-score hits.
-	where := []string{"workspace_id = ?", "dim = ?"}
-	args := []any{q.WorkspaceID, s.dim}
+	workspaces, err := q.Scope()
+	if err != nil {
+		return nil, err
+	}
+	// Rows from another model or width (written before an embedding-model
+	// change) are not comparable; skip them rather than mixing scores from
+	// two vector spaces. `memora-core reembed` brings them back.
+	where := []string{"dim = ?", "model = ?"}
+	args := []any{s.dim, s.model}
+	if workspaces != nil {
+		where = append(where, "workspace_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(workspaces)), ",")+")")
+		for _, ws := range workspaces {
+			args = append(args, ws)
+		}
+	}
 	if q.Filter.CollectionID != "" {
 		where = append(where, "collection_id = ?")
 		args = append(args, q.Filter.CollectionID)

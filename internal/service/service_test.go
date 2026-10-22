@@ -16,13 +16,19 @@ import (
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
-const testAgent = "agent_opaque_service_test"
+const testAgent = "faa4328a-2e04-4400-ab38-9138bb3ae647"
 
 // newTestService wires the OSS-default sqlite metadata + sqlite-vec vector
 // stores and the noop embedder; no test doubles.
 func newTestService(t *testing.T) *Service {
 	t.Helper()
-	dir := t.TempDir()
+	return newTestServiceIn(t, t.TempDir())
+}
+
+// newTestServiceIn is newTestService on dir/memora.db, for tests that
+// also open the database directly.
+func newTestServiceIn(t *testing.T, dir string) *Service {
+	t.Helper()
 	ctx := context.Background()
 
 	meta := &storesqlite.Store{}
@@ -43,7 +49,7 @@ func newTestService(t *testing.T) *Service {
 	}
 	t.Cleanup(func() { _ = graph.Close() })
 
-	emb, err := embedding.Open("noop:default")
+	emb, err := embedding.Open("hash:default")
 	if err != nil {
 		t.Fatalf("open embedding: %v", err)
 	}
@@ -108,25 +114,6 @@ func TestUpdate_LeavesRecallReadyTrue(t *testing.T) {
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
-func TestKeywordScore(t *testing.T) {
-	cases := []struct {
-		name, content, q string
-		want             float64
-	}{
-		{"empty content", "", "go", 0},
-		{"empty query", "go", "", 0},
-		{"no match", "rust", "go", 0},
-		{"one match, short doc", "go", "go", 1 / (1 + 2.0/1000)},
-		{"two matches", "go go", "go", 2 / (1 + 5.0/1000)},
-		{"length dampens", "go" + string(make([]byte, 998)), "go", 1 / (1 + 1000.0/1000)},
-	}
-	for _, c := range cases {
-		if got := keywordScore(c.content, c.q); !approx(got, c.want) {
-			t.Errorf("%s: keywordScore = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
 func TestPow(t *testing.T) {
 	cases := []struct {
 		base float64
@@ -154,61 +141,9 @@ func TestSortHits_DescendingByScore(t *testing.T) {
 	sortHits(nil) // must not panic
 }
 
-func scoresByID(h []api.RecallHit) map[string]float64 {
-	m := make(map[string]float64, len(h))
-	for _, x := range h {
-		m[x.MemoryID] = x.Score
-	}
-	return m
-}
-
-// hybridMerge accumulates through a map, so tie order is random; these
-// tests assert score values per memory, never relative order among ties.
-func TestHybridMerge_DefaultWeightsCombineSources(t *testing.T) {
-	vec := []api.RecallHit{{MemoryID: "both", Score: 1.0}, {MemoryID: "vec_only", Score: 0.5}}
-	kw := []api.RecallHit{{MemoryID: "both", Score: 2.0, KeywordScore: 2.0}, {MemoryID: "kw_only", Score: 1.0, KeywordScore: 1.0}}
-
-	out := hybridMerge(kw, vec, api.RecallWeights{}, 10)
-	got := scoresByID(out)
-	want := map[string]float64{"both": 0.7*1.0 + 0.3*2.0, "vec_only": 0.7 * 0.5, "kw_only": 0.3 * 1.0}
-	if len(got) != len(want) {
-		t.Fatalf("merged %d hits, want %d: %+v", len(got), len(want), out)
-	}
-	for id, w := range want {
-		if !approx(got[id], w) {
-			t.Errorf("%s score = %v, want %v", id, got[id], w)
-		}
-	}
-	for _, h := range out {
-		if h.MemoryID == "both" && h.KeywordScore != 2.0 {
-			t.Errorf("both.KeywordScore = %v, want 2.0 carried from the keyword hit", h.KeywordScore)
-		}
-	}
-}
-
-func TestHybridMerge_ExplicitWeightsAndTruncation(t *testing.T) {
-	vec := []api.RecallHit{{MemoryID: "a", Score: 1}, {MemoryID: "b", Score: 0.2}}
-	kw := []api.RecallHit{{MemoryID: "c", Score: 1}}
-
-	out := hybridMerge(kw, vec, api.RecallWeights{Vector: 1, Keyword: 0}, 2)
-	if len(out) != 2 {
-		t.Fatalf("len = %d, want truncation to k=2", len(out))
-	}
-	got := scoresByID(out)
-	if !approx(got["a"], 1) || !approx(got["b"], 0.2) {
-		t.Fatalf("scores = %v, want a=1 b=0.2 and keyword-weight-0 hit c dropped below them", got)
-	}
-}
-
-func TestHybridMerge_EmptyInputs(t *testing.T) {
-	if out := hybridMerge(nil, nil, api.RecallWeights{}, 5); len(out) != 0 {
-		t.Fatalf("hybridMerge(nil, nil) = %+v, want empty", out)
-	}
-}
-
 func TestPassesFilter(t *testing.T) {
 	now := time.Now()
-	m := types.Memory{CollectionID: "c1", WrittenByAgentID: "agent_a", CreatedAt: now, Tags: map[string]string{"team": "core"}}
+	m := types.Memory{CollectionID: "c1", WrittenByAgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9", CreatedAt: now, Tags: map[string]string{"team": "core"}}
 	before, after := now.Add(-time.Hour), now.Add(time.Hour)
 	cases := []struct {
 		name string
@@ -218,11 +153,11 @@ func TestPassesFilter(t *testing.T) {
 		{"no filters", api.RecallFilters{}, true},
 		{"collection match", api.RecallFilters{CollectionID: "c1"}, true},
 		{"collection mismatch", api.RecallFilters{CollectionID: "c2"}, false},
-		{"agent match", api.RecallFilters{AgentID: "agent_a"}, true},
-		{"agent mismatch", api.RecallFilters{AgentID: "agent_b"}, false},
-		{"agent in", api.RecallFilters{AgentIDIn: []string{"agent_b", "agent_a"}}, true},
-		{"agent not in list", api.RecallFilters{AgentIDIn: []string{"agent_b"}}, false},
-		{"agent excluded", api.RecallFilters{AgentIDNotIn: []string{"agent_a"}}, false},
+		{"agent match", api.RecallFilters{AgentID: "88b4bd22-90ad-4364-badb-bf03e8a490a9"}, true},
+		{"agent mismatch", api.RecallFilters{AgentID: "558a81e1-5845-4733-abeb-b79072c2b4b3"}, false},
+		{"agent in", api.RecallFilters{AgentIDIn: []string{"558a81e1-5845-4733-abeb-b79072c2b4b3", "88b4bd22-90ad-4364-badb-bf03e8a490a9"}}, true},
+		{"agent not in list", api.RecallFilters{AgentIDIn: []string{"558a81e1-5845-4733-abeb-b79072c2b4b3"}}, false},
+		{"agent excluded", api.RecallFilters{AgentIDNotIn: []string{"88b4bd22-90ad-4364-badb-bf03e8a490a9"}}, false},
 		{"after window", api.RecallFilters{TsAfter: &before}, true},
 		{"before cutoff fails", api.RecallFilters{TsAfter: &after}, false},
 		{"tsbefore fails", api.RecallFilters{TsBefore: &before}, false},
@@ -301,9 +236,9 @@ func TestRecall_HybridIsDefaultMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("hybrid results = %+v, want %s", r.Results, id)
 	}
-	// Found by both sources: 0.7*vector + 0.3*keyword.
-	if want := 0.7*h.VectorScore + 0.3*h.KeywordScore; !approx(h.Score, want) || h.KeywordScore == 0 || h.VectorScore == 0 {
-		t.Fatalf("hybrid hit = %+v, want score %v from both sources", h, want)
+	// Ranked first by both sources: reciprocal rank fusion gives 2/(60+1).
+	if want := 2.0 / 61; !approx(h.Score, want) || h.KeywordScore == 0 || h.VectorScore == 0 {
+		t.Fatalf("hybrid hit = %+v, want RRF score %v with both source scores", h, want)
 	}
 }
 
@@ -312,12 +247,16 @@ func TestRecall_LookupMode_SkipsUnknownIDs(t *testing.T) {
 	ws := newTestWorkspace(t, s)
 	id := imprint(t, s, ws, "lookup me")
 
-	r, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{"mem_missing", id}})
+	r, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{types.NewID(), id}})
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
 	if len(r.Results) != 1 || r.Results[0].MemoryID != id || r.Results[0].Text != "lookup me" {
 		t.Fatalf("lookup results = %+v, want only %s with full content", r.Results, id)
+	}
+	// Unknown is skipped; malformed is the caller's error.
+	if _, err := s.Recall(context.Background(), ws, api.RecallRequest{Mode: api.RecallModeLookup, MemoryIDs: []string{"mem_missing", id}}); !errors.Is(err, types.ErrInvalidInput) {
+		t.Fatalf("malformed memory_ids: err = %v, want ErrInvalidInput", err)
 	}
 }
 

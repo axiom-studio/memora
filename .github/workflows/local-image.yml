@@ -1,0 +1,67 @@
+name: Local embedder image
+
+# Builds Dockerfile.local (memora-core with the local semantic embedder,
+# #4380) and runs its smoke test: start the container, imprint, vector
+# search. GitHub-hosted x86-64 runners provide the AVX the bundled
+# llama.cpp build needs.
+on:
+  push:
+    # Feature branches too, so a change to the image is checked on x86-64
+    # before it reaches main (#6245).
+    branches: [main, 'rqts/**']
+    paths:
+      - Dockerfile.local
+      - pkg/embedding/**
+      - scripts/smoke-local-image.sh
+      - .github/workflows/local-image.yml
+      - go.mod
+      - go.sum
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile.local
+      - pkg/embedding/**
+      - scripts/smoke-local-image.sh
+      - .github/workflows/local-image.yml
+      - go.mod
+      - go.sum
+  workflow_dispatch:
+
+concurrency:
+  group: local-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Build and smoke-test the -local image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: CPU has AVX2, FMA and F16C
+        run: |
+          for f in avx2 fma f16c; do grep -qw "$f" /proc/cpuinfo || { echo "::error::CPU lacks $f, which libllama_go needs"; exit 1; }; done
+          # Annotations are readable without signing in, unlike job logs.
+          echo "::notice title=CPU::$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2) flags: $(for f in avx avx2 fma f16c avx512f; do grep -qw $f /proc/cpuinfo && printf '%s ' $f; done)"
+
+      - name: Build
+        run: docker build --platform linux/amd64 -f Dockerfile.local -t memora-core:ci-local .
+
+      - name: Smoke test
+        env:
+          SMOKE_LOG: smoke.log
+        run: ./scripts/smoke-local-image.sh memora-core:ci-local
+
+      - name: Container log
+        if: always()
+        run: |
+          cat smoke.log || true
+          if [ -f smoke.log ]; then
+            grep -m5 -E 'SIGILL|SIGSEGV|panic|fatal|level":"(ERROR|WARN)' smoke.log | while IFS= read -r l; do echo "::error title=container::${l:0:400}"; done
+            echo "::notice title=container tail::$(tail -c 600 smoke.log | tr '\n' ' ')"
+          fi

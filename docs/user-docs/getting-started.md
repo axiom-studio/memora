@@ -42,7 +42,7 @@ export MEMORA_ENDPOINT=http://localhost:7777
 export MEMORA_WORKSPACE=$(./bin/memora-cli workspaces create --name demo -o json | jq -r .id)
 ```
 
-Workspace IDs are prefixed ULIDs, so `$MEMORA_WORKSPACE` now holds something shaped like `ws_01HXYZ...`.
+Workspace IDs are UUIDv4s, so `$MEMORA_WORKSPACE` now holds something like `3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90`.
 
 ## Storing the First Memory
 
@@ -54,20 +54,20 @@ The response reports the new Memory's ID, its opening watermark, an MD5 of the c
 
 ```json
 {
-  "id": "mem_01HXYZ...",
-  "watermark": "wmk_01HXYZ...",
+  "id": "7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58",
+  "watermark": "b2c9e4f1-8a7d-4e3b-9f6c-1d5a0e8b7c42",
   "content_md5": "…",
   "cells_created": 1,
   "recall_ready": true,
-  "written_by_agent_id": "agent_opaque_local",
-  "ledger_id": "lg_01HXYZ...",
+  "written_by_agent_id": "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d",
+  "ledger_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
   "latency_ms": 4
 }
 ```
 
 Embedding runs inline as part of the write, which is why `recall_ready` is already true rather than pending. It also means a large imprint holds the request open for as long as the embedding provider takes.
 
-The `written_by_agent_id` is `agent_opaque_local` because that is the CLI's default agent. Every write is attributed to some agent; override it with `--agent-id` or the `MEMORA_AGENT_ID` environment variable.
+The `written_by_agent_id` is `c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d` because that is the CLI's default agent, shared by every local CLI user. Every write is attributed to some agent; override it with `--agent-id` or the `MEMORA_AGENT_ID` environment variable.
 
 ## Recalling It
 
@@ -75,9 +75,9 @@ The `written_by_agent_id` is `agent_opaque_local` because that is the CLI's defa
 ./bin/memora-cli recall enterprise
 ```
 
-Recall defaults to `hybrid` mode and returns the top 5 hits. Hybrid runs both a keyword scan and a vector search and merges them by weighted score, weighting vector results `0.7` against keyword results `0.3`.
+Recall defaults to `hybrid` mode and returns the top 5 hits. Hybrid runs both a keyword search and a vector search and merges their rankings by reciprocal rank fusion, weighting the two equally by default.
 
-> **The default embedding provider is a stub.** Out of the box the embedding model is `noop:default`, so vector and hybrid recall return results with no semantic meaning — a keyword match is doing all the real work above. Set a real provider before drawing any conclusion about recall quality. See [Adapters](adapters.md) for the available providers.
+> **The default embedding provider produces no vectors.** Out of the box the embedding model is `noop:default`, so hybrid recall answers from keywords alone (the response says `degraded: ["vector_unavailable"]`) and vector recall is unavailable. Set `hash:default` for offline lexical vectors, or a semantic provider, before judging recall quality. See [Adapters](adapters.md) for the available providers.
 
 ## Patching It
 
@@ -86,9 +86,9 @@ Patch is where Memora differs most from a plain document store. It applies find-
 Read the current watermark, then supply it as the expected value:
 
 ```bash
-WMK=$(./bin/memora-cli lookup mem_01HXYZ... -o json | jq -r .head_watermark)
+WMK=$(./bin/memora-cli lookup 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 -o json | jq -r .head_watermark)
 
-./bin/memora-cli patch mem_01HXYZ... \
+./bin/memora-cli patch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 \
     --patch '[{"old_string":"enterprise","new_string":"premium"}]' \
     --if-match "$WMK"
 ```
@@ -97,13 +97,13 @@ The response reports how much embedding work the edit avoided:
 
 ```json
 {
-  "id": "mem_01HXYZ...",
-  "watermark": "wmk_01HXYZ...",
+  "id": "7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58",
+  "watermark": "e6a1d3b8-2f4c-4a9e-8b7d-5c0f9e1a2d63",
   "patches_applied": 1,
   "cells_re_embedded": 1,
   "cells_skipped": 0,
-  "last_modified_by_agent_id": "agent_opaque_local",
-  "ledger_id": "lg_01HXYZ...",
+  "last_modified_by_agent_id": "c1a0e5d2-7b3f-4a6e-9d8c-1f2e3a4b5c6d",
+  "ledger_id": "5d6e7f80-9a1b-4c2d-ae3f-4b5c6d7e8f90",
   "latency_ms": 6
 }
 ```

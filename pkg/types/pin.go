@@ -14,3 +14,18 @@ type Pin struct {
 	CreatedBy   string    `json:"created_by,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
+
+// Validate checks a pin's IDs: pin and workspace are UUIDs, and the
+// creating agent, when recorded, is one too.
+func (p *Pin) Validate() error {
+	if err := parseErr("pin_id", p.PinID); err != nil {
+		return err
+	}
+	if err := parseErr("workspace_id", p.WorkspaceID); err != nil {
+		return err
+	}
+	if p.CreatedBy != "" {
+		return parseErr("created_by", p.CreatedBy)
+	}
+	return nil
+}

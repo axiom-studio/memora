@@ -62,3 +62,18 @@ func TestOutboundPool_UnknownPeer(t *testing.T) {
 		t.Error("unknown peer should get fallback limiter")
 	}
 }
+
+// TestInboundPool_SubOneQPS: a limit below 1 QPS still admits one call
+// (burst at least 1), then refuses until the next token.
+func TestInboundPool_SubOneQPS(t *testing.T) {
+	p := NewInboundPool(0.5)
+	if !p.Allow("peer") {
+		t.Fatal("first call refused at 0.5 QPS")
+	}
+	if p.Allow("peer") {
+		t.Fatal("second immediate call admitted at 0.5 QPS")
+	}
+	if !p.Allow("other-peer") {
+		t.Fatal("limits are per peer: another peer was refused")
+	}
+}

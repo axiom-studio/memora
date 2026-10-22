@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // CreateWorkspace inserts a new Workspace. ID is assigned if blank.
 func (s *Store) CreateWorkspace(ctx context.Context, w *types.Workspace) error {
 	if w.ID == "" {
-		w.ID = types.NewID(types.WorkspaceIDPrefix)
+		w.ID = types.NewID()
 	}
 	if err := w.Validate(); err != nil {
 		return err
@@ -40,16 +41,16 @@ INSERT INTO memora_workspaces (id, name, region, chunker_id, embedding_model, me
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Name, w.Region, w.ChunkerID, w.EmbeddingModel, nullableStr(metaJSON),
 		w.AutoLinkEnabled, w.AutoLinkThreshold, w.AutoLinkMaxEdges, w.AutoLinkMaxIncomingPerDay,
-		w.CreatedAt, w.UpdatedAt)
+		formatTS(w.CreatedAt), w.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
 	// Auto-register reserved sentinel agents in every new workspace.
 	for _, agentID := range types.ReservedAgentIDs {
 		_, _ = s.db.ExecContext(ctx, `
-INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
-VALUES (?, ?, 'opaque', datetime('now'), 1)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, w.ID)
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+VALUES (?, ?, ?, 'opaque', datetime('now'), 1)
+ON CONFLICT(workspace_id, agent_id) DO NOTHING`, agentID, w.ID, types.ReservedAgentDisplayNames[agentID])
 	}
 	return nil
 }
@@ -83,29 +84,50 @@ FROM memora_workspaces WHERE id = ?`, id)
 	return w, nil
 }
 
-// ListWorkspaces returns up to `limit` workspaces ordered by created_at.
-func (s *Store) ListWorkspaces(ctx context.Context, limit int) ([]types.Workspace, error) {
+// ListWorkspaces lists workspaces newest first by (created_at, id); see
+// adapter.MetadataStore.
+func (s *Store) ListWorkspaces(ctx context.Context, cursor string, limit int) ([]types.Workspace, string, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, region, chunker_id, embedding_model, meta_json,
+	q := `SELECT id, name, region, chunker_id, embedding_model, meta_json,
     auto_link_enabled, auto_link_threshold, auto_link_max_edges, auto_link_max_incoming_per_day,
     created_at, updated_at
-FROM memora_workspaces ORDER BY created_at DESC LIMIT ?`, limit)
+FROM memora_workspaces`
+	var args []any
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += " WHERE created_at < ? OR (created_at = ? AND id < ?)"
+		args = append(args, formatTS(ts), formatTS(ts), id)
+	}
+	q += " ORDER BY created_at DESC, id DESC LIMIT ?"
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Workspace
 	for rows.Next() {
 		w, err := scanWorkspaceSqlite(rows)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 // ListWorkspacesPaged returns up to `limit` workspaces using cursor-based
@@ -204,7 +226,7 @@ func (s *Store) DeleteWorkspace(ctx context.Context, id string) error {
 // CreateCollection inserts a Collection inside a Workspace.
 func (s *Store) CreateCollection(ctx context.Context, c *types.Collection) error {
 	if c.ID == "" {
-		c.ID = types.NewID(types.CollectionIDPrefix)
+		c.ID = types.NewID()
 	}
 	if err := c.Validate(); err != nil {
 		return err

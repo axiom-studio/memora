@@ -28,6 +28,20 @@ docker run -p 7777:7777 -v memora-data:/data \
 
 The API key is required, not optional. The image binds `:7777`, which is reachable beyond loopback, and the server refuses to start unauthenticated on such an address — so a `docker run` without `MEMORA_API_KEY` exits immediately.
 
+### Local Embedder Image
+
+`ghcr.io/axiom-studio/memora-core:<version>-local` is the same server with a semantic embedder that runs on the node: it needs no API key and works offline. It bundles the llama.cpp library (compiled from pinned source for portable x86-64) and the `nomic-embed-text-v1.5` model (768 dimensions), and starts with `embedding.model = "local:nomic-embed-text-v1.5"`. It is about 180 MB, on a Debian slim base, and published for linux/amd64 only. The CPU needs AVX2, FMA and F16C (x86-64 from about 2013 on); it does not run under amd64 emulation on Apple silicon. The model file is pinned to a fixed SHA-256 and verified when it loads.
+
+```bash
+docker run -p 7777:7777 -v memora-data:/data \
+    -e MEMORA_API_KEY=dev-key-change-me \
+    ghcr.io/axiom-studio/memora-core:<version>-local
+```
+
+The image records what it bundles in `/usr/share/memora/local-components.json`: the kelindar/search and llama.cpp commits the library is built from, its build flags and SHA-256, and the model's source URL and SHA-256. Releases attach an SPDX SBOM (every file with its SHA-256) and that manifest as cosign attestations on the image digest (`cosign verify-attestation --type spdxjson …`). Base images and release actions are pinned by digest.
+
+Switching an existing node to or from this image changes the embedding model, so run `memora-core reembed` afterwards (see [Changing the Embedding Model](#changing-the-embedding-model)). Build it yourself with `docker build -f Dockerfile.local .`; `scripts/smoke-local-image.sh <image>` checks a build.
+
 Mount a volume at `/data`, as above. Without one, the SQLite database holding every Memory, vector, edge, and ledger entry lives in the container's writable layer and is discarded when the container is removed.
 
 A single-node development configuration ships as `docker-compose.yml` in the repository: one node on SQLite and sqlite-vec, published on `127.0.0.1:7777` only. It reads `MEMORA_API_KEY` from a `.env` file next to it and will not start without one; copy `.env.example` to `.env` and set a key first.
@@ -72,18 +86,18 @@ The server warns at startup when the private key's permissions allow group or wo
 
 ## Agent Identity
 
-Every write to a memory, edge, or graph endpoint names an agent in the `Memora-Agent-Id` header, and the named identity provider checks it before the write proceeds. An agent that passes and is not yet known is registered automatically.
+Every write to a memory, edge, or graph endpoint names an agent in the `Memora-Agent-Id` header, and the named identity provider checks it before the write proceeds. Agent IDs are UUIDv4s like every other ID; anything else is rejected with `400 invalid_input`. Human-readable names belong in the agent's `display_name`. An agent that passes and is not yet known is registered automatically.
 
 | Section | Description |
 |---|---|
 | `opaque` | Accepts the supplied ID as given. The default, and the fallback for any unrecognised provider name. |
-| `anthropic_session` | Session-based agent identity. |
+| `anthropic_session` | Session-based agent identity, over MCP. The client proves its session in `initialize`; Memora maps that session to a UUIDv4 agent ID, minted on first use, and returns it. `oauth_agent` and `oidc_agent` work the same way, keyed on the token's identifying claim. |
 
 The `Memora-Identity-Provider` header selects the check and defaults to `opaque`.
 
 What `opaque` provides is attribution, not authentication: it records who a write claims to be from, inside the trust boundary the API key already established. That is sufficient when every caller shares one key and the deployment trusts them equally. It is not sufficient when two mutually distrusting agents share one Memora instance.
 
-One reserved identity is used internally. Edges created by auto-linking are attributed to `agent_system_auto_link`, which keeps system-generated edges distinguishable from anything a real agent asserted.
+Two reserved identities are used internally. Edges created by auto-linking are attributed to the fixed agent ID `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps system-generated edges distinguishable from anything a real agent asserted. Writes made through the web console are attributed to `8d3b6e1f-4a2c-4f5d-b7e9-0c1a2b3d4e5f` (display name `ui-admin`).
 
 ## Multi-Tenancy
 
@@ -91,6 +105,8 @@ One reserved identity is used internally. Edges created by auto-linking are attr
 |---|---|
 | `single-tenant` | The workspace comes from the request path. The default. |
 | `multi-tenant` | The `X-Memora-Workspace` header resolves the workspace for the request. |
+
+> **Multi-tenant mode is not an isolation boundary.** The workspace comes from a header the client chooses, and every client holds the same API key, which can read every workspace through the workspace routes. The mode scopes requests for cooperating clients. Node-wide search fails closed: `/v1/search` without the header returns `400 missing_workspace`, and MCP `memora_search` requires `workspace_ids`. Isolating tenants that do not trust each other needs per-tenant credentials, which Memora does not provide.
 
 Requests are capped at 8 MiB and each runs under the configured timeout, 30 seconds by default. Cross-origin requests receive CORS headers only for origins on the configured allow-list; with no allow-list configured, no CORS headers are sent at all.
 
@@ -160,7 +176,7 @@ Schema changes ship as versioned SQL files applied by each store. Moving Memory 
 The command opens the metadata and content stores directly rather than going through the API, so it runs on a host with access to the data directory:
 
 ```bash
-memora-cli migrate content --workspace ws_XXXX \
+memora-cli migrate content --workspace 3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90 \
     --content-driver file --content-dsn ./data/content \
     --dry-run
 ```
@@ -172,3 +188,36 @@ Run it in three passes:
 3. **Verify** — `--verify` compares content between the metadata store and the content store. The command prints a JSON result and exits `4` when any mismatch is found, which makes this pass usable as a deployment gate.
 
 Only after a clean verification should `storage.content_driver` be pointed at the new store in the server's configuration. See [Configuration](configuration.md) for the keys, and [CLI Reference](cli.md) for the full flag list.
+
+## Changing the Embedding Model
+
+Every vector records the model and dimension that produced it, and vector search compares a query only with vectors from the active model. After `embedding.model` changes, the old vectors are kept but not searched. Vector recall returns nothing for memories not yet re-embedded, and keyword search is unaffected. `GET /readyz` reports the count as `stale_vectors`, together with `missing_vectors`: cells of live memories that have no vector from the active model (never embedded, embedding still pending, or left out by an interrupted rebuild). The server logs both at start-up whenever either is above 0. Vectors left behind by memories forgotten on older versions can hide part of `missing_vectors` until `reembed` removes them.
+
+Re-embed with the new model:
+
+```bash
+memora-core reembed --config memora.toml --dry-run   # count the cells to re-embed
+memora-core reembed --config memora.toml             # re-embed them
+```
+
+| Flag | Value |
+|---|---|
+| `--workspace` | Re-embed one workspace instead of all of them. |
+| `--dry-run` | Count only; write nothing. |
+| `--batch` | Memories per batch. Default `100`. |
+
+It re-embeds only cells whose vector is missing or from another model or dimension, and it writes each batch as it goes. It also removes the vectors of forgotten memories that an earlier version left in the vector store (`orphan_memories` in its output; a `--dry-run` only counts them). An interrupted run picks up where it stopped when started again, and a run with nothing to do is a no-op. It prints the counts as JSON.
+
+With `pgvector`, the vector column has a fixed width. If the new model's dimension differs, the server refuses to start and names `memora-core reembed`. A real `reembed` run drops the old vectors, which the new model cannot use, resizes the column and re-embeds every cell. A `--dry-run` reports the mismatch and changes nothing. Because the rebuild drops every workspace's vectors, `reembed --workspace` refuses a dimension change; run it without `--workspace`. If a rebuild is interrupted, the workspaces it had not reached show up in `missing_vectors` until the next run finishes them. Plan for vector search to be empty until the run finishes, or switch back to the old model to undo.
+
+## Upgrading from Prefixed IDs
+
+Memora identifiers are UUIDv4s, such as `3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90`. Builds before that change used prefixed ULIDs (`ws_01H…`, `mem_01H…`). Those IDs appear in every table, as vector-store keys and in content-store file paths.
+
+No tagged release has shipped with prefixed IDs, so pre-1.0 deployments are not migrated: **start the new version with an empty database**. That means a new `storage.data_dir` for SQLite, or new databases or schemas for Postgres and the content store.
+
+The server checks for this. If the metadata store contains a workspace with a prefixed ID, `memora-core serve` and `memora-core mcp` exit at start-up with an error naming that workspace. They do not serve data that every request would reject. The check runs before any migration, so a refused start leaves the old database exactly as it was, and the old build can still open it.
+
+To keep memories, read their content from the old deployment (the console's Bulk → Dump, or `memora-cli lookup`) and imprint it into the new one. The memories get new IDs. Watermark history, edges and the ledger do not carry over.
+
+Once the new deployment holds what you need, securely delete the old `storage.data_dir`, databases and content store. They still contain every memory body, vector and ledger row, and keeping them past their use works against storage-limitation and disposal duties (GDPR Art. 5(1)(e); SOC 2 C1.2).

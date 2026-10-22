@@ -29,10 +29,10 @@ func (p *AxiomStudioProvider) Embed(_ context.Context, _ []string) ([][]float32,
 }
 
 func init() {
-	Register("axiomstudio", func(model string) (Provider, error) {
-		if model == "" {
-			model = "default"
-		}
-		return &AxiomStudioProvider{model: model, dim: 1536}, nil
+	// Fail at Open, i.e. at server start, rather than on every embed:
+	// a node configured for a gateway it cannot reach should not start
+	// and then quietly serve keyword-only results.
+	Register("axiomstudio", func(string) (Provider, error) {
+		return nil, errNotImplemented
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/axiom-studio/memora/pkg/types"
@@ -28,7 +29,7 @@ func (s *Store) RegisterAgent(ctx context.Context, a *types.Agent) error {
 INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, identity_proof,
     agent_type, model, capabilities_json, registered_at, last_seen_at, active)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-ON CONFLICT(agent_id) DO UPDATE SET
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
     display_name=excluded.display_name,
     identity_provider=excluded.identity_provider,
     identity_proof=excluded.identity_proof,
@@ -41,6 +42,48 @@ ON CONFLICT(agent_id) DO UPDATE SET
 		nullableStr(a.IdentityProofHash), nullableStr(a.AgentType), nullableStr(a.Model),
 		nullableStr(string(capsJSON)), a.RegisteredAt, time.Now().UTC())
 	return err
+}
+
+// TouchAgent implements adapter.AgentToucher.
+func (s *Store) TouchAgent(ctx context.Context, workspaceID, agentID, identityProvider string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, last_seen_at, active)
+VALUES (?, ?, ?, ?, ?, 1)
+ON CONFLICT(workspace_id, agent_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+		agentID, workspaceID, identityProvider, now, now)
+	return err
+}
+
+// ResolveIdentityKey implements adapter.MetadataStore. The insert is a
+// no-op when the key is already bound, so the select always returns the
+// first binding.
+func (s *Store) ResolveIdentityKey(ctx context.Context, identityKey, candidateID string) (string, error) {
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO memora_agent_identities (identity_key, agent_id, created_at) VALUES (?, ?, ?)
+ON CONFLICT(identity_key) DO NOTHING`, identityKey, candidateID, time.Now().UTC()); err != nil {
+		return "", fmt.Errorf("bind identity key: %w", err)
+	}
+	var agentID string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT agent_id FROM memora_agent_identities WHERE identity_key = ?`, identityKey).Scan(&agentID); err != nil {
+		return "", fmt.Errorf("read identity key binding: %w", err)
+	}
+	return agentID, nil
+}
+
+// EnsureNodeID implements adapter.MetadataStore: the single row of
+// memora_node is written once and read thereafter.
+func (s *Store) EnsureNodeID(ctx context.Context, candidateID string) (string, error) {
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO memora_node (singleton, node_id) VALUES (1, ?) ON CONFLICT(singleton) DO NOTHING`, candidateID); err != nil {
+		return "", fmt.Errorf("store node id: %w", err)
+	}
+	var id string
+	if err := s.db.QueryRowContext(ctx, `SELECT node_id FROM memora_node WHERE singleton = 1`).Scan(&id); err != nil {
+		return "", fmt.Errorf("read node id: %w", err)
+	}
+	return id, nil
 }
 
 // GetAgent fetches a single Agent scoped to a workspace.
@@ -164,28 +207,64 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`,
 }
 
 // UpsertTag adds or replaces a tag, scoped to a workspace via the memory's workspace_id.
+//
+// memora_tags is the source of truth for a memory's tags; tags_json, which
+// GetMemory and the search filter re-check read, is rewritten from it in
+// the same transaction (#6182).
 func (s *Store) UpsertTag(ctx context.Context, workspaceID, memoryID, key, value string) error {
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 INSERT INTO memora_tags(memory_id, key, value)
 SELECT ?, ?, ?
-WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)
+WHERE EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL)
 ON CONFLICT(memory_id, key) DO UPDATE SET value = excluded.value`,
 		memoryID, key, value, memoryID, workspaceID)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return types.ErrNotFound
 	}
-	return nil
+	if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// DeleteTag removes a tag, scoped to a workspace via the memory's workspace_id.
+// DeleteTag removes a tag, scoped to a workspace via the memory's
+// workspace_id, and rewrites tags_json to match.
 func (s *Store) DeleteTag(ctx context.Context, workspaceID, memoryID, key string) error {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 DELETE FROM memora_tags WHERE memory_id = ? AND key = ?
 AND EXISTS (SELECT 1 FROM memora_memories WHERE id = ? AND workspace_id = ?)`,
 		memoryID, key, memoryID, workspaceID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		if err := syncTagsJSON(ctx, tx, memoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// syncTagsJSON rewrites a memory's tags_json from its memora_tags rows
+// (NULL when it has none).
+func syncTagsJSON(ctx context.Context, tx *sql.Tx, memoryID string) error {
+	_, err := tx.ExecContext(ctx, `
+UPDATE memora_memories SET tags_json = (
+    SELECT CASE WHEN count(*) = 0 THEN NULL ELSE json_group_object(key, value) END
+    FROM memora_tags WHERE memory_id = ?)
+WHERE id = ?`, memoryID, memoryID)
 	return err
 }

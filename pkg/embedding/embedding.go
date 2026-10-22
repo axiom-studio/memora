@@ -28,7 +28,19 @@ type EmbeddingCapabilities struct {
 	MaxInputTokens       int
 	SupportsAsync        bool
 	ReturnsDeterministic bool
-	Quality              string // "production", "fallback", "placeholder"
+	Quality              string // "production", "lexical", "fallback", "placeholder"
+}
+
+// Searchable reports whether p's vectors carry similarity worth
+// searching. The noop fallback hashes bytes into noise and the
+// placeholder produces nothing, so vector search treats both as no
+// embedder at all.
+func Searchable(p Provider) bool {
+	if p == nil {
+		return false
+	}
+	q := p.Capabilities().Quality
+	return q != "fallback" && q != "placeholder"
 }
 
 // Provider implements an embedding model.

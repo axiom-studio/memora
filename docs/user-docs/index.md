@@ -13,7 +13,7 @@ The unit of embedding is smaller than the unit of storage. Every Memory is split
 - **Versioned writes with optimistic concurrency** — Every Memory carries a watermark. Updates, patches, and appends supply the watermark they expect, and a mismatch is rejected rather than silently overwriting a concurrent write.
 - **Selective re-embedding** — Patch applies find-and-replace operations, re-chunks the result, and calls the embedding provider only for Cells whose text actually changed.
 - **A typed context graph** — Memories are nodes and typed directed edges between them are first-class, queryable, and foldable into recall results.
-- **Four recall modes** — Look up by ID, match keywords, search vectors, or combine keyword and vector results by weighted score.
+- **Four recall modes** — Look up by ID, match keywords, search vectors, or combine keyword and vector results by rank fusion.
 - **Agent-attributed writes** — Every Memory, Cell, Edge, and audit record carries the agent that produced it, checked by a pluggable identity provider before the write proceeds.
 - **Append-only audit** — Every mutation writes a ledger entry recording the operation, the actor, the before and after watermarks, elapsed time, and operation-specific counters.
 - **Pluggable storage** — Five adapter seams — metadata, content, vector, graph, and ledger — each selected by driver name and independently swappable.

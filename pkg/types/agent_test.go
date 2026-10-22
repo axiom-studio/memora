@@ -47,7 +47,7 @@ func TestHashIdentityProof_DifferentInputsDiffer(t *testing.T) {
 func TestAgentJSON_OmitsIdentityProof(t *testing.T) {
 	const secret = "sk-live-NEVER-LEAK-THIS-TOKEN"
 	a := Agent{
-		AgentID:          "agent_01h0000000000000000000000",
+		AgentID:          "edbbd81d-36f7-49fb-9cb9-156e8f8677a8",
 		WorkspaceID:      "ws_01h0000000000000000000000",
 		IdentityProvider: "anthropic_session",
 		IdentityProof:    map[string]any{"session_token": secret, "exp": 1736208000},
@@ -74,7 +74,7 @@ func TestAgentJSON_OmitsIdentityProof(t *testing.T) {
 // non-sensitive digest field when the adapter sets it.
 func TestAgentJSON_KeepsHashField(t *testing.T) {
 	a := Agent{
-		AgentID:           "agent_01h0000000000000000000000",
+		AgentID:           "edbbd81d-36f7-49fb-9cb9-156e8f8677a8",
 		WorkspaceID:       "ws_01h0000000000000000000000",
 		IdentityProvider:  "anthropic_session",
 		IdentityProofHash: "deadbeefcafebabe1234567890abcdef1234567890abcdef1234567890abcdef",

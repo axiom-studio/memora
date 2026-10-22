@@ -101,7 +101,87 @@ TOML table `[embedding]`.
 
 The value is a `prefix:model` string where the prefix selects the provider. The default provider is a stub that returns meaningless vectors; set a real one before evaluating recall quality.
 
+`local:nomic-embed-text-v1.5` (a binary built with `-tags local_embed`, plus the `libllama_go` shared library) runs a GGUF model on the node. The model file `nomic-embed-text-v1.5.Q8_0.gguf` lives in `$MEMORA_MODEL_DIR` (default `~/.memora/models`). If it is missing, it is downloaded from a fixed Hugging Face commit and kept only if its SHA-256 is `3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7`. A file already in the directory is checked against the same hash on every start and refused if it differs, so an offline node can be given a copy that it will verify.
+
 By default a write embeds its changed Cells before it returns, so an imprint responds with `recall_ready: true`. With `embedding.async = true` the write returns as soon as the Cells are stored and a background worker pool embeds them: imprint responds with `recall_ready: false`, and the Memory's `recall_ready` turns `true` once all of its Cells have vectors. Poll a lookup to see when it does. The re-embedded and skipped Cell counts in write responses and the ledger are the same in both modes. On shutdown the server finishes embedding the queued Cells before closing its stores.
+
+## Node Keys
+
+TOML table `[node]`. These identify this node to federation peers and in search results.
+
+| Key | Type | Default |
+|---|---|---|
+| `node.id` | string (UUIDv4) | *(minted on first start)* |
+| `node.name` | string | the hostname |
+
+When `node.id` is unset, the node mints a UUIDv4 the first time it starts and stores it in the metadata store. It keeps that ID across restarts, including in containers without a config file. `memora-core node id` prints it. Set `node.id` only to pin a specific ID.
+
+`federation.inbound_qps` caps how many requests per second each peer may send to this node's peer routes. It defaults to `100`. `federation.peer_timeout_ms` (default `5000`) and `federation.outbound_qps` (default `50`) are the defaults for each peer's `timeout_ms` and `rate_limit_qps`.
+
+Federation peers are listed under `[[federation.peers]]`. Each peer needs `node_id`, which is the peer's own node ID (run `memora-core node id` on the peer), plus `name` and `url`. `federation.federation_id` is optional; if set, it is a UUIDv4 label for the cluster.
+
+### Peer Credentials
+
+Each direction between two nodes has its own key. The routes a peer calls, `POST /v1/federation/search` and `GET /v1/federation/memories/{memory_id}`, take that peer's key instead of the server API key. All other routes, including the peer-management routes under `/v1/federation/peers`, keep the API key.
+
+| Key | Type | Default |
+|---|---|---|
+| `api_key` | string | *(empty)* |
+| `inbound_key_sha256` | string (64 hex characters) | *(empty)* |
+| `client_cert_sha256` | string (64 hex characters) | *(empty)* |
+| `revoked` | bool | `false` |
+| `timeout_ms` | int | `federation.peer_timeout_ms` |
+| `rate_limit_qps` | float | `federation.outbound_qps` |
+| `inbound_qps` | float | `federation.inbound_qps` |
+| `tls_cert` | string (path) | *(empty)* |
+| `client_cert_file`, `client_key_file` | string (path) | *(empty)* |
+
+- **`api_key`** is the key this node sends when it calls the peer. It goes in `X-Memora-Federation-Auth: Bearer <key>`, and the node sends its node ID in `X-Memora-Local-Instance-ID`.
+- **`inbound_key_sha256`** is the SHA-256 of the key the peer sends when it calls this node. Only the hash is configured, so the key never sits in this node's config, logs or responses. The comparison runs in constant time. A peer without it cannot call this node, and the server logs a warning at startup.
+- **`client_cert_sha256`**, when set, also requires the peer to present a TLS client certificate with this SHA-256 fingerprint. It needs `server.tls`; the server refuses to start without it.
+- **`revoked = true`** keeps the peer listed but refuses its calls, and leaves it out of federated searches.
+- **`timeout_ms`** and **`rate_limit_qps`** bound this node's calls to the peer during a federated search. A search's own `timeout_ms` overrides `timeout_ms`.
+- **`inbound_qps`** caps the peer's calls to this node. Over it, the peer gets `429` with `Retry-After`.
+- **`tls_cert`** is the CA certificate used to verify the peer's server certificate on outbound calls.
+- **`client_cert_file`** and **`client_key_file`** are the TLS client certificate this node presents when it calls the peer. Set both or neither. They pair with the peer's `client_cert_sha256` for this node. A file that cannot be loaded stops the server at startup.
+
+### Peer URL Policy
+
+Every peer URL, from the config file or added at runtime, must pass this node's URL policy, which only the config file sets:
+
+| Key | Type | Effect |
+|---|---|---|
+| `federation.insecure_peer_hosts` | list of hosts | Peers at these hosts may use `http://`. Over http the peer key travels in cleartext, so any other `http://` peer is refused. Loopback hosts (`localhost`, `127.0.0.1`, `::1`) need no entry. The node logs a warning for each such peer when it loads them. |
+| `federation.private_peer_hosts` | list of hosts or CIDRs | Peers may reach non-public addresses (loopback, RFC 1918 and `fc00::/7` private, link-local such as `169.254.169.254`, CGNAT, unspecified, multicast and reserved ranges) only if listed. A host name or IP entry lets that URL host resolve to any address; a CIDR entry allows the addresses inside it. Everything else is refused. |
+
+The address check runs when a peer is added over the API or console, on the addresses its host resolves to, and again on every connection, so a name that later resolves to an internal address is still refused. Peer calls do not use `HTTP_PROXY`/`HTTPS_PROXY`. A URL with a user name or password is refused. A refused call shows up in `failed_peers` as `peer_address_refused`. If a stored peer no longer passes the policy (for example, after an entry is removed from a list), the node refuses to start and names the peer; change or delete it first.
+
+```toml
+[federation]
+enabled = true
+# Local demo on a private network: plain http between known hosts.
+insecure_peer_hosts = ["memora-node2"]
+private_peer_hosts = ["memora-node2", "10.20.0.0/16"]
+```
+
+Each peer also needs its own `inbound_key_sha256`; two peers with the same key are refused.
+
+Calls to a peer never follow redirects. A peer that answers with a `3xx` fails that call (`error_code` `http_307` and so on), and nothing is sent to the `Location` it names, so the query and the peer key cannot be passed on to another host.
+
+Peers listed in the config file seed the node's peer registry, which is stored in the metadata store. Each one is imported on the first start that sees it, and never again. After that, edit peers over [`/v1/federation/peers`](api.md#managing-peers) or in the console; changing a peer in the config file does not change the registered peer, and a removed peer is not re-imported.
+
+The `api_key` of each peer is stored sealed (AES-256-GCM) with a node secret kept outside the database. The secret comes from `MEMORA_FEDERATION_SECRET` (32 bytes, base64), or from `federation.secret_key_file`, which defaults to `<data_dir>/federation.key` and is created with mode `0600` on first start. A key file readable by others is refused. Keep the secret with the node: without it the stored peer keys cannot be opened, and those peers are not searched until their `api_key` is set again.
+
+`memora-core node peer-key` prints a new random key and its SHA-256. Put the key in the calling node's `api_key` for this peer, and the hash in this node's `inbound_key_sha256` for the caller.
+
+| Status | Error code | Cause |
+|---|---|---|
+| `401` | `federation_unauthorized` | Unknown node ID, missing or wrong key, or missing or wrong client certificate. These causes are not distinguished. |
+| `403` | `federation_peer_revoked` | The peer presented a valid key, but `revoked` is set. |
+| `404` | `federation_disabled` | Federation is not enabled on this node. |
+| `409` | `federation_loop` | This node is already in the request's federation path. |
+
+Peer routes need peer credentials even when the server runs without an API key.
 
 ## Telemetry Keys
 
@@ -122,6 +202,8 @@ Each variable overrides its file counterpart when set and non-empty.
 |---|---|---|
 | `MEMORA_CONFIG` | string | *(unset — see the search path above)* |
 | `MEMORA_ADDR` | string | `:7777` |
+| `MEMORA_NODE_ID` | string | *(minted on first start)* |
+| `MEMORA_NODE_NAME` | string | the hostname |
 | `MEMORA_MODE` | string | `single-tenant` |
 | `MEMORA_API_KEY` | string | *(empty)* |
 | `MEMORA_DATA_DIR` | string | `./data` |
