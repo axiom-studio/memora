@@ -517,27 +517,33 @@ func (r *recorder) Flush() {
 	}
 }
 
-// Determine whether a request is a memory/edge write that must carry
-// Memora-Agent-Id. Workspace / Collection / Agent admin endpoints are
+// Determine whether a request is a REST memory/edge write that must
+// carry Memora-Agent-Id. Only /v1/workspaces/{ws}/... routes qualify: the
+// console (/ui/...) authenticates by session and attributes its writes
+// to types.ConsoleAgentID itself (#6183), and peer routes are reads made
+// by another node. Workspace / collection / agent admin endpoints are
 // deployer-controlled and don't require agent attribution.
 func isWriteVerb(method, path string) bool {
 	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
 		return false
 	}
-	if strings.HasPrefix(path, "/healthz") || strings.HasPrefix(path, "/readyz") || strings.HasPrefix(path, "/metrics") {
+	rest, ok := strings.CutPrefix(path, "/v1/workspaces/")
+	if !ok {
 		return false
 	}
-	// Peer routes are reads made by another node, not an agent.
-	if federation.IsPeerRoute(path) {
+	// rest is "{ws}/{resource}[/...]". Agent writes: memories (with
+	// :append and @watermark forms), edges, graph and recall/pins (pin
+	// create/delete). Plain POST /recall is a query sent as POST, so it
+	// is not a write (#5984).
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) < 2 {
 		return false
 	}
-	// Workspace / collection / agent CRUD: no agent_id required.
-	// Agent writes: /memories*, /edges*, /graph/* and /recall/pins* (pin
-	// create/delete). Plain POST /recall is a query sent as POST, so it is
-	// not a write (#5984).
-	if strings.Contains(path, "/memories") || strings.Contains(path, "/edges") ||
-		strings.Contains(path, "/graph/") || strings.Contains(path, "/recall/pins") {
+	switch parts[1] {
+	case "memories", "edges", "graph":
 		return true
+	case "recall":
+		return len(parts) == 3 && (parts[2] == "pins" || strings.HasPrefix(parts[2], "pins/"))
 	}
 	return false
 }

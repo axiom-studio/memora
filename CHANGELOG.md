@@ -14,6 +14,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- Console memory and edge writes work again (#6183). The REST
+  middleware's agent-header check matched paths by substring, so every
+  console `POST /ui/api/memories/*`, `/ui/api/edges/*` and
+  `/ui/api/graph/*` request got `400 missing_agent_id` before the
+  console ran. The check now applies only to
+  `/v1/workspaces/{ws}/{memories|edges|graph|recall/pins}` routes; the
+  console keeps attributing its writes to the console agent.
 - Tag edits are visible everywhere (#6182). `PUT`/`DELETE
   /v1/workspaces/{ws}/memories/{id}/tags/{key}` and the console's tag
   actions wrote only the tag index, so `GET` memory kept showing the
