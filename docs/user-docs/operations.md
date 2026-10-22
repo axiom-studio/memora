@@ -28,6 +28,18 @@ docker run -p 7777:7777 -v memora-data:/data \
 
 The API key is required, not optional. The image binds `:7777`, which is reachable beyond loopback, and the server refuses to start unauthenticated on such an address — so a `docker run` without `MEMORA_API_KEY` exits immediately.
 
+### Local Embedder Image
+
+`ghcr.io/axiom-studio/memora-core:<version>-local` is the same server with a semantic embedder that runs on the node: it needs no API key and works offline. It bundles the llama.cpp library and the `nomic-embed-text-v1.5` model (768 dimensions), and starts with `embedding.model = "local:nomic-embed-text-v1.5"`. It is about 180 MB, on a Debian slim base, and published for linux/amd64 only. The CPU needs AVX2, FMA and F16C (x86-64 from about 2013 on); it does not run under amd64 emulation on Apple silicon. The model file is pinned to a fixed SHA-256 and verified when it loads.
+
+```bash
+docker run -p 7777:7777 -v memora-data:/data \
+    -e MEMORA_API_KEY=dev-key-change-me \
+    ghcr.io/axiom-studio/memora-core:<version>-local
+```
+
+Switching an existing node to or from this image changes the embedding model, so run `memora-core reembed` afterwards (see [Changing the Embedding Model](#changing-the-embedding-model)). Build it yourself with `docker build -f Dockerfile.local .`; `scripts/smoke-local-image.sh <image>` checks a build.
+
 Mount a volume at `/data`, as above. Without one, the SQLite database holding every Memory, vector, edge, and ledger entry lives in the container's writable layer and is discarded when the container is removed.
 
 A single-node development configuration ships as `docker-compose.yml` in the repository: one node on SQLite and sqlite-vec, published on `127.0.0.1:7777` only. It reads `MEMORA_API_KEY` from a `.env` file next to it and will not start without one; copy `.env.example` to `.env` and set a key first.

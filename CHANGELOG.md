@@ -56,6 +56,14 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   Postgres 0010) reconciles memories edited by earlier builds. Tagging a
   forgotten memory is now `404`.
 
+### Added
+- `ghcr.io/axiom-studio/memora-core:<version>-local` (#4380): the server
+  with the local semantic embedder (`local:nomic-embed-text-v1.5`), the
+  llama.cpp library and a pinned, verified model baked in, for offline
+  nodes. linux/amd64 only (needs AVX2/FMA/F16C); about 180 MB. Built from
+  `Dockerfile.local`, which checks every download's SHA-256; smoke-tested
+  by the `Local embedder image` workflow and on release, then signed.
+
 ### Security
 - The `local` embedder's model is pinned (#4380, first part). It used to
   download `resolve/main` (a moving branch) with no hash check and hand

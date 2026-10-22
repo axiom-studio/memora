@@ -1,0 +1,71 @@
+# Memora Core with a local semantic embedder (#4380, option A).
+#
+# The image tag is memora-core:<version>-local. It carries memora-core
+# built with -tags local_embed, the llama.cpp shared library that
+# kelindar/search loads at runtime, and the nomic-embed-text-v1.5 GGUF
+# model, so a node embeds offline with no API key. linux/amd64 only:
+# the library ships prebuilt for x86-64 (AVX) only.
+#
+# Every downloaded file is pinned to an immutable URL and checked against
+# its SHA-256; the build fails on any mismatch. The model is verified
+# again by memora-core each time it loads it.
+#
+#   docker build -f Dockerfile.local -t memora-core:dev-local .
+
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+# purego loads the library at runtime, so the binary needs no cgo.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags local_embed \
+    -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${BUILD_DATE}'" \
+    -o /out/memora-core ./cmd/memora-core && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${BUILD_DATE}'" \
+    -o /out/memora-cli ./cmd/memora-cli
+
+FROM debian:bookworm-slim AS assets
+
+# libllama_go.so from kelindar/search v0.4.1 (dist/linux-x64-avx, a Git
+# LFS object; the hash is its LFS oid).
+ARG LLAMA_URL=https://media.githubusercontent.com/media/kelindar/search/v0.4.1/dist/linux-x64-avx/libllama_go.so
+ARG LLAMA_SHA256=4795eae53159ea55e5e08d957bd1215acbe525026180ae36d118a06088dbeecd
+# Must match defaultModelRevision / defaultModelSHA in pkg/embedding/modelfile.go.
+ARG MODEL_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.Q8_0.gguf
+ARG MODEL_SHA256=3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /out/lib /out/models && \
+    curl -fsSL -o /out/lib/libllama_go.so "$LLAMA_URL" && \
+    echo "$LLAMA_SHA256  /out/lib/libllama_go.so" | sha256sum -c - && \
+    curl -fsSL -o /out/models/nomic-embed-text-v1.5.Q8_0.gguf "$MODEL_URL" && \
+    echo "$MODEL_SHA256  /out/models/nomic-embed-text-v1.5.Q8_0.gguf" | sha256sum -c -
+
+FROM debian:bookworm-slim AS final
+
+# libllama_go.so needs libstdc++, libgcc_s and libgomp.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libstdc++6 && rm -rf /var/lib/apt/lists/* && \
+    useradd --system --uid 65532 --home /data --shell /usr/sbin/nologin nonroot && \
+    mkdir -p /data && chown nonroot:nonroot /data
+
+COPY --from=builder /out/memora-core /usr/local/bin/memora-core
+COPY --from=builder /out/memora-cli /usr/local/bin/memora-cli
+COPY --from=assets /out/lib/libllama_go.so /usr/local/lib/libllama_go.so
+COPY --from=assets /out/models /models
+
+ENV MEMORA_DATA_DIR=/data
+ENV MEMORA_ADDR=:7777
+ENV MEMORA_MODEL_DIR=/models
+ENV MEMORA_EMBEDDING_MODEL=local:nomic-embed-text-v1.5
+EXPOSE 7777
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/memora-core"]
+CMD ["serve"]
