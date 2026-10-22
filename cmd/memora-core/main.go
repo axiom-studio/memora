@@ -27,10 +27,12 @@ import (
 
 	"github.com/axiom-studio/memora/internal/certgen"
 	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/mcp"
 	"github.com/axiom-studio/memora/internal/orphangc"
 	httpserver "github.com/axiom-studio/memora/internal/server/http"
 	"github.com/axiom-studio/memora/internal/ui"
+	"github.com/axiom-studio/memora/pkg/types"
 
 	// Register adapters in init().
 	_ "github.com/axiom-studio/memora/internal/ledger/file"
@@ -616,11 +618,37 @@ func runCheckConfig() {
 	}
 	cfg.ApplyEnv()
 
-	if err := cfg.Validate(); err != nil {
+	if err := checkConfig(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "config validation failed: %v\n", err)
 		os.Exit(config.EX_CONFIG)
 	}
 	fmt.Println("config ok")
+}
+
+// checkConfig is what check-config validates: the config itself, and
+// the federation peers as serve would load them (#6230): the peer URL
+// policy, duplicate IDs and inbound keys, TLS files, and client
+// certificate pins without server.tls. Without a configured [node] id
+// the self-reference check cannot run (serve mints the ID).
+func checkConfig(cfg config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if !cfg.Federation.Enabled {
+		return nil
+	}
+	self := cfg.Node.ID
+	if self == "" {
+		self = types.NewID()
+	}
+	reg, err := federation.NewRegistry(cfg.Federation, self)
+	if err != nil {
+		return fmt.Errorf("federation: %w", err)
+	}
+	if reg.RequiresClientCerts() && !cfg.Server.TLS.Enabled {
+		return errors.New("federation: a peer sets client_cert_sha256 but server.tls is not enabled")
+	}
+	return nil
 }
 
 type stringSlice []string

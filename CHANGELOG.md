@@ -14,6 +14,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- `memora-core check-config` now validates federation peers the way
+  `serve` loads them (#6230): the peer URL policy (cleartext and
+  non-public addresses), duplicate node IDs and inbound keys, a peer
+  naming this node, unreadable TLS files and client-certificate pins
+  without `server.tls`. Before this it said `config ok` for configs that
+  `serve` refused.
 - `memora-cli search` and the Go SDK work against multi-tenant servers
   (#4379). `client.Client.Workspace` is now sent as `X-Memora-Workspace`
   on every request, and the CLI sets it from `--workspace` /
