@@ -6,7 +6,9 @@ name: Local embedder image
 # llama.cpp build needs.
 on:
   push:
-    branches: [main]
+    # Feature branches too, so a change to the image is checked on x86-64
+    # before it reaches main (#6245).
+    branches: [main, 'rqts/**']
     paths:
       - Dockerfile.local
       - pkg/embedding/**
