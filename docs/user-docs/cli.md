@@ -119,7 +119,7 @@ A `--if-match` value that no longer matches the Memory's head returns `412` and 
 
 | Section | Description |
 |---|---|
-| `search <query>` | Search every workspace on the node, and with `--federated` its peers. |
+| `search <query>` | Search every workspace on the node, and with `--federated` its peers. On a `multi-tenant` server the search is pinned to the tenant named by `--workspace` / `$MEMORA_WORKSPACE` (sent as `X-Memora-Workspace`, as on every CLI request), and `--workspaces` cannot widen it; with neither set, a single `--workspaces` ID names the tenant. |
 | `fetch <memory_id>` | Read a full Memory from the node that holds it. |
 | `recall <query>` | Run a recall query. |
 | `pin create --query <text>` | Save a recall query. |

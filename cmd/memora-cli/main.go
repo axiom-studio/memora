@@ -577,6 +577,12 @@ func cmdSearch(ctx context.Context, c *client.Client, g globalFlags) {
 	}
 	if *workspaces != "" {
 		req.WorkspaceIDs = strings.Split(*workspaces, ",")
+		// On a multi-tenant server the search is pinned to the tenant in
+		// X-Memora-Workspace (--workspace / $MEMORA_WORKSPACE); a single
+		// --workspaces ID names that tenant when none is set (#4379).
+		if c.Workspace == "" && len(req.WorkspaceIDs) == 1 {
+			c.Workspace = req.WorkspaceIDs[0]
+		}
 	}
 	if *peers != "" {
 		req.Peers = strings.Split(*peers, ",")

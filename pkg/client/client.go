@@ -21,9 +21,13 @@ import (
 
 // Client is the Memora REST client.
 type Client struct {
-	Endpoint   string
-	APIKey     string
-	AgentID    string
+	Endpoint string
+	APIKey   string
+	AgentID  string
+	// Workspace, when set, is sent as X-Memora-Workspace on every
+	// request. A multi-tenant server requires it on node-level routes
+	// such as Search and FetchMemory, and pins them to that workspace;
+	// a single-tenant server ignores it.
 	Workspace  string
 	HTTPClient *http.Client
 }
@@ -59,6 +63,9 @@ func (c *Client) request(ctx context.Context, method, path string, body any, ifM
 	}
 	if c.AgentID != "" {
 		req.Header.Set("Memora-Agent-Id", c.AgentID)
+	}
+	if c.Workspace != "" {
+		req.Header.Set("X-Memora-Workspace", c.Workspace)
 	}
 	if ifMatch != "" {
 		req.Header.Set("If-Match", ifMatch)

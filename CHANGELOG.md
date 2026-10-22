@@ -14,6 +14,12 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- `memora-cli search` and the Go SDK work against multi-tenant servers
+  (#4379). `client.Client.Workspace` is now sent as `X-Memora-Workspace`
+  on every request, and the CLI sets it from `--workspace` /
+  `$MEMORA_WORKSPACE` (or a single `--workspaces` ID), so a
+  multi-tenant search is pinned to that tenant instead of being refused.
+  Single-tenant servers ignore the header.
 - A peer whose stored `api_key` no longer opens (for example after a
   restore without `federation.key`) is reported instead of silently
   skipped (#6177). `GET /v1/federation/peers` shows `has_api_key: false`
