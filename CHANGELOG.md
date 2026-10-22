@@ -73,6 +73,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   by the `Local embedder image` workflow and on release, then signed.
 
 ### Security
+- Peer URL errors no longer repeat credentials (#6247). A refused peer
+  URL with userinfo (`https://user:pass@host`) was printed in full by
+  `check-config`, in start-up errors and in API/console errors. Errors
+  now show the URL with its userinfo replaced by `REDACTED`, and do not
+  show an unparseable URL at all.
 - `-local` image supply chain (#6244): base images are pinned by digest,
   the release job's actions by commit SHA, and releases attach an SPDX
   SBOM (listing `libllama_go.so` and the model with their SHA-256) plus

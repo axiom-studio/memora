@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -77,19 +78,33 @@ func normHost(h string) string {
 func (p *urlPolicy) checkURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return nil, fmt.Errorf("invalid url %q: must be http(s)://host[:port]", raw)
+		return nil, fmt.Errorf("invalid url %s: must be http(s)://host[:port]", shownURL(raw))
 	}
 	if u.User != nil {
-		return nil, fmt.Errorf("url %q must not carry credentials", raw)
+		return nil, fmt.Errorf("url %s must not carry credentials", shownURL(raw))
 	}
 	host := normHost(u.Hostname())
 	if u.Scheme == "http" && !p.cleartextAllowed(host) {
-		return nil, fmt.Errorf("url %q is http://, which would send the peer key in cleartext; use https, or list %q in federation.insecure_peer_hosts", raw, host)
+		return nil, fmt.Errorf("url %s is http://, which would send the peer key in cleartext; use https, or list %q in federation.insecure_peer_hosts", shownURL(raw), host)
 	}
 	if ip, err := netip.ParseAddr(host); err == nil && !p.allowAddr(host, ip) {
-		return nil, fmt.Errorf("url %q: %w", raw, ErrPeerAddressRefused)
+		return nil, fmt.Errorf("url %s: %w", shownURL(raw), ErrPeerAddressRefused)
 	}
 	return u, nil
+}
+
+// shownURL is a peer URL as error text may show it (#6247): without any
+// userinfo (a user name can be a token too), and not at all when it does
+// not parse, since the secret could be anywhere in it.
+func shownURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "(not shown: it does not parse)"
+	}
+	if u.User != nil {
+		u.User = url.User("REDACTED")
+	}
+	return strconv.Quote(u.String())
 }
 
 // cleartextAllowed reports whether the peer key may be sent to host

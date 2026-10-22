@@ -71,3 +71,15 @@ func TestCheckConfig_ShippedDeployConfigs(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckConfig_HidesPeerURLCredentials (#6247).
+func TestCheckConfig_HidesPeerURLCredentials(t *testing.T) {
+	for _, u := range []string{"https://u:hunter2@peer.example.com", "https://u:hunter2 @bad host/%zz"} {
+		c := config.Defaults()
+		c.Federation = config.FederationConfig{Enabled: true, Peers: []config.PeerConfig{{NodeID: types.NewID(), Name: "p", URL: u}}}
+		err := checkConfig(c)
+		if err == nil || strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%q: err = %v, want a refusal without the password", u, err)
+		}
+	}
+}

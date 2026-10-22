@@ -166,3 +166,29 @@ func TestRegistry_InboundKeyUnique(t *testing.T) {
 		t.Fatalf("err = %v, want a duplicate inbound key error", err)
 	}
 }
+
+// TestURLPolicy_ErrorsHideCredentials (#6247): no policy error repeats
+// a credential from the URL, whether it parses or not.
+func TestURLPolicy_ErrorsHideCredentials(t *testing.T) {
+	p, err := newURLPolicy(config.FederationConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		"https://peer:hunter2@peer.example.com",
+		"http://hunter2@peer.example.com",           // token as user name
+		"https://u:hunter2@10.0.0.5",                // also a private address
+		"ftp://u:hunter2@peer.example.com",          // bad scheme
+		"https://u:hunter2@peer.example.com:99999x", // does not parse
+		"https://u:hunter2 @bad host/%zz",           // does not parse
+	} {
+		_, err := p.checkURL(raw)
+		if err == nil {
+			t.Errorf("%q accepted", raw)
+			continue
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Errorf("%q: error shows the credential: %v", raw, err)
+		}
+	}
+}
