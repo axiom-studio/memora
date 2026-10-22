@@ -17,7 +17,7 @@ import (
 func TestIntegration_RegistryToPeers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(api.RecallResponse{
-			Results: []api.RecallHit{{MemoryID: "mem_reg", Score: 0.8}},
+			Results: []api.RecallHit{{MemoryID: nid("mem_reg"), Score: 0.8}},
 		})
 	}))
 	defer srv.Close()

@@ -82,6 +82,9 @@ func SearchEntry(query string, fr *FanoutResult) api.LedgerEntry {
 	if fr.PartialSuccess() {
 		meta["failed_peers"] = fr.FailedPeers()
 	}
+	if len(fr.DroppedHits) > 0 {
+		meta["dropped_hits"] = fr.DroppedHits
+	}
 	return entry(OpSearch, "", meta)
 }
 

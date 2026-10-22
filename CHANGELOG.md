@@ -14,6 +14,16 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- A peer's search answer is checked before it is merged (#6174). Hits
+  whose IDs are not UUIDs are dropped, at most `per_peer_k` hits are
+  kept, `content` is cut to the requested `max_content_bytes` (and
+  removed when content was not requested), excerpts, tags and matched
+  text are bounded, and cells and graph provenance are cleared. Before
+  this, a peer could flood a search with any number of hits and
+  arbitrarily large content. `failed_peers[].error_code` now passes on
+  only the codes a Memora node sends; anything else becomes
+  `http_<status>`, so a peer cannot inject text there. Dropped hits are
+  counted per peer in the `federation_search` ledger entry.
 - **Breaking:** peer URLs follow a URL policy set only in the config file
   (#6172, #6176). Before this, any API key holder could point a runtime
   peer at internal addresses (`http://169.254.169.254`, `localhost:5432`,

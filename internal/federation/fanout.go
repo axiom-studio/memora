@@ -8,8 +8,10 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/axiom-studio/memora/internal/rank"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -46,6 +48,9 @@ type FanoutResult struct {
 	Failures      []PeerFailure
 	PeerLatencyMS map[string]int // by node ID, this node's included
 	TotalScanned  int
+	// DroppedHits counts, by node ID, the hits a peer returned that were
+	// discarded: malformed IDs, or more than the k it was asked for.
+	DroppedHits map[string]int
 }
 
 // PartialSuccess reports whether any peer did not contribute.
@@ -73,7 +78,7 @@ func peerErrorCode(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	case errors.As(err, &pe):
-		if pe.Code != "" {
+		if knownPeerCodes[pe.Code] {
 			return pe.Code
 		}
 		return fmt.Sprintf("http_%d", pe.Status)
@@ -87,6 +92,108 @@ func peerErrorCode(err error) string {
 	}
 }
 
+// knownPeerCodes are the error codes a Memora node answers its peer
+// routes with. Only these are passed on in failed_peers; any other code
+// a peer sends becomes http_<status>, so a peer cannot put text of its
+// choosing into this node's responses.
+var knownPeerCodes = map[string]bool{
+	"federation_unauthorized": true,
+	"federation_peer_revoked": true,
+	"federation_disabled":     true,
+	"federation_loop":         true,
+	"federation_multi_tenant": true,
+	"rate_limited":            true,
+	"invalid_input":           true,
+	"not_found":               true,
+	"method_not_allowed":      true,
+	"capability_unavailable":  true,
+	"internal_error":          true,
+}
+
+// Bounds on the text of a peer hit; a peer's own hits are far smaller.
+const (
+	maxPeerExcerptBytes = 4 << 10
+	maxPeerMatchedBytes = 64 << 10
+	maxPeerTags         = 64
+	maxPeerTagBytes     = 256
+)
+
+// sanitizePeerHit checks one hit from a peer's answer against what this
+// node asked for. It reports false for a hit to drop: one whose
+// memory_id is not a UUID, or whose workspace_id, cell_id, watermark or
+// written_by_agent_id is set but not a UUID. A kept hit has its text
+// bounded, content cut to the requested max_content_bytes (or removed
+// when content was not asked for), and fields a peer search never
+// returns cleared.
+func sanitizePeerHit(h *api.RecallHit, req api.FederationSearchRequest) bool {
+	if _, err := types.ParseID("memory_id", h.MemoryID); err != nil {
+		return false
+	}
+	for _, f := range []struct{ name, v string }{
+		{"workspace_id", h.WorkspaceID}, {"cell_id", h.CellID},
+		{"watermark", h.Watermark}, {"written_by_agent_id", h.WrittenByAgentID},
+	} {
+		if f.v == "" {
+			continue
+		}
+		if _, err := types.ParseID(f.name, f.v); err != nil {
+			return false
+		}
+	}
+	h.Text, _ = truncateUTF8(h.Text, maxPeerExcerptBytes)
+	h.MatchedText, _ = truncateUTF8(h.MatchedText, maxPeerMatchedBytes)
+	if req.IncludeContent {
+		var cut bool
+		h.Content, cut = truncateUTF8(h.Content, EffectiveMaxContentBytes(req.MaxContentBytes))
+		h.ContentTruncated = h.ContentTruncated || cut
+	} else {
+		h.Content, h.ContentTruncated = "", false
+	}
+	h.Cells, h.GraphProvenance = nil, nil
+	if len(h.Tags) > 0 {
+		tags := make(map[string]string, min(len(h.Tags), maxPeerTags))
+		for k, v := range h.Tags {
+			if len(tags) == maxPeerTags {
+				break
+			}
+			if len(k) <= maxPeerTagBytes && len(v) <= maxPeerTagBytes {
+				tags[k] = v
+			}
+		}
+		h.Tags = tags
+	}
+	return true
+}
+
+// Content limits for include_content, shared by local and federated
+// search.
+const (
+	DefaultMaxContentBytes = 64 << 10
+	HardMaxContentBytes    = 1 << 20
+)
+
+// EffectiveMaxContentBytes is the content cut for a requested
+// max_content_bytes: the default when unset, never above the hard cap.
+func EffectiveMaxContentBytes(requested int) int {
+	if requested <= 0 {
+		return DefaultMaxContentBytes
+	}
+	return min(requested, HardMaxContentBytes)
+}
+
+// truncateUTF8 cuts s to at most max bytes on a rune boundary and
+// reports whether it cut anything.
+func truncateUTF8(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
+}
+
 // FanoutSearch sends req to every peer in parallel, each bounded by its
 // own timeout (or timeout, when positive) and admitted by its outbound
 // limiter (when limiter is non-nil), and collects the answers. A slow,
@@ -97,7 +204,9 @@ func peerErrorCode(err error) string {
 // Each peer hit's node_id, node_name and via are set from this node's
 // config for that peer, not taken from the peer's answer, so a peer
 // cannot attribute hits to another node. Within a list, a memory the
-// peer returned twice keeps its first (best) rank.
+// peer returned twice keeps its first (best) rank. A peer's hits are
+// checked by sanitizePeerHit and capped at req.K; the rest are counted
+// in DroppedHits.
 func FanoutSearch(
 	ctx context.Context,
 	local *api.RecallResponse,
@@ -111,6 +220,7 @@ func FanoutSearch(
 ) (*FanoutResult, error) {
 	out := &FanoutResult{
 		PeerLatencyMS: make(map[string]int, len(peers)+1),
+		DroppedHits:   map[string]int{},
 	}
 	for _, pc := range peers {
 		out.Asked = append(out.Asked, pc.PeerID())
@@ -166,14 +276,22 @@ func FanoutSearch(
 			continue
 		}
 		seen := map[string]bool{}
-		hits := make([]api.RecallHit, 0, len(pr.Response.Results))
+		hits := make([]api.RecallHit, 0, min(len(pr.Response.Results), max(req.K, 0)))
+		dropped := 0
 		for _, h := range pr.Response.Results {
+			if req.K > 0 && len(hits) == req.K || !sanitizePeerHit(&h, req) {
+				dropped++
+				continue
+			}
 			if seen[h.MemoryID] {
 				continue
 			}
 			seen[h.MemoryID] = true
 			h.NodeID, h.NodeName, h.Via = pr.PeerID, pr.PeerName, "federation:"+pr.PeerID
 			hits = append(hits, h)
+		}
+		if dropped > 0 {
+			out.DroppedHits[pr.PeerID] = dropped
 		}
 		byPeer[pr.PeerID] = NodeHits{NodeID: pr.PeerID, Hits: hits}
 		out.TotalScanned += pr.Response.TotalCandidatesScanned

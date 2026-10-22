@@ -29,7 +29,7 @@ func testPeerClient(srv *httptest.Server, name string) *PeerClient {
 
 func TestFanoutSearch_LocalOnly(t *testing.T) {
 	local := &api.RecallResponse{
-		Results:                []api.RecallHit{{MemoryID: "mem_local", Score: 0.9}},
+		Results:                []api.RecallHit{{MemoryID: nid("mem_local"), Score: 0.9}},
 		TotalCandidatesScanned: 5,
 		LatencyMS:              2,
 	}
@@ -60,7 +60,7 @@ func TestFanoutSearch_AllFailed_NoLocal(t *testing.T) {
 
 func TestFanoutSearch_MergesResults(t *testing.T) {
 	peerResp := api.RecallResponse{
-		Results:                []api.RecallHit{{MemoryID: "mem_peer", Score: 0.8}},
+		Results:                []api.RecallHit{{MemoryID: nid("mem_peer"), Score: 0.8}},
 		TotalCandidatesScanned: 3,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func TestFanoutSearch_MergesResults(t *testing.T) {
 	defer srv.Close()
 
 	local := &api.RecallResponse{
-		Results:                []api.RecallHit{{MemoryID: "mem_local", Score: 0.9}},
+		Results:                []api.RecallHit{{MemoryID: nid("mem_local"), Score: 0.9}},
 		TotalCandidatesScanned: 5,
 	}
 	peers := []*PeerClient{testPeerClient(srv, "peer1")}
@@ -90,7 +90,7 @@ func TestFanoutSearch_MergesResults(t *testing.T) {
 
 func TestFanoutSearch_PartialSuccess(t *testing.T) {
 	goodResp := api.RecallResponse{
-		Results: []api.RecallHit{{MemoryID: "mem_good", Score: 0.8}},
+		Results: []api.RecallHit{{MemoryID: nid("mem_good"), Score: 0.8}},
 	}
 	goodSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(goodResp)
@@ -123,7 +123,7 @@ func TestFanoutSearch_PartialSuccess(t *testing.T) {
 func TestFanoutSearch_PeerLatencyTracked(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(api.RecallResponse{
-			Results: []api.RecallHit{{MemoryID: "mem_x", Score: 0.5}},
+			Results: []api.RecallHit{{MemoryID: nid("mem_x"), Score: 0.5}},
 		})
 	}))
 	defer srv.Close()
