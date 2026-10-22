@@ -146,7 +146,7 @@ func (c *PeerClient) Search(ctx context.Context, searchReq api.FederationSearchR
 			ErrorCode string `json:"error_code"`
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&env)
-		return nil, &PeerError{Status: resp.StatusCode, Code: env.ErrorCode}
+		return nil, newPeerError(resp.StatusCode, env.ErrorCode)
 	}
 	var result api.RecallResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&result); err != nil {
@@ -158,7 +158,18 @@ func (c *PeerClient) Search(ctx context.Context, searchReq api.FederationSearchR
 // PeerError is a peer's non-200 answer.
 type PeerError struct {
 	Status int
-	Code   string // the peer's error_code, when it sent one
+	// Code is the peer's error_code when it is one a Memora node sends
+	// (knownPeerCodes), else "". The peer controls that string, and
+	// Error() text reaches callers, logs and MCP agents verbatim, so an
+	// unknown code is never kept (#6174).
+	Code string
+}
+
+func newPeerError(status int, code string) *PeerError {
+	if !knownPeerCodes[code] {
+		code = ""
+	}
+	return &PeerError{Status: status, Code: code}
 }
 
 func (e *PeerError) Error() string {
@@ -193,7 +204,7 @@ func (c *PeerClient) FetchMemory(ctx context.Context, memoryID, federationPath s
 		if resp.StatusCode == http.StatusNotFound && env.ErrorCode == "not_found" {
 			return nil, fmt.Errorf("%w: memory %s is not on node %s", types.ErrNotFound, memoryID, c.peer.ID)
 		}
-		return nil, &PeerError{Status: resp.StatusCode, Code: env.ErrorCode}
+		return nil, newPeerError(resp.StatusCode, env.ErrorCode)
 	}
 	var envelope api.MemoryEnvelope
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&envelope); err != nil {
