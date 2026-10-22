@@ -101,6 +101,8 @@ TOML table `[embedding]`.
 
 The value is a `prefix:model` string where the prefix selects the provider. The default provider is a stub that returns meaningless vectors; set a real one before evaluating recall quality.
 
+`local:nomic-embed-text-v1.5` (a binary built with `-tags local_embed`, plus the `libllama_go` shared library) runs a GGUF model on the node. The model file `nomic-embed-text-v1.5.Q8_0.gguf` lives in `$MEMORA_MODEL_DIR` (default `~/.memora/models`). If it is missing, it is downloaded from a fixed Hugging Face commit and kept only if its SHA-256 is `3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7`. A file already in the directory is checked against the same hash on every start and refused if it differs, so an offline node can be given a copy that it will verify.
+
 By default a write embeds its changed Cells before it returns, so an imprint responds with `recall_ready: true`. With `embedding.async = true` the write returns as soon as the Cells are stored and a background worker pool embeds them: imprint responds with `recall_ready: false`, and the Memory's `recall_ready` turns `true` once all of its Cells have vectors. Poll a lookup to see when it does. The re-embedded and skipped Cell counts in write responses and the ledger are the same in both modes. On shutdown the server finishes embedding the queued Cells before closing its stores.
 
 ## Node Keys
