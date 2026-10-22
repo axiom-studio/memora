@@ -14,6 +14,13 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- Partial vector rebuilds are no longer invisible (#6180). `memora-core
+  reembed --workspace` with a pgvector dimension change dropped every
+  workspace's vectors and re-embedded one; it now refuses and asks for a
+  full run. `/readyz` and the start-up warning now also count
+  `missing_vectors` (live cells with no vector from the active model),
+  so an interrupted rebuild shows up; `/readyz` reports `stale_vectors`
+  and `missing_vectors` as top-level integers too.
 - `memora-cli agents register --agent-id <uuid>` registers that agent
   (#6175). The global `--agent-id` flag consumed the option before the
   subcommand saw it, so the command only ever printed its usage. It now

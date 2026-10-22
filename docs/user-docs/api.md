@@ -182,7 +182,7 @@ These sit outside `/v1`.
 | Field | Value |
 |---|---|
 | `GET /healthz` | Liveness. Returns `200` whenever the process is up. |
-| `GET /readyz` | Readiness. Pings the metadata, vector, and ledger adapters. `adapter.stale_vectors` counts vectors from another embedding model, which search skips until `memora-core reembed`. |
+| `GET /readyz` | Readiness. Pings the metadata, vector, and ledger adapters. `stale_vectors` counts vectors from another embedding model, and `missing_vectors` the cells of live memories with no vector from the active one; vector search reaches neither until `memora-core reembed`. Both are integers at the top level, and strings under `adapter` as before. |
 
 These are ordinary non-`/ui` paths, so they require the bearer token when an API key is configured. A probe that omits it receives `401`.
 

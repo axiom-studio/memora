@@ -13,20 +13,19 @@ import (
 	"github.com/axiom-studio/memora/internal/config"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/internal/store/pgvector"
-	"github.com/axiom-studio/memora/pkg/adapter"
 )
 
 // warnStaleVectors logs, at start-up, vector rows that search skips
-// because another embedding model wrote them.
+// because another embedding model wrote them, and live cells that have
+// no vector from the active model (for example after an interrupted
+// pgvector rebuild, #6180).
 func warnStaleVectors(ctx context.Context, svc *service.Service, logger *slog.Logger) {
-	mav, ok := svc.Vector.(adapter.ModelAwareVectorStore)
-	if !ok {
+	h, ok, err := svc.VectorHealth(ctx)
+	if err != nil || !ok || h.Stale+h.Missing == 0 {
 		return
 	}
-	if n, err := mav.StaleVectors(ctx); err == nil && n > 0 {
-		logger.Warn("vector rows from another embedding model or dimension are not searched; run `memora-core reembed`",
-			"stale_vectors", n, "model", svc.Embedder.ModelID())
-	}
+	logger.Warn("some memories are not reachable by vector search; run `memora-core reembed`",
+		"stale_vectors", h.Stale, "missing_vectors", h.Missing, "model", svc.Embedder.ModelID())
 }
 
 // runReembed is `memora-core reembed`: give every cell a vector from the
@@ -58,8 +57,14 @@ func runReembed() {
 // run never does, and reports that the rebuild would re-embed every cell.
 func reembed(ctx context.Context, cfg config.Config, o service.ReembedOptions, progress io.Writer) (service.ReembedResult, error) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	svc, closeAll, err := openCoreAdaptersWith(ctx, cfg, logger, adapterOptions{RebuildVectors: !o.DryRun})
+	// A dimension change rebuilds the whole vector table, so it must
+	// re-embed every workspace: a --workspace run would leave the others
+	// with no vectors at all (#6180).
+	svc, closeAll, err := openCoreAdaptersWith(ctx, cfg, logger, adapterOptions{RebuildVectors: !o.DryRun && o.WorkspaceID == ""})
 	if errors.Is(err, pgvector.ErrDimensionMismatch) {
+		if o.WorkspaceID != "" {
+			return service.ReembedResult{}, fmt.Errorf("%w; a dimension change rebuilds every workspace's vectors, so run reembed without --workspace", err)
+		}
 		return service.ReembedResult{DryRun: true}, fmt.Errorf("%w (a run without --dry-run rebuilds the vector table and re-embeds every cell)", err)
 	}
 	if err != nil {

@@ -177,7 +177,7 @@ Only after a clean verification should `storage.content_driver` be pointed at th
 
 ## Changing the Embedding Model
 
-Every vector records the model and dimension that produced it, and vector search compares a query only with vectors from the active model. After `embedding.model` changes, the old vectors are kept but not searched. Vector recall returns nothing for memories not yet re-embedded, and keyword search is unaffected. `GET /readyz` reports the count as `stale_vectors`, and the server logs it at start-up.
+Every vector records the model and dimension that produced it, and vector search compares a query only with vectors from the active model. After `embedding.model` changes, the old vectors are kept but not searched. Vector recall returns nothing for memories not yet re-embedded, and keyword search is unaffected. `GET /readyz` reports the count as `stale_vectors`, together with `missing_vectors`: cells of live memories that have no vector from the active model (never embedded, embedding still pending, or left out by an interrupted rebuild). The server logs both at start-up whenever either is above 0. Vectors left behind by memories forgotten on older versions can hide part of `missing_vectors` until `reembed` removes them.
 
 Re-embed with the new model:
 
@@ -194,7 +194,7 @@ memora-core reembed --config memora.toml             # re-embed them
 
 It re-embeds only cells whose vector is missing or from another model or dimension, and it writes each batch as it goes. It also removes the vectors of forgotten memories that an earlier version left in the vector store (`orphan_memories` in its output; a `--dry-run` only counts them). An interrupted run picks up where it stopped when started again, and a run with nothing to do is a no-op. It prints the counts as JSON.
 
-With `pgvector`, the vector column has a fixed width. If the new model's dimension differs, the server refuses to start and names `memora-core reembed`. A real `reembed` run drops the old vectors, which the new model cannot use, resizes the column and re-embeds every cell. A `--dry-run` reports the mismatch and changes nothing. Plan for vector search to be empty until the run finishes, or switch back to the old model to undo.
+With `pgvector`, the vector column has a fixed width. If the new model's dimension differs, the server refuses to start and names `memora-core reembed`. A real `reembed` run drops the old vectors, which the new model cannot use, resizes the column and re-embeds every cell. A `--dry-run` reports the mismatch and changes nothing. Because the rebuild drops every workspace's vectors, `reembed --workspace` refuses a dimension change; run it without `--workspace`. If a rebuild is interrupted, the workspaces it had not reached show up in `missing_vectors` until the next run finishes them. Plan for vector search to be empty until the run finishes, or switch back to the old model to undo.
 
 ## Upgrading from Prefixed IDs
 

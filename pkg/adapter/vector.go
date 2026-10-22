@@ -30,6 +30,9 @@ type VectorConfig struct {
 type ModelAwareVectorStore interface {
 	// StaleVectors counts rows written by another model or dimension.
 	StaleVectors(ctx context.Context) (int, error)
+	// FreshVectors counts rows written by the active model and dimension.
+	// With CellCounter it gives the cells that have no searchable vector.
+	FreshVectors(ctx context.Context) (int, error)
 	// FreshCells reports which of cellIDs have a vector from the active
 	// model and dimension.
 	FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error)
@@ -38,6 +41,13 @@ type ModelAwareVectorStore interface {
 	// after ("" = from the start). Re-embedding uses it to remove the
 	// vectors of memories that no longer exist.
 	VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error)
+}
+
+// CellCounter is implemented by metadata stores that can count the cells
+// of live (not forgotten) memories, which vector health compares with
+// ModelAwareVectorStore.FreshVectors.
+type CellCounter interface {
+	CountLiveCells(ctx context.Context) (int, error)
 }
 
 // SplitVectorKeys separates DeleteVectors keys into cell IDs and memory

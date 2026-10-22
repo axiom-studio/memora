@@ -112,6 +112,13 @@ func (s *Store) StaleVectors(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// FreshVectors implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM memora_cell_vectors WHERE dim = ? AND model = ?`, s.dim, s.model).Scan(&n)
+	return n, err
+}
+
 // FreshCells implements adapter.ModelAwareVectorStore.
 func (s *Store) FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(cellIDs))

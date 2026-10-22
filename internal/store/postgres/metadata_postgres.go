@@ -873,6 +873,14 @@ ON CONFLICT(memory_id, seq) DO UPDATE SET
 	return tx.Commit(ctx)
 }
 
+// CountLiveCells implements adapter.CellCounter.
+func (s *MetadataStore) CountLiveCells(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM memora_cells c
+JOIN memora_memories m ON m.id = c.memory_id WHERE m.deleted_at IS NULL`).Scan(&n)
+	return n, err
+}
+
 func (s *MetadataStore) GetCells(ctx context.Context, workspaceID, memoryID string) ([]types.Cell, error) {
 	// memora_cells has no workspace_id column; scope through the parent memory.
 	rows, err := s.pool.Query(ctx, `

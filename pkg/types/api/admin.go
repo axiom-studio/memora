@@ -80,6 +80,12 @@ type HealthResponse struct {
 	Status  string            `json:"status"`            // "live" | "ready" | "degraded"
 	Adapter map[string]string `json:"adapter,omitempty"` // primary/vector/ledger -> "ok" | "down" | "degraded"
 	Version string            `json:"version,omitempty"`
+	// StaleVectors and MissingVectors (readiness only) count vector rows
+	// from another embedding model, and live cells with no vector from
+	// the active one; vector search reaches neither until
+	// `memora-core reembed`. Absent when the stores cannot tell.
+	StaleVectors   *int `json:"stale_vectors,omitempty"`
+	MissingVectors *int `json:"missing_vectors,omitempty"`
 }
 
 // ErrorEnvelope is the standard error response shape.

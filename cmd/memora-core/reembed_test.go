@@ -207,3 +207,66 @@ func TestPgvectorFilteredVectorSearch_HNSW(t *testing.T) {
 		}
 	}
 }
+
+// TestReembedCommand_PgvectorPartialRebuild (#6180): with a pgvector
+// dimension change, `reembed --workspace` refuses instead of dropping
+// every workspace's vectors; and a rebuild that re-embedded only part of
+// the node is visible as missing vectors, at start-up and in /readyz's
+// counts, until a full reembed.
+func TestReembedCommand_PgvectorPartialRebuild(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Storage.VectorDriver = "pgvector"
+	cfg.Storage.VectorDSN = freshPostgresDB(t)
+	cfg.Embedding.Model = "hash:64"
+	wsA := seedMemories(t, cfg, 3)
+	wsB := seedMemories(t, cfg, 3)
+	ctx := context.Background()
+
+	cfg.Embedding.Model = "hash:128"
+	_, err := reembed(ctx, cfg, service.ReembedOptions{WorkspaceID: wsA}, io.Discard)
+	if !errors.Is(err, pgvector.ErrDimensionMismatch) || !strings.Contains(err.Error(), "without --workspace") {
+		t.Fatalf("reembed --workspace with a dimension change: err = %v, want a refusal", err)
+	}
+	cfg.Embedding.Model = "hash:64"
+	if a, b := vectorHits(t, cfg, wsA), vectorHits(t, cfg, wsB); a != 3 || b != 3 {
+		t.Fatalf("the refused run touched the vectors: %d and %d hits, want 3 and 3", a, b)
+	}
+
+	// An interrupted rebuild: the table is rebuilt at the new width and
+	// only workspace A is re-embedded before the run stops.
+	cfg.Embedding.Model = "hash:128"
+	svc, closeAll, err := openCoreAdaptersWith(ctx, cfg, discardLogger(), adapterOptions{RebuildVectors: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Reembed(ctx, service.ReembedOptions{WorkspaceID: wsA}, nil); err != nil {
+		t.Fatal(err)
+	}
+	closeAll()
+
+	health := func() service.VectorHealth {
+		t.Helper()
+		svc, closeAll, err := openCoreAdapters(ctx, cfg, discardLogger())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer closeAll()
+		h, ok, err := svc.VectorHealth(ctx)
+		if err != nil || !ok {
+			t.Fatalf("VectorHealth: ok=%v, %v", ok, err)
+		}
+		return h
+	}
+	if h := health(); h.Missing != 3 || h.Stale != 0 {
+		t.Fatalf("after a partial rebuild: %+v, want 3 missing (workspace B), 0 stale", h)
+	}
+	if res, err := reembed(ctx, cfg, service.ReembedOptions{}, io.Discard); err != nil || res.Reembedded != 3 {
+		t.Fatalf("full reembed = %+v, %v; want B's 3 cells re-embedded", res, err)
+	}
+	if h := health(); h.Missing != 0 || h.Stale != 0 {
+		t.Fatalf("after a full reembed: %+v, want 0 and 0", h)
+	}
+	if b := vectorHits(t, cfg, wsB); b != 3 {
+		t.Fatalf("workspace B after the full reembed: %d hits, want 3", b)
+	}
+}

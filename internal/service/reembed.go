@@ -213,3 +213,41 @@ func (s *Service) removeOrphanVectors(ctx context.Context, mav adapter.ModelAwar
 		after = ids[len(ids)-1]
 	}
 }
+
+// VectorHealth is how much of the node's content vector search can
+// reach with the active model.
+type VectorHealth struct {
+	// Stale counts vector rows from another model or dimension.
+	Stale int
+	// Missing counts cells of live memories that have no vector from the
+	// active model: never embedded, embedding still pending, or lost to a
+	// partial pgvector rebuild. It is the shortfall of fresh rows against
+	// live cells, so vectors left by memories forgotten on older builds
+	// can hide part of it until `memora-core reembed` removes them.
+	Missing int
+}
+
+// VectorHealth reports stale and missing vectors. ok is false when the
+// stores cannot tell (no model-aware vector store, or an embedder whose
+// vectors are not searchable).
+func (s *Service) VectorHealth(ctx context.Context) (h VectorHealth, ok bool, err error) {
+	mav, isMAV := s.Vector.(adapter.ModelAwareVectorStore)
+	if !isMAV || s.Embedder == nil || !embedding.Searchable(s.Embedder) {
+		return h, false, nil
+	}
+	if h.Stale, err = mav.StaleVectors(ctx); err != nil {
+		return h, false, err
+	}
+	if cc, isCC := s.Metadata.(adapter.CellCounter); isCC {
+		cells, err := cc.CountLiveCells(ctx)
+		if err != nil {
+			return h, false, err
+		}
+		fresh, err := mav.FreshVectors(ctx)
+		if err != nil {
+			return h, false, err
+		}
+		h.Missing = max(0, cells-fresh)
+	}
+	return h, true, nil
+}

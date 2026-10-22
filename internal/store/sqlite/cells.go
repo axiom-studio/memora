@@ -199,3 +199,11 @@ WHERE  id           = ?
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
+
+// CountLiveCells implements adapter.CellCounter.
+func (s *Store) CountLiveCells(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM memora_cells c
+JOIN memora_memories m ON m.id = c.memory_id WHERE m.deleted_at IS NULL`).Scan(&n)
+	return n, err
+}
