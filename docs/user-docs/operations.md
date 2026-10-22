@@ -30,7 +30,7 @@ The API key is required, not optional. The image binds `:7777`, which is reachab
 
 ### Local Embedder Image
 
-`ghcr.io/axiom-studio/memora-core:<version>-local` is the same server with a semantic embedder that runs on the node: it needs no API key and works offline. It bundles the llama.cpp library and the `nomic-embed-text-v1.5` model (768 dimensions), and starts with `embedding.model = "local:nomic-embed-text-v1.5"`. It is about 180 MB, on a Debian slim base, and published for linux/amd64 only. The CPU needs AVX2, FMA and F16C (x86-64 from about 2013 on); it does not run under amd64 emulation on Apple silicon. The model file is pinned to a fixed SHA-256 and verified when it loads.
+`ghcr.io/axiom-studio/memora-core:<version>-local` is the same server with a semantic embedder that runs on the node: it needs no API key and works offline. It bundles the llama.cpp library (compiled from pinned source for portable x86-64) and the `nomic-embed-text-v1.5` model (768 dimensions), and starts with `embedding.model = "local:nomic-embed-text-v1.5"`. It is about 180 MB, on a Debian slim base, and published for linux/amd64 only. The CPU needs AVX2, FMA and F16C (x86-64 from about 2013 on); it does not run under amd64 emulation on Apple silicon. The model file is pinned to a fixed SHA-256 and verified when it loads.
 
 ```bash
 docker run -p 7777:7777 -v memora-data:/data \

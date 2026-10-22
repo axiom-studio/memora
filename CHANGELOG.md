@@ -61,7 +61,9 @@ The project follows [Semantic Versioning](https://semver.org/) — see
   with the local semantic embedder (`local:nomic-embed-text-v1.5`), the
   llama.cpp library and a pinned, verified model baked in, for offline
   nodes. linux/amd64 only (needs AVX2/FMA/F16C); about 180 MB. Built from
-  `Dockerfile.local`, which checks every download's SHA-256; smoke-tested
+  `Dockerfile.local`, which compiles the llama.cpp library from pinned
+  source for portable x86-64 (the prebuilt upstream library uses AVX-VNNI
+  and crashes on most CPUs, #6245) and checks the model's SHA-256; smoke-tested
   by the `Local embedder image` workflow and on release, then signed.
 
 ### Security
