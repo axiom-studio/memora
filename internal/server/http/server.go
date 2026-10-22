@@ -65,6 +65,10 @@ type Config struct {
 	// FederationInboundQPS caps each peer's calls to the peer routes
 	// (0 = federation.DefaultInboundQPS).
 	FederationInboundQPS float64
+	// FederationRejectWindow is how long unauthenticated peer-route
+	// refusals are counted before one summary ledger entry per caller
+	// is written (0 = one minute).
+	FederationRejectWindow time.Duration
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -76,6 +80,11 @@ type Server struct {
 	srv *http.Server
 	// inbound rate-limits each calling peer on the peer routes.
 	inbound *federation.RateLimiterPool
+	// preauth rate-limits peer-route requests per client address before
+	// authentication; rejections aggregates the unauthenticated
+	// refusals for the ledger (#6178).
+	preauth    *federation.AddrLimiter
+	rejections *federation.RejectionAggregator
 }
 
 // DefaultMaxBodyBytes caps request bodies at 8 MiB. Memora's largest
@@ -126,6 +135,23 @@ func New(cfg Config) *Server {
 
 	mux := http.NewServeMux()
 	s := &Server{cfg: cfg, mux: mux, inbound: federation.NewInboundPool(cfg.FederationInboundQPS)}
+	inboundQPS := cfg.FederationInboundQPS
+	if inboundQPS <= 0 {
+		inboundQPS = federation.DefaultInboundQPS
+	}
+	// Twice one peer's limit, and at least twice the default: room for
+	// a peer's own traffic, far below a flood. Peers behind one NAT or
+	// proxy share it.
+	s.preauth = federation.NewAddrLimiter(2 * max(inboundQPS, federation.DefaultInboundQPS))
+	window := cfg.FederationRejectWindow
+	if window <= 0 {
+		window = time.Minute
+	}
+	s.rejections = federation.NewRejectionAggregator(window, func(e api.LedgerEntry) {
+		if cfg.Service != nil {
+			cfg.Service.AppendLedger(context.Background(), e)
+		}
+	})
 	s.routes()
 
 	uiHandler, err := ui.NewHandler()
@@ -166,8 +192,10 @@ func New(cfg Config) *Server {
 		Addr:              cfg.Addr,
 		Handler:           s.middleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       cfg.Timeout,
-		WriteTimeout:      cfg.Timeout + 5*time.Second,
+		// The request line and headers; Go's default is 1 MiB.
+		MaxHeaderBytes: 64 << 10,
+		ReadTimeout:    cfg.Timeout,
+		WriteTimeout:   cfg.Timeout + 5*time.Second,
 	}
 	if cfg.TLS.Enabled && cfg.Federation != nil {
 		// Ask for, but do not chain-verify, client certificates: a peer's
@@ -314,22 +342,43 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		// else takes the API key (skipped for /ui/ paths — UI has its own
 		// session auth; skipped when no key configured — local-dev mode).
 		var peer *federation.InboundAuthResult
+		routeChecked := false
 		if federation.IsPeerRoute(r.URL.Path) {
 			if s.cfg.Federation == nil {
 				s.writeError(w, http.StatusNotFound, "federation_disabled", "federation is not enabled on this node", nil)
 				return
 			}
+			// Peer routes are reachable without the API key, so a
+			// caller is limited per address before anything is checked
+			// or written (#6178), and a malformed path is refused before
+			// it can reach the audit.
+			if s.preauth != nil && !s.preauth.Allow(r.RemoteAddr) {
+				s.observeInbound("", federation.ReasonRateLimited)
+				w.Header().Set("Retry-After", retryAfter(s.preauth.QPS()))
+				s.writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests", nil)
+				return
+			}
+			if !s.checkRoute(w, r) {
+				return
+			}
+			routeChecked = true
 			res, err := federation.AuthenticatePeer(r, s.cfg.Federation)
 			if err != nil {
 				// Audit with the reason; the caller only sees the
 				// uniform error. A claimed node ID is recorded only
-				// when it is well-formed.
+				// when it is well-formed. A caller that proved nothing
+				// is counted into one summary entry per window instead
+				// of a row per request.
 				claimed := r.Header.Get(federation.HeaderLocalInstanceID)
 				if _, perr := types.ParseID("node_id", claimed); perr != nil {
 					claimed = ""
 				}
 				reason := federation.RejectReason(err)
-				s.ledgerRejected(r, claimed, reason)
+				if federation.Unauthenticated(reason) && s.rejections != nil {
+					s.rejections.Record(reason, claimed, r.RemoteAddr, federation.PeerRouteTemplate(r.URL.Path))
+				} else {
+					s.ledgerRejected(r, claimed, reason)
+				}
 				s.observeInbound(claimed, reason)
 				s.writeErrorFromService(w, err)
 				return
@@ -350,7 +399,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 		// Route table: unknown /v1 routes, wrong methods and malformed
 		// ID path parameters stop here (routetable.go).
-		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.checkRoute(w, r) {
+		if !routeChecked && strings.HasPrefix(r.URL.Path, "/v1/") && !s.checkRoute(w, r) {
 			return
 		}
 

@@ -970,7 +970,7 @@ func (s *Server) ledgerRejected(r *http.Request, peerID, reason string) {
 	if s.cfg.Service == nil {
 		return
 	}
-	s.cfg.Service.AppendLedger(r.Context(), federation.RejectedEntry(peerID, reason, r.URL.Path))
+	s.cfg.Service.AppendLedger(r.Context(), federation.RejectedEntry(peerID, reason, federation.PeerRouteTemplate(r.URL.Path)))
 }
 
 // observeInbound counts a peer-route call for /metrics. A caller that

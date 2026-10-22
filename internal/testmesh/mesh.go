@@ -69,6 +69,11 @@ type Options struct {
 // New starts one node per name. Node i embeds with
 // hash:<FirstDim·(i+1)>, so no two nodes of a mesh share a vector space. Keys are per pair and direction:
 // the caller holds the key, the callee only its SHA-256.
+
+// RejectWindow is the meshes' federation.RejectionAggregator window:
+// short, so a test sees unauthenticated refusals in the ledger quickly.
+const RejectWindow = 50 * time.Millisecond
+
 func New(t testing.TB, names []string, o Options) []*Node {
 	t.Helper()
 	nodes := make([]*Node, len(names))
@@ -181,6 +186,7 @@ func (n *Node) start(t testing.TB, dim int) {
 	h := httpserver.New(httpserver.Config{
 		Service: n.Svc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		MaxBodyBytes: httpserver.DefaultMaxBodyBytes, Federation: reg, FederationPeers: n.Peers,
+		FederationRejectWindow: RejectWindow,
 	}).Handler()
 	n.TS.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if federation.IsPeerRoute(r.URL.Path) {

@@ -14,6 +14,19 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Security
+- Unauthenticated callers can no longer flood the audit ledger through
+  the peer routes (#6178). Before this, every refused call to
+  `/v1/federation/search` or `/v1/federation/memories/*`, reachable
+  without the API key, wrote one ledger row carrying the raw request
+  path (up to 1 MiB), before any rate limit. Now each client address
+  is limited before authentication (2 × `federation.inbound_qps`, at
+  least 200/s; `429`, nothing ledgered), malformed paths are refused by
+  the route table first, `unknown_peer`/`bad_key` refusals are written
+  as one summary per caller and minute with a `count`, entries record
+  the route template instead of the path, and the server caps the
+  request line and headers at 64 KiB (`431`). Refusals that need a
+  valid key (`revoked`, `bad_cert`, `loop`, `rate_limited`,
+  `federation_mismatch`) are still one entry each.
 - Search and recall results are bounded (#6166). `k` and `per_peer_k`
   are at most 100 and lookup `memory_ids` at most 100 IDs (more is
   `400 invalid_input`; the MCP schema already advertised 100). One

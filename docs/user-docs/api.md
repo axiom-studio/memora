@@ -136,7 +136,7 @@ Every federated call is written to the ledger as a node-level entry (no workspac
 |---|---|---|
 | `federation_search` | the node that searched | `query`, `peers_asked`, `hits_per_node`, `total_hits`, `failed_peers`, `dropped_hits` |
 | `federation_inbound` | the node that answered a peer's search | `requesting_peer`, `query`, `hit_count`, `federation_path` |
-| `federation_rejected` | the node that refused a peer call | `requesting_peer` (when well-formed), `reason`: `unknown_peer`, `bad_key`, `bad_cert`, `revoked`, `federation_mismatch`, `loop` or `rate_limited` |
+| `federation_rejected` | the node that refused a peer call | `requesting_peer` (when well-formed), `reason`: `unknown_peer`, `bad_key`, `bad_cert`, `revoked`, `federation_mismatch`, `loop` or `rate_limited`; `target` is the route template, never the request path. `unknown_peer` and `bad_key` refusals are summarised: one entry per claimed node, client address (IPv4, or IPv6 /64) and route per minute, with `count`, `client`, `first_seen` and `last_seen` |
 | `federation_fetch` | both nodes of a fetch | `direction` (`outbound`/`inbound`), `node_id`, `memory_id`, `outcome`; the serving node files it under the memory's workspace |
 | `federation_peer` | the node whose peer registry changed (API or console) | `action` (`create`, `update`, `delete`), `node_id`, `name`, `url`, `previous_url` when it changed, `api_key_set`, `inbound_key_set`, `revoked`; keys are never recorded |
 
@@ -173,7 +173,7 @@ Other nodes call these routes. They take peer credentials, not the API key; see 
 | `GET /federation/memories/{memory_id}` | A peer reads a full Memory, with its Cells, from any workspace on this node. `404` if it is not here. |
 | `POST /federation/search` | A peer searches every workspace on this node. Body: `query`, `mode`, `k`, `include_content`, `max_content_bytes`, with the same meanings as `POST /search`. Any other field, including `workspace_ids`, is refused with `400`. This node embeds the query text with its own embedder, so peers can use different models. Hits are those of `POST /search` plus `node_id` and `node_name`, which identify this node. The node does not forward the query to its own peers. |
 
-A peer that sends more than its `inbound_qps` (or `federation.inbound_qps`, default 100) requests per second gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
+Before any credential is checked, each client address may send at most twice `federation.inbound_qps` (at least 200) requests per second to these routes; past that it gets `429 rate_limited` with `Retry-After`, and nothing is written to the ledger. Peers behind one NAT or proxy share that limit. A malformed path is refused by the route table before authentication, and request lines and headers over 64 KiB get `431`. A peer that sends more than its `inbound_qps` (or `federation.inbound_qps`, default 100) requests per second gets `429 rate_limited` with a `Retry-After` header. A node in `multi-tenant` mode refuses with `403 federation_multi_tenant`, because peers are trusted per node, not per tenant. Loop and rate-limit refusals are written to the ledger as `federation_rejected` entries with no workspace.
 
 ### Operational Endpoints
 

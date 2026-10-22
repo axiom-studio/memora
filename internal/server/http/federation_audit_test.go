@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/axiom-studio/memora/internal/federation"
+	"github.com/axiom-studio/memora/internal/testmesh"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -91,9 +94,16 @@ func TestFederationAudit_E2E(t *testing.T) {
 	if call(a.ID, "wrong-key") != 401 || call(stranger, "anything") != 401 || call("not-a-node", "x") != 401 {
 		t.Fatal("refused calls must be 401")
 	}
+	// Unauthenticated refusals arrive as summaries when the window
+	// (testmesh.RejectWindow) closes.
 	reasons := map[string]string{}
-	for _, e := range b.ledger(t, federation.OpRejected) {
-		reasons[e.APIKeyID] = fmt.Sprint(e.Metadata["reason"])
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		for _, e := range b.ledger(t, federation.OpRejected) {
+			reasons[e.APIKeyID] = fmt.Sprint(e.Metadata["reason"])
+		}
+		if len(reasons) == 3 || time.Now().After(deadline) {
+			break
+		}
 	}
 	if reasons[a.ID] != federation.ReasonBadKey || reasons[stranger] != federation.ReasonUnknownPeer || reasons[""] != federation.ReasonUnknownPeer {
 		t.Fatalf("rejection reasons = %v", reasons)
@@ -166,5 +176,75 @@ func TestFederationRateLimit_PerPeer(t *testing.T) {
 	}
 	if !strings.Contains(a.metrics(t), fmt.Sprintf(`memora_federation_peer_requests_total{peer=%q,outcome="rejected"} 1`, b.ID)) {
 		t.Fatalf("a's metrics: %s", a.metrics(t))
+	}
+}
+
+// TestFederationRejections_NoLedgerFlood (#6178): a flood of
+// unauthenticated peer-route calls is cut off per client address before
+// authentication, and what gets through is ledgered as one summary per
+// caller and window, never as a row per request; a long path never
+// reaches the ledger.
+func TestFederationRejections_NoLedgerFlood(t *testing.T) {
+	b := newMesh(t, []string{"b"}, nil)[0]
+	stranger := types.NewID()
+	post := func(path string) int {
+		req, _ := http.NewRequest("POST", b.TS.URL+path, strings.NewReader(`{"query":"x"}`))
+		req.Header.Set(federation.HeaderLocalInstanceID, stranger)
+		req.Header.Set(federation.HeaderFederationAuth, "Bearer guess")
+		resp, err := b.TS.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	codes := map[int]int{}
+	start := time.Now()
+	for i := 0; i < 2000; i++ {
+		codes[post("/v1/federation/search")]++
+	}
+	windows := int(time.Since(start)/testmesh.RejectWindow) + 2
+	if codes[401] == 0 || codes[429] == 0 || codes[401]+codes[429] != 2000 {
+		t.Fatalf("status counts = %v, want 401s then 429s from the pre-auth limit", codes)
+	}
+
+	// One summary per window, together counting every 401.
+	var rows []api.LedgerEntry
+	total := 0
+	for deadline := time.Now().Add(2 * time.Second); total != codes[401] && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		rows, total = b.ledger(t, federation.OpRejected), 0
+		for _, e := range rows {
+			n, _ := strconv.Atoi(fmt.Sprint(e.Metadata["count"]))
+			total += n
+		}
+	}
+	if total != codes[401] || len(rows) > windows {
+		t.Fatalf("%d rows counting %d refusals; want at most %d rows counting %d", len(rows), total, windows, codes[401])
+	}
+	for _, e := range rows {
+		if e.Metadata["reason"] != federation.ReasonUnknownPeer || e.APIKeyID != stranger || e.Target != federation.RouteFederationSearch || e.Metadata["client"] != "127.0.0.1" {
+			t.Fatalf("summary = %+v %v, want unknown_peer from 127.0.0.1 on the search route", e, e.Metadata)
+		}
+	}
+
+	// Long and malformed paths: refused by the header limit or the route
+	// table, never written to the ledger.
+	time.Sleep(time.Second) // refill the pre-auth limit
+	filler := strings.Repeat("A", 100<<10)
+	// (A served node also caps the request line and headers at 64 KiB,
+	// http.Server.MaxHeaderBytes; httptest's server does not apply it.)
+	for _, p := range []string{"/v1/federation/memories/" + filler, "/v1/federation/memories/" + filler[:8<<10], "/v1/federation/search/" + filler[:8<<10]} {
+		if got := post(p); got != 400 && got != 404 && got != 405 {
+			t.Fatalf("%d-byte path: %d, want a route-table refusal", len(p), got)
+		}
+	}
+	time.Sleep(3 * testmesh.RejectWindow)
+	for _, e := range b.ledger(t, federation.OpRejected) {
+		if strings.Contains(toJSON(t, e), "AAAA") {
+			t.Fatalf("a request path reached the ledger: target %q", e.Target)
+		}
+		if e.Target != federation.RouteFederationSearch && e.Target != federation.RouteFederationMemory {
+			t.Fatalf("target %q is not a route template", e.Target)
+		}
 	}
 }

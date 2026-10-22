@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/internal/testmesh"
@@ -139,9 +140,16 @@ func TestFederation_EndToEnd(t *testing.T) {
 	if failedPeers(body)[b.ID] != "federation_peer_revoked" {
 		t.Fatalf("3: a's view of a revoking peer: %v", body["failed_peers"])
 	}
-	reasons := map[string]int{}
-	for _, e := range ledger(t, b, federation.OpRejected) {
-		reasons[fmt.Sprint(e.Metadata["reason"])]++
+	// The unknown caller is in a summary entry once its window closes.
+	var reasons map[string]int
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		reasons = map[string]int{}
+		for _, e := range ledger(t, b, federation.OpRejected) {
+			reasons[fmt.Sprint(e.Metadata["reason"])]++
+		}
+		if reasons[federation.ReasonUnknownPeer] == 1 || time.Now().After(deadline) {
+			break
+		}
 	}
 	if reasons[federation.ReasonUnknownPeer] != 1 || reasons[federation.ReasonRevoked] < 2 {
 		t.Fatalf("6: b's rejections by reason = %v", reasons)
