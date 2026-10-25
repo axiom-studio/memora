@@ -154,6 +154,37 @@ func (r *Registry) Validate(peers []config.PeerConfig) error {
 	return err
 }
 
+// Withdraw takes peer id out of service in the live registry without
+// rebuilding the others: it is dropped (remove) or kept as revoked. It
+// cannot fail, so removing or revoking a peer takes effect even while
+// some other stored peer no longer builds and Replace refuses the set
+// (#6351). O(n) in peers.
+func (r *Registry) Withdraw(id string, remove bool) {
+	cur := r.current()
+	if cur == nil {
+		return
+	}
+	next := &registrySnapshot{
+		peers:   make([]Peer, 0, len(cur.peers)),
+		byID:    make(map[string]*Peer, len(cur.peers)),
+		clients: make(map[string]*PeerClient, len(cur.peers)),
+	}
+	for _, p := range cur.peers {
+		if p.ID == id {
+			if remove {
+				continue
+			}
+			p.Revoked = true
+		}
+		next.peers = append(next.peers, p)
+	}
+	for i := range next.peers {
+		p := &next.peers[i]
+		next.byID[p.ID], next.clients[p.ID] = p, cur.clients[p.ID]
+	}
+	r.snap.Store(next)
+}
+
 func (r *Registry) build(peers []config.PeerConfig) (*registrySnapshot, error) {
 	next := &registrySnapshot{
 		byID:    make(map[string]*Peer, len(peers)),

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -91,6 +92,15 @@ func (m *Manager) reloadLocked(ctx context.Context) error {
 		return err
 	}
 	return m.reg.Replace(m.toConfig(recs))
+}
+
+// withdrawLocked applies a removal or revocation to the live registry
+// when reloading the stored peers failed: the edit is already persisted,
+// and the peer must not stay trusted until the other peer is fixed.
+func (m *Manager) withdrawLocked(nodeID string, remove bool, reloadErr error) {
+	m.reg.Withdraw(nodeID, remove)
+	slog.Default().Warn("federation peers did not reload; applied this peer's removal or revocation alone, other peers keep their last loaded settings until the failing one is fixed",
+		"node_id", nodeID, "removed", remove, "err", reloadErr)
 }
 
 // toConfig opens each record's sealed key. A key that does not open (the
@@ -196,7 +206,7 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 			rec, idx = recs[i], i
 		}
 	}
-	prevURL := rec.URL
+	prev, prevURL := rec, rec.URL
 	rec.Name, rec.URL = strings.TrimSpace(req.Name), strings.TrimSpace(req.URL)
 	if idx >= 0 && rec.URL != prevURL && len(rec.SealedAPIKey) > 0 && req.APIKey == "" {
 		// The stored key was given for the old URL; keeping it would
@@ -222,14 +232,22 @@ func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView
 	} else {
 		recs = append(recs, rec)
 	}
-	if err := m.reg.Validate(m.toConfig(recs)); err != nil {
+	// Revoking a peer, and changing nothing else, only restricts it, so
+	// it never waits on another stored peer that no longer builds.
+	unrevoked := rec
+	unrevoked.Revoked = prev.Revoked
+	pureRevoke := idx >= 0 && rec.Revoked && !prev.Revoked && reflect.DeepEqual(unrevoked, prev)
+	if err := m.reg.Validate(m.toConfig(recs)); err != nil && !pureRevoke {
 		return api.PeerView{}, fmt.Errorf("%w: %v", types.ErrInvalidInput, err)
 	}
 	if err := m.store.UpsertPeer(ctx, rec); err != nil {
 		return api.PeerView{}, err
 	}
 	if err := m.reloadLocked(ctx); err != nil {
-		return api.PeerView{}, err
+		if !pureRevoke {
+			return api.PeerView{}, err
+		}
+		m.withdrawLocked(rec.NodeID, false, err)
 	}
 	action := PeerActionUpdate
 	if idx < 0 {
@@ -268,7 +286,7 @@ func (m *Manager) Delete(ctx context.Context, nodeID string) error {
 		return err
 	}
 	if err := m.reloadLocked(ctx); err != nil {
-		return err
+		m.withdrawLocked(nodeID, true, err)
 	}
 	m.audit(ctx, PeerChangeEntry(PeerActionDelete, nodeID, name, url, "", false, false, false))
 	return nil
