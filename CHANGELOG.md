@@ -14,6 +14,11 @@ The project follows [Semantic Versioning](https://semver.org/) — see
 ## [Unreleased]
 
 ### Fixed
+- A search or recall response no longer exceeds its 8 MiB budget when
+  hits match large Cells, for example memories stored with the
+  `no-chunk` chunker (#6352). `matched_text` now counts toward the
+  budget, ahead of content and Cells, and a cut one is flagged with the
+  new `matched_text_truncated`.
 - `memora-core check-config` now validates federation peers the way
   `serve` loads them (#6230): the peer URL policy (cleartext and
   non-public addresses), duplicate node IDs and inbound keys, a peer

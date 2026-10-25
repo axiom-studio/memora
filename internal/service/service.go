@@ -1261,14 +1261,22 @@ const (
 	maxCellsPerHit = 256
 )
 
-// applyResponseBudget walks hits in rank order and keeps the content
-// and cell text they carry under maxResponseContentBytes in total. A hit
-// that would cross it has its content cut (ContentTruncated) and its
-// remaining cells omitted (CellsTruncated); every later hit keeps its
-// excerpt and matched cell only. textIsContent counts Text too, for
-// lookup mode, where Text is the memory's whole content.
+// applyResponseBudget keeps the content and cell text hits carry under
+// maxResponseContentBytes in total. Matched cells are counted first, in
+// rank order, since each is its hit's answer: one that would cross the
+// budget is cut (MatchedTextTruncated, #6352). Then, in rank order, a
+// hit whose content or cells would cross what is left has its content
+// cut (ContentTruncated) and its remaining cells omitted
+// (CellsTruncated); every later hit keeps its excerpt and matched cell
+// only. textIsContent counts Text too, for lookup mode, where Text is
+// the memory's whole content.
 func applyResponseBudget(hits []api.RecallHit, textIsContent bool) {
 	left := maxResponseContentBytes
+	for i := range hits {
+		h := &hits[i]
+		h.MatchedText, h.MatchedTextTruncated = truncateUTF8(h.MatchedText, left)
+		left -= len(h.MatchedText)
+	}
 	for i := range hits {
 		h := &hits[i]
 		if textIsContent {

@@ -70,7 +70,7 @@ func TestResultLimits_ResponseBudget(t *testing.T) {
 		}
 		total, flagged := 0, 0
 		for _, h := range r.Results {
-			total += len(h.Content)
+			total += len(h.Content) + len(h.MatchedText)
 			for _, c := range h.Cells {
 				total += len(c.Text)
 			}
@@ -113,6 +113,51 @@ func TestResultLimits_ResponseBudget(t *testing.T) {
 	}
 	if total > maxResponseContentBytes {
 		t.Fatalf("recall: %d content bytes, budget %d", total, maxResponseContentBytes)
+	}
+}
+
+// TestResultLimits_ResponseBudget_LargeMatchedCells (#6352): matched
+// cell text counts toward the response budget. Memories stored as one
+// ~1 MiB cell each (no-chunk) cannot push a response past it; the
+// best-ranked hits keep their whole matched cell and the hit that
+// reaches the limit is cut on a rune boundary and flagged.
+func TestResultLimits_ResponseBudget_LargeMatchedCells(t *testing.T) {
+	s := newTestService(t)
+	ws := newTestWorkspace(t, s)
+	const n = 12
+	body := strings.Repeat("ünïcode budget filler sentence. ", (1<<20)/34)
+	off := false
+	for i := 0; i < n; i++ {
+		if _, err := s.Imprint(context.Background(), ws, testAgent, api.ImprintRequest{
+			Content: fmt.Sprintf("bigcell memory %d\n\n%s", i, body), ChunkerID: "no-chunk", AutoLink: &off,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := s.Search(context.Background(), api.SearchRequest{Query: "bigcell", Mode: api.RecallModeKeyword, K: n})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Results) != n {
+		t.Fatalf("%d results, want %d", len(r.Results), n)
+	}
+	total, cut := 0, 0
+	for i, h := range r.Results {
+		total += len(h.MatchedText)
+		if !utf8.ValidString(h.MatchedText) {
+			t.Fatalf("hit %d: matched text cut inside a rune", i)
+		}
+		if h.MatchedTextTruncated {
+			cut++
+		} else if len(h.MatchedText) < len(body) {
+			t.Fatalf("hit %d: %d matched bytes but not flagged truncated", i, len(h.MatchedText))
+		}
+	}
+	if total > maxResponseContentBytes {
+		t.Fatalf("%d bytes of matched text, budget %d", total, maxResponseContentBytes)
+	}
+	if cut == 0 || r.Results[0].MatchedTextTruncated {
+		t.Fatalf("%d hits cut, top hit cut %v; want later hits cut, the top one whole", cut, r.Results[0].MatchedTextTruncated)
 	}
 }
 

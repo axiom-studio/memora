@@ -88,10 +88,12 @@ type RecallHit struct {
 	KeywordScore float64 `json:"keyword_score,omitempty"`
 	Text         string  `json:"text"` // short display excerpt
 	// MatchedText is the matched cell's full text; CellID and CellIndex
-	// locate it in the memory.
-	MatchedText string     `json:"matched_text,omitempty"`
-	CellIndex   *int       `json:"cell_index,omitempty"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	// locate it in the memory. MatchedTextTruncated is set when it was
+	// cut to keep the response under its size limit.
+	MatchedText          string     `json:"matched_text,omitempty"`
+	MatchedTextTruncated bool       `json:"matched_text_truncated,omitempty"`
+	CellIndex            *int       `json:"cell_index,omitempty"`
+	CreatedAt            *time.Time `json:"created_at,omitempty"`
 	// Content is the memory's full content (include_content), cut at
 	// max_content_bytes when ContentTruncated.
 	Content          string       `json:"content,omitempty"`
