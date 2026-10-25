@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -120,7 +122,8 @@ func TestResultLimits_ResponseBudget(t *testing.T) {
 // cell text counts toward the response budget. Memories stored as one
 // ~1 MiB cell each (no-chunk) cannot push a response past it; the
 // best-ranked hits keep their whole matched cell and the hit that
-// reaches the limit is cut on a rune boundary and flagged.
+// reaches the limit is cut on a rune boundary and flagged. A federated
+// search, which budgets local hits twice, keeps every flag (QA rework).
 func TestResultLimits_ResponseBudget_LargeMatchedCells(t *testing.T) {
 	s := newTestService(t)
 	ws := newTestWorkspace(t, s)
@@ -134,30 +137,39 @@ func TestResultLimits_ResponseBudget_LargeMatchedCells(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r, err := s.Search(context.Background(), api.SearchRequest{Query: "bigcell", Mode: api.RecallModeKeyword, K: n})
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, types.NewID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Results) != n {
-		t.Fatalf("%d results, want %d", len(r.Results), n)
+	if s.Federation, err = federation.NewSearcher(reg); err != nil {
+		t.Fatal(err)
 	}
-	total, cut := 0, 0
-	for i, h := range r.Results {
-		total += len(h.MatchedText)
-		if !utf8.ValidString(h.MatchedText) {
-			t.Fatalf("hit %d: matched text cut inside a rune", i)
+	for _, federated := range []bool{false, true} {
+		r, err := s.Search(context.Background(), api.SearchRequest{Query: "bigcell", Mode: api.RecallModeKeyword, K: n, Federated: federated})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if h.MatchedTextTruncated {
-			cut++
-		} else if len(h.MatchedText) < len(body) {
-			t.Fatalf("hit %d: %d matched bytes but not flagged truncated", i, len(h.MatchedText))
+		if len(r.Results) != n {
+			t.Fatalf("federated=%v: %d results, want %d", federated, len(r.Results), n)
 		}
-	}
-	if total > maxResponseContentBytes {
-		t.Fatalf("%d bytes of matched text, budget %d", total, maxResponseContentBytes)
-	}
-	if cut == 0 || r.Results[0].MatchedTextTruncated {
-		t.Fatalf("%d hits cut, top hit cut %v; want later hits cut, the top one whole", cut, r.Results[0].MatchedTextTruncated)
+		total, cut := 0, 0
+		for i, h := range r.Results {
+			total += len(h.MatchedText)
+			if !utf8.ValidString(h.MatchedText) {
+				t.Fatalf("federated=%v: hit %d: matched text cut inside a rune", federated, i)
+			}
+			if h.MatchedTextTruncated {
+				cut++
+			} else if len(h.MatchedText) < len(body) {
+				t.Fatalf("federated=%v: hit %d: %d matched bytes but not flagged truncated", federated, i, len(h.MatchedText))
+			}
+		}
+		if total > maxResponseContentBytes {
+			t.Fatalf("federated=%v: %d bytes of matched text, budget %d", federated, total, maxResponseContentBytes)
+		}
+		if cut == 0 || r.Results[0].MatchedTextTruncated {
+			t.Fatalf("federated=%v: %d hits cut, top hit cut %v; want later hits cut, the top one whole", federated, cut, r.Results[0].MatchedTextTruncated)
+		}
 	}
 }
 

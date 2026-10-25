@@ -1274,7 +1274,9 @@ func applyResponseBudget(hits []api.RecallHit, textIsContent bool) {
 	left := maxResponseContentBytes
 	for i := range hits {
 		h := &hits[i]
-		h.MatchedText, h.MatchedTextTruncated = truncateUTF8(h.MatchedText, left)
+		var cut bool
+		h.MatchedText, cut = truncateUTF8(h.MatchedText, left)
+		h.MatchedTextTruncated = h.MatchedTextTruncated || cut
 		left -= len(h.MatchedText)
 	}
 	for i := range hits {
