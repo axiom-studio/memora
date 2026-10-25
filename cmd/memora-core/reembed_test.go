@@ -270,3 +270,35 @@ func TestReembedCommand_PgvectorPartialRebuild(t *testing.T) {
 		t.Fatalf("workspace B after the full reembed: %d hits, want 3", b)
 	}
 }
+
+// TestReembedCommand_UnsearchableModelRefusedBeforeOpen (#6349): reembed
+// with a model that writes no searchable vectors is refused before the
+// vector store opens, so the refusal cannot follow a destructive rebuild.
+func TestReembedCommand_UnsearchableModelRefusedBeforeOpen(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Embedding.Model = "noop:default"
+	_, err := reembed(context.Background(), cfg, service.ReembedOptions{}, io.Discard)
+	if !errors.Is(err, types.ErrCapability) || !strings.Contains(err.Error(), "left untouched") {
+		t.Fatalf("reembed with the noop model: err = %v, want a capability error raised before the vector store opens", err)
+	}
+}
+
+// TestReembedCommand_PgvectorUnsearchableModelKeepsVectors (#6349): on a
+// pgvector column sized for the old model, reembed with the noop
+// fallback (another width) fails without dropping the old vectors.
+func TestReembedCommand_PgvectorUnsearchableModelKeepsVectors(t *testing.T) {
+	cfg := testAdapterConfig(t)
+	cfg.Storage.VectorDriver = "pgvector"
+	cfg.Storage.VectorDSN = freshPostgresDB(t)
+	cfg.Embedding.Model = "hash:64"
+	ws := seedMemories(t, cfg, 2)
+
+	cfg.Embedding.Model = "noop:default" // 384 dimensions
+	if _, err := reembed(context.Background(), cfg, service.ReembedOptions{}, io.Discard); !errors.Is(err, types.ErrCapability) {
+		t.Fatalf("reembed with the noop model: err = %v, want a capability error", err)
+	}
+	cfg.Embedding.Model = "hash:64"
+	if n := vectorHits(t, cfg, ws); n != 2 {
+		t.Fatalf("after the refused reembed: %d hits, want the 2 old vectors kept", n)
+	}
+}

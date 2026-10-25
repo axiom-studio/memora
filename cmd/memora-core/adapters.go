@@ -90,6 +90,12 @@ func openCoreAdaptersWith(ctx context.Context, cfg config.Config, logger *slog.L
 	if !embedding.Searchable(embedProvider) {
 		logger.Warn("embedding model produces no searchable vectors: vector search is unavailable and hybrid search uses keywords only; set embedding.model (e.g. hash:default offline)",
 			"model", embedProvider.ModelID())
+		// A rebuild drops the old vectors; refuse it before the vector
+		// store opens, since this model could not write new ones (#6349).
+		if opts.RebuildVectors {
+			return nil, nil, fmt.Errorf("%w: reembed needs a real embedding model (model %q produces no searchable vectors); the stored vectors were left untouched",
+				types.ErrCapability, embedProvider.ModelID())
+		}
 	}
 
 	// The vector store sizes its column from Dim, so the embedder opens
