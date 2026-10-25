@@ -28,7 +28,7 @@ permissions:
 jobs:
   release:
     name: Cross-build, sign, publish
-    runs-on: self-hosted
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     permissions:
