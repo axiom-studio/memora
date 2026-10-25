@@ -56,6 +56,29 @@ func (m *Manager) Seed(ctx context.Context, peers []config.PeerConfig) (int, err
 	if err := m.reg.Validate(peers); err != nil {
 		return 0, err
 	}
+	// The config list can be valid on its own and still conflict with a
+	// stored peer (a shared inbound key, say). Check the set the store
+	// would hold before writing anything: a seeded row is never removed,
+	// so it would fail every later start (#6353).
+	stored, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	live := make(map[string]bool, len(stored))
+	for _, r := range stored {
+		live[r.NodeID] = true
+	}
+	union := m.toConfig(stored)
+	for _, pc := range peers {
+		if !live[pc.NodeID] {
+			union = append(union, pc)
+		}
+	}
+	if len(union) > len(stored) {
+		if err := m.reg.Validate(union); err != nil {
+			return 0, fmt.Errorf("config peers conflict with the stored peers, so none were seeded; fix or remove the config peer: %w", err)
+		}
+	}
 	n := 0
 	for _, pc := range peers {
 		sealed, err := m.sealer.Seal(pc.APIKey, pc.NodeID)

@@ -5,12 +5,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,10 +46,8 @@ func writeCA(t *testing.T) string {
 	return path
 }
 
-// brokenPeerManager returns a Manager whose store holds peer "tls" (CA
-// file since removed, so the stored set no longer builds) and peer
-// "victim", both loaded in the live registry.
-func brokenPeerManager(t *testing.T) (m *Manager, victim string) {
+// newTestManager returns a Manager on a real SQLite store with no peers.
+func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	ctx := context.Background()
 	store := &storesqlite.Store{}
@@ -64,7 +65,16 @@ func brokenPeerManager(t *testing.T) (m *Manager, victim string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m = NewManager(reg, store, sealer)
+	return NewManager(reg, store, sealer)
+}
+
+// brokenPeerManager returns a Manager whose store holds peer "tls" (CA
+// file since removed, so the stored set no longer builds) and peer
+// "victim", both loaded in the live registry.
+func brokenPeerManager(t *testing.T) (m *Manager, victim string) {
+	t.Helper()
+	ctx := context.Background()
+	m = newTestManager(t)
 	ca, victim := writeCA(t), nid("victim")
 	if _, err := m.Seed(ctx, []config.PeerConfig{
 		{NodeID: nid("tls"), Name: "tls", URL: "https://tls.example.com", APIKey: "key-tls", TLSCert: ca},
@@ -123,5 +133,34 @@ func TestManagerRevoke_OtherPeerBroken(t *testing.T) {
 	}
 	if p := m.reg.Peer(victim); p == nil || !p.Revoked || p.Searchable() {
 		t.Fatalf("live peer after revoke = %+v, want revoked", p)
+	}
+}
+
+// TestManagerSeed_ConflictWithStoredPeer (#6353): a config peer that is
+// valid on its own but shares a stored peer's inbound key is refused
+// before anything is written, so the next start still loads.
+func TestManagerSeed_ConflictWithStoredPeer(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	if _, err := m.Upsert(ctx, api.PeerRequest{NodeID: nid("runtime"), Name: "runtime", URL: "https://runtime.example.com", InboundKey: "shared-key"}); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("shared-key"))
+	clash := config.PeerConfig{NodeID: nid("config"), Name: "config", URL: "https://config.example.com", InboundKeySHA256: hex.EncodeToString(sum[:])}
+	if n, err := m.Seed(ctx, []config.PeerConfig{clash}); err == nil || n != 0 || !strings.Contains(err.Error(), "none were seeded") {
+		t.Fatalf("seed = %d, %v; want a conflict refused before writing", n, err)
+	}
+	recs, err := m.store.ListPeers(ctx)
+	if err != nil || len(recs) != 1 || recs[0].NodeID != nid("runtime") {
+		t.Fatalf("stored peers = %+v, %v; want only the runtime peer", recs, err)
+	}
+	if err := m.Reload(ctx); err != nil {
+		t.Fatalf("reload after the refused seed: %v", err)
+	}
+
+	// A config peer already stored is not re-checked: it is never seeded.
+	again := config.PeerConfig{NodeID: nid("runtime"), Name: "runtime", URL: "https://runtime.example.com", InboundKeySHA256: hex.EncodeToString(sum[:])}
+	if n, err := m.Seed(ctx, []config.PeerConfig{again}); err != nil || n != 0 {
+		t.Fatalf("seed of an already stored peer = %d, %v", n, err)
 	}
 }
