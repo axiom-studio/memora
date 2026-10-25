@@ -3008,6 +3008,63 @@ func TestPeerUpdate_KeepsKeys(t *testing.T) {
 	}
 }
 
+// TestPeerUpdate_KeepsLimitsAndPin (#6350): the edit form shows a peer's
+// QPS limits and client certificate pin, so saving it unchanged keeps
+// them; a bad QPS is refused.
+func TestPeerUpdate_KeepsLimitsAndPin(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t)
+	pm.AllowClientCertPins = true
+	h.SetPeers(pm)
+	id, pin := types.NewID(), strings.Repeat("ab", 32)
+	if _, err := pm.Upsert(context.Background(), api.PeerRequest{
+		NodeID: id, Name: "west", URL: "https://west.example.com", InboundKey: "key-west", APIKey: "key-west",
+		ClientCertSHA256: pin, RateLimitQPS: 2.5, InboundQPS: 7,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+id, nil))
+	for _, want := range []string{`name="rate_limit_qps" min="0" step="any" value="2.5"`, `name="inbound_qps" min="0" step="any" value="7"`, `name="client_cert_sha256" autocomplete="off" value="` + pin + `"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("edit form missing %q", want)
+		}
+	}
+
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update",
+		"node_id="+id+"&name=west&endpoint=https://west.example.com&rate_limit_qps=2.5&inbound_qps=7&client_cert_sha256="+pin)
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("update: %s", w.Body.String())
+	}
+	peers, _ := pm.List(context.Background())
+	if p := peers[0]; p.RateLimitQPS != 2.5 || p.InboundQPS != 7 || p.ClientCertSHA256 != pin || !p.HasInboundKey || !p.HasAPIKey {
+		t.Fatalf("after an unchanged update = %+v, want limits, pin and keys kept", p)
+	}
+
+	for _, bad := range []string{"rate_limit_qps=-1", "inbound_qps=fast", "inbound_qps=Inf"} {
+		w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west&endpoint=https://west.example.com&"+bad)
+		if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "must be a non-negative number") {
+			t.Fatalf("%s: %s", bad, w.Body.String())
+		}
+	}
+}
+
+// TestPeerAdd_ExistingNodeIDRefused (#6350): the blank add form cannot
+// overwrite a stored peer.
+func TestPeerAdd_ExistingNodeIDRefused(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "node_id="+peers[0].NodeID+"&name=impostor&endpoint=https://west.example.com")
+	if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "already exists") {
+		t.Fatalf("add over an existing peer: %s", w.Body.String())
+	}
+	if after, _ := pm.List(context.Background()); after[0].Name != "west" {
+		t.Fatalf("stored peer changed: %+v", after[0])
+	}
+}
+
 func TestPeerEditForm_NotFound(t *testing.T) {
 	h := mustHandler(t)
 	h.SetPeers(realPeers(t))

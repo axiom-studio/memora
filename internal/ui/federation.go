@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -125,6 +126,7 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
 	title, action, submit, idField := "Add Federation Peer", "/ui/api/peers/add", "Add Peer",
 		`<label>Node ID <input type="text" name="node_id" required placeholder="the peer's memora-core node id"></label>`
 	name, url, timeout, keyHint, outHint, revoked := "", "", "", "", "", ""
+	outQPS, inQPS, certPin := "", "", ""
 	if p != nil {
 		title, action, submit = "Edit Peer: "+p.Name, "/ui/api/peers/update", "Update Peer"
 		idField = fmt.Sprintf(`<input type="hidden" name="node_id" value="%s"><p class="mono">%s</p>`,
@@ -133,6 +135,13 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
 		if p.TimeoutMS > 0 {
 			timeout = strconv.Itoa(p.TimeoutMS)
 		}
+		if p.RateLimitQPS > 0 {
+			outQPS = strconv.FormatFloat(p.RateLimitQPS, 'g', -1, 64)
+		}
+		if p.InboundQPS > 0 {
+			inQPS = strconv.FormatFloat(p.InboundQPS, 'g', -1, 64)
+		}
+		certPin = p.ClientCertSHA256
 		keyHint = " (blank keeps the stored key)"
 		outHint = " (blank keeps the stored key; required when the endpoint changes)"
 		if p.Revoked {
@@ -150,6 +159,9 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
     <label>Inbound key%s <input type="password" name="inbound_key" autocomplete="off" placeholder="the key this peer presents to us"></label>
     <label>Outbound key%s <input type="password" name="api_key" autocomplete="off" placeholder="the key we present to this peer"></label>
     <label>Timeout (ms) <input type="number" name="timeout_ms" min="0" value="%s" placeholder="default"></label>
+    <label>Outbound QPS <input type="number" name="rate_limit_qps" min="0" step="any" value="%s" placeholder="default"></label>
+    <label>Inbound QPS <input type="number" name="inbound_qps" min="0" step="any" value="%s" placeholder="default"></label>
+    <label>Client certificate SHA-256 <input type="text" name="client_cert_sha256" autocomplete="off" value="%s" placeholder="pin this peer's mTLS certificate (needs server.tls)"></label>
     <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal"><input type="checkbox" name="revoked" value="true"%s> Revoked</label>
     <div class="modal-actions">
       <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
@@ -160,7 +172,7 @@ func peerForm(w http.ResponseWriter, p *api.PeerView) {
 </dialog>`,
 		template.HTMLEscapeString(title), action, idField,
 		template.HTMLEscapeString(name), template.HTMLEscapeString(url),
-		keyHint, outHint, timeout, revoked, submit)
+		keyHint, outHint, timeout, outQPS, inQPS, template.HTMLEscapeString(certPin), revoked, submit)
 }
 
 func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +190,16 @@ func (h *Handler) partialPeerEditForm(w http.ResponseWriter, r *http.Request) {
 	peerForm(w, p)
 }
 
-func (h *Handler) handlePeerAdd(w http.ResponseWriter, r *http.Request)    { h.savePeer(w, r) }
+// handlePeerAdd never replaces an existing peer: the add form is blank,
+// so saving it over a stored peer would reset that peer's settings.
+func (h *Handler) handlePeerAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && h.findPeer(r.Context(), strings.TrimSpace(r.FormValue("node_id"))) != nil {
+		h.writeFormError(w, "A peer with this node ID already exists; use Edit to change it")
+		return
+	}
+	h.savePeer(w, r)
+}
+
 func (h *Handler) handlePeerUpdate(w http.ResponseWriter, r *http.Request) { h.savePeer(w, r) }
 
 // savePeer upserts the peer the add or edit form describes.
@@ -198,6 +219,8 @@ func (h *Handler) savePeer(w http.ResponseWriter, r *http.Request) {
 		InboundKey: r.FormValue("inbound_key"),
 		APIKey:     r.FormValue("api_key"),
 		Revoked:    r.FormValue("revoked") == "true",
+
+		ClientCertSHA256: strings.TrimSpace(r.FormValue("client_cert_sha256")),
 	}
 	if req.NodeID == "" || req.Name == "" || req.URL == "" {
 		h.writeFormError(w, "Node ID, name and endpoint are required")
@@ -210,6 +233,19 @@ func (h *Handler) savePeer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.TimeoutMS = n
+	}
+	for _, f := range []struct {
+		field, label string
+		dst          *float64
+	}{{"rate_limit_qps", "Outbound QPS", &req.RateLimitQPS}, {"inbound_qps", "Inbound QPS", &req.InboundQPS}} {
+		if v := strings.TrimSpace(r.FormValue(f.field)); v != "" {
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil || n < 0 || math.IsInf(n, 0) || math.IsNaN(n) {
+				h.writeFormError(w, f.label+" must be a non-negative number")
+				return
+			}
+			*f.dst = n
+		}
 	}
 	if _, err := h.peers.Upsert(r.Context(), req); err != nil {
 		h.writeFormError(w, err.Error())
