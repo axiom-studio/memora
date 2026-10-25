@@ -41,4 +41,7 @@ type PeerStore interface {
 	// SeedPeer inserts p only when no row, live or deleted, has its
 	// node ID, and reports whether it did.
 	SeedPeer(ctx context.Context, p PeerRecord) (bool, error)
+	// AllPeerIDs returns the node ID of every row, live or deleted: the
+	// IDs SeedPeer will not insert.
+	AllPeerIDs(ctx context.Context) ([]string, error)
 }

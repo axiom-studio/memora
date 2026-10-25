@@ -60,17 +60,23 @@ func (m *Manager) Seed(ctx context.Context, peers []config.PeerConfig) (int, err
 	// stored peer (a shared inbound key, say). Check the set the store
 	// would hold before writing anything: a seeded row is never removed,
 	// so it would fail every later start (#6353).
+	// Only peers SeedPeer would insert are checked: a config peer whose
+	// row exists, even as a tombstone, is never written.
 	stored, err := m.store.ListPeers(ctx)
 	if err != nil {
 		return 0, err
 	}
-	live := make(map[string]bool, len(stored))
-	for _, r := range stored {
-		live[r.NodeID] = true
+	ids, err := m.store.AllPeerIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	known := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		known[id] = true
 	}
 	union := m.toConfig(stored)
 	for _, pc := range peers {
-		if !live[pc.NodeID] {
+		if !known[pc.NodeID] {
 			union = append(union, pc)
 		}
 	}

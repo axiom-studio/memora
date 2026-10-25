@@ -77,6 +77,24 @@ func (s *Store) SeedPeer(ctx context.Context, p adapter.PeerRecord) (bool, error
 	return n == 1, err
 }
 
+// AllPeerIDs implements adapter.PeerStore.
+func (s *Store) AllPeerIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT node_id FROM memora_federation_peers`)
+	if err != nil {
+		return nil, fmt.Errorf("list peer ids: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan peer id: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // DeletePeer implements adapter.PeerStore.
 func (s *Store) DeletePeer(ctx context.Context, nodeID string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE memora_federation_peers SET deleted_at = ?, updated_at = ?

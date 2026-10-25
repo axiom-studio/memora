@@ -72,6 +72,24 @@ func (s *MetadataStore) SeedPeer(ctx context.Context, p adapter.PeerRecord) (boo
 	return n == 1, nil
 }
 
+// AllPeerIDs implements adapter.PeerStore.
+func (s *MetadataStore) AllPeerIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT node_id FROM memora_federation_peers`)
+	if err != nil {
+		return nil, fmt.Errorf("list peer ids: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan peer id: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // DeletePeer implements adapter.PeerStore.
 func (s *MetadataStore) DeletePeer(ctx context.Context, nodeID string) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE memora_federation_peers SET deleted_at = now(), updated_at = now()

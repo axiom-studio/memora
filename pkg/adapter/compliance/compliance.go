@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -954,6 +955,9 @@ func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
 	}
 	if got := find(p.NodeID); got != nil {
 		t.Fatalf("seed revived a deleted peer: %+v", got)
+	}
+	if ids, err := s.AllPeerIDs(ctx); err != nil || !slices.Contains(ids, p.NodeID) {
+		t.Fatalf("AllPeerIDs = %v, %v; want the tombstoned peer listed", ids, err)
 	}
 	if err := s.UpsertPeer(ctx, p); err != nil {
 		t.Fatalf("UpsertPeer after delete: %v", err)

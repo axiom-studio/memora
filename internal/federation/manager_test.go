@@ -164,3 +164,33 @@ func TestManagerSeed_ConflictWithStoredPeer(t *testing.T) {
 		t.Fatalf("seed of an already stored peer = %d, %v", n, err)
 	}
 }
+
+// TestManagerSeed_TombstonedConfigPeerSkipped (#6353 QA rework): a config
+// peer deleted at runtime is never seeded again, so it is not checked
+// against the stored peers either; a runtime peer reusing its inbound
+// key must not stop the next start with an unchanged config.
+func TestManagerSeed_TombstonedConfigPeerSkipped(t *testing.T) {
+	m := newTestManager(t)
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte("reused-key"))
+	cfg := []config.PeerConfig{{NodeID: nid("x-old"), Name: "remote", URL: "https://remote.example.com", InboundKeySHA256: hex.EncodeToString(sum[:])}}
+	if n, err := m.Seed(ctx, cfg); err != nil || n != 1 {
+		t.Fatalf("first seed = %d, %v", n, err)
+	}
+	if err := m.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(ctx, nid("x-old")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Upsert(ctx, api.PeerRequest{NodeID: nid("y-new"), Name: "remote", URL: "https://remote.example.com", InboundKey: "reused-key"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := m.Seed(ctx, cfg); err != nil || n != 0 {
+		t.Fatalf("restart seed = %d, %v; want the tombstoned config peer skipped", n, err)
+	}
+	if err := m.Reload(ctx); err != nil {
+		t.Fatalf("restart reload: %v", err)
+	}
+}
