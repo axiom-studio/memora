@@ -334,10 +334,10 @@ func LedgerCursorContract(t *testing.T, s adapter.LedgerStore) {
 	var entries []api.LedgerEntry
 	for i := 0; i < 30; i++ {
 		ts := base // most entries tie on ts; a few sit either side of it
-		switch {
-		case i%10 == 1:
+		switch i % 10 {
+		case 1:
 			ts = base.Add(time.Second)
-		case i%10 == 2:
+		case 2:
 			ts = base.Add(-time.Second)
 		}
 		entries = append(entries, api.LedgerEntry{
@@ -970,7 +970,7 @@ func PeerStoreContract(t *testing.T, s adapter.MetadataStore) {
 	if ok, err := s.SeedPeer(ctx, fresh); err != nil || !ok {
 		t.Fatalf("SeedPeer of a new peer = %v, %v; want true", ok, err)
 	}
-	if got := find(fresh.NodeID); got == nil || got.SealedAPIKey != nil && len(got.SealedAPIKey) != 0 {
+	if got := find(fresh.NodeID); got == nil || len(got.SealedAPIKey) != 0 {
 		t.Fatalf("seeded peer = %+v", got)
 	}
 	if err := s.UpsertPeer(ctx, adapter.PeerRecord{NodeID: "peer_1", Name: "x", URL: "https://x"}); !errors.Is(err, types.ErrInvalidInput) {
@@ -1070,7 +1070,7 @@ func TagEditContract(t *testing.T, s adapter.MetadataStore) {
 		if err != nil {
 			t.Fatalf("%s: GetMemory: %v", step, err)
 		}
-		if fmt.Sprint(got.Tags) != fmt.Sprint(want) && !(len(got.Tags) == 0 && len(want) == 0) {
+		if fmt.Sprint(got.Tags) != fmt.Sprint(want) && (len(got.Tags) != 0 || len(want) != 0) {
 			t.Errorf("%s: GetMemory tags = %v, want %v", step, got.Tags, want)
 		}
 		batch, err := s.GetMemories(ctx, []string{m.ID})

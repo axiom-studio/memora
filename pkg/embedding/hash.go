@@ -55,7 +55,7 @@ func (p *HashProvider) Embed(_ context.Context, texts []string) ([][]float32, er
 			if sum>>63 == 1 { // signed hashing cancels collisions in expectation
 				w = -w
 			}
-			v[sum%uint64(p.dim)] += w
+			v[sum%uint64(p.dim)] += w //nolint:gosec // G115: dim is validated to 8-4096 at construction
 		}
 		var norm float64
 		for _, x := range v {

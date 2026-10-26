@@ -100,7 +100,14 @@ func newFedNode(t *testing.T, o fedNodeOpts) *fedNode {
 }
 
 // peerSearch calls POST /v1/federation/search as the configured peer.
-func (n *fedNode) peerSearch(t *testing.T, body map[string]any, path string) (*http.Response, map[string]any) {
+// peerAnswer is what tests read from a peer-search response; the body is
+// already read and closed.
+type peerAnswer struct {
+	StatusCode int
+	Header     http.Header
+}
+
+func (n *fedNode) peerSearch(t *testing.T, body map[string]any, path string) (peerAnswer, map[string]any) {
 	t.Helper()
 	h := map[string]string{
 		federation.HeaderLocalInstanceID: n.peerID,
@@ -117,7 +124,7 @@ func (n *fedNode) peerSearch(t *testing.T, body map[string]any, path string) (*h
 	defer resp.Body.Close()
 	var m map[string]any
 	_ = jsonDecode(resp.Body, &m)
-	return resp, m
+	return peerAnswer{StatusCode: resp.StatusCode, Header: resp.Header}, m
 }
 
 func (n *fedNode) rejections(t *testing.T) []string {

@@ -48,6 +48,7 @@ FROM vibeflow_contexts
 WHERE parent_context_id IS NOT NULL`)
 	// Drop a prior view if present (idempotent on reboot).
 	_, _ = s.db.ExecContext(ctx, `DROP VIEW IF EXISTS memora_edges_view`)
+	//nolint:gosec // G202: the only concatenated value is the compile-time constant types.AgentLegacyVibeflowID
 	_, err := s.db.ExecContext(ctx, `
 CREATE VIEW memora_edges_view AS
 SELECT

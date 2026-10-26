@@ -93,7 +93,7 @@ func nullableTime(ns sql.NullString) *time.Time {
 // older rows are touched; idempotent, O(old rows), once.
 func (s *Store) normalizeCreatedAt(ctx context.Context) error {
 	for _, table := range []string{"memora_memories", "memora_workspaces"} {
-		rows, err := s.db.QueryContext(ctx, `SELECT id, created_at FROM `+table+` WHERE length(created_at) != 30`)
+		rows, err := s.db.QueryContext(ctx, `SELECT id, created_at FROM `+table+` WHERE length(created_at) != 30`) //nolint:gosec // G202: table comes from the fixed list above
 		if err != nil {
 			return err
 		}
@@ -113,7 +113,7 @@ func (s *Store) normalizeCreatedAt(ctx context.Context) error {
 			return err
 		}
 		for id, ts := range fixed {
-			if _, err := s.db.ExecContext(ctx, `UPDATE `+table+` SET created_at = ? WHERE id = ?`, ts, id); err != nil {
+			if _, err := s.db.ExecContext(ctx, `UPDATE `+table+` SET created_at = ? WHERE id = ?`, ts, id); err != nil { //nolint:gosec // G202: table comes from the fixed list above
 				return fmt.Errorf("%s %s: %w", table, id, err)
 			}
 		}

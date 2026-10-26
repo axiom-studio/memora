@@ -81,7 +81,7 @@ func checkIDs(r *http.Request) error {
 		}
 	}
 	if err := r.ParseForm(); err != nil {
-		return nil // the handler reports a malformed form
+		return nil //nolint:nilerr // the handler reports a malformed form
 	}
 	for name, field := range idParams {
 		for _, v := range r.Form[name] {

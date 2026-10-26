@@ -210,7 +210,7 @@ func (c *PeerClient) FetchMemory(ctx context.Context, memoryID, federationPath s
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("peer %s fetch decode: %w", c.peer.Name, err)
 	}
-	if envelope.Memory == nil || envelope.Memory.ID != memoryID {
+	if envelope.Memory == nil || envelope.ID != memoryID {
 		return nil, fmt.Errorf("peer %s fetch: answered with a different memory", c.peer.Name)
 	}
 	return &envelope, nil

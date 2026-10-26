@@ -26,7 +26,7 @@ func agentFrom(ctx context.Context) string {
 func validateIDArgs(args json.RawMessage) error {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(args, &m); err != nil {
-		return nil // the tool's decode reports malformed arguments
+		return nil //nolint:nilerr // the tool's decode reports malformed arguments
 	}
 	for k, raw := range m {
 		isID, isList := types.IDField(k)

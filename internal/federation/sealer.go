@@ -23,7 +23,7 @@ type Sealer struct {
 
 // SecretEnv names the environment variable that may hold the federation
 // secret: 32 bytes, base64 (standard or URL alphabet).
-const SecretEnv = "MEMORA_FEDERATION_SECRET"
+const SecretEnv = "MEMORA_FEDERATION_SECRET" //nolint:gosec // G101: the name of an environment variable, not a credential
 
 // NewSealer builds a Sealer from a 32-byte key.
 func NewSealer(key []byte) (*Sealer, error) {
