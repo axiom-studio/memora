@@ -68,9 +68,13 @@ func TestAddrLimiter_Rotation(t *testing.T) {
 			allowed++
 		}
 	}
-	// The allowance is the burst plus what refills while the test runs,
-	// which is real time: a slow runner legitimately admits more (#6362).
-	allowance := l.newAddrs.Burst() + int(float64(l.newAddrs.Limit())*time.Since(start).Seconds()) + 1
+	// The contract for qps 200 is 100 new addresses/s, burst 100. The
+	// allowance is that burst plus what refills while the test runs,
+	// which is real time, so a slow runner legitimately admits more
+	// (#6362). The constants are the contract, not read back from the
+	// limiter, so a weakened new-address rate still fails.
+	const wantRate, wantBurst = 100, 100
+	allowance := wantBurst + int(wantRate*time.Since(start).Seconds()) + 1
 	if allowed > allowance {
 		t.Fatalf("%d of 20,000 rotated /64s admitted, want at most the new-address allowance %d", allowed, allowance)
 	}
