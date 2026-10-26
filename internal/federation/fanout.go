@@ -143,9 +143,10 @@ func sanitizePeerHit(h *api.RecallHit, req api.FederationSearchRequest) bool {
 		}
 	}
 	h.Text, _ = truncateUTF8(h.Text, maxPeerExcerptBytes)
-	h.MatchedText, _ = truncateUTF8(h.MatchedText, maxPeerMatchedBytes)
+	var cut bool
+	h.MatchedText, cut = truncateUTF8(h.MatchedText, maxPeerMatchedBytes)
+	h.MatchedTextTruncated = h.MatchedTextTruncated || cut
 	if req.IncludeContent {
-		var cut bool
 		h.Content, cut = truncateUTF8(h.Content, EffectiveMaxContentBytes(req.MaxContentBytes))
 		h.ContentTruncated = h.ContentTruncated || cut
 	} else {

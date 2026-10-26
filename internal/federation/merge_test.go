@@ -198,6 +198,9 @@ func TestFanoutSearch_SanitizesPeerHits(t *testing.T) {
 	if len(b.Text) > maxPeerExcerptBytes || len(b.MatchedText) > maxPeerMatchedBytes || b.Cells != nil || b.GraphProvenance != nil {
 		t.Errorf("unbounded peer hit: text %d, matched %d, cells %v, provenance %v", len(b.Text), len(b.MatchedText), b.Cells, b.GraphProvenance)
 	}
+	if !b.MatchedTextTruncated || !utf8.ValidString(b.MatchedText) || peerHits[2].MatchedTextTruncated {
+		t.Errorf("matched_text_truncated: cut hit %v (valid %v), uncut hit %v; want true, true, false (#6359)", b.MatchedTextTruncated, utf8.ValidString(b.MatchedText), peerHits[2].MatchedTextTruncated)
+	}
 
 	merged := Merge(fr, 10)
 	var genuine, forged int
