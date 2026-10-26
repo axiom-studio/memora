@@ -52,6 +52,7 @@ func TestAddrLimiter(t *testing.T) {
 // its (spent) limiter instead of a fresh one, and the table evicts the
 // least recently used address rather than clearing.
 func TestAddrLimiter_Rotation(t *testing.T) {
+	start := time.Now()
 	l := NewAddrLimiter(200) // 200/s per address, 100 new addresses/s
 	l.maxAddrs = 1000
 	for i := 0; i < 200; i++ {
@@ -67,8 +68,11 @@ func TestAddrLimiter_Rotation(t *testing.T) {
 			allowed++
 		}
 	}
-	if allowed > 110 {
-		t.Fatalf("%d of 20,000 rotated /64s admitted, want about the 100/s new-address burst", allowed)
+	// The allowance is the burst plus what refills while the test runs,
+	// which is real time: a slow runner legitimately admits more (#6362).
+	allowance := l.newAddrs.Burst() + int(float64(l.newAddrs.Limit())*time.Since(start).Seconds()) + 1
+	if allowed > allowance {
+		t.Fatalf("%d of 20,000 rotated /64s admitted, want at most the new-address allowance %d", allowed, allowance)
 	}
 	el, ok := l.lims[clientKey("[2001:db8:aaaa:1::1]:1")]
 	if !ok || el.Value.(*addrEntry).lim != busy {
