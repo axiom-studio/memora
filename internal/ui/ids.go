@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"html/template"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -82,8 +83,14 @@ func checkIDs(r *http.Request) error {
 	}
 	// ParseForm keeps the pairs it parsed before an error, and handlers
 	// read them with FormValue, so a malformed form must not skip the
-	// checks below (#6366).
-	if err := r.ParseForm(); err != nil {
+	// checks below (#6366). ParseForm reads no multipart body, so a
+	// multipart form is parsed in full here and its fields merge into
+	// r.Form; handlers then read the parsed form (#6407).
+	parse := r.ParseForm
+	if isMultipart(r) {
+		parse = func() error { return r.ParseMultipartForm(maxUploadBytes) }
+	}
+	if err := parse(); err != nil {
 		return fmt.Errorf("%w: malformed form", types.ErrInvalidInput)
 	}
 	for name, field := range idParams {
@@ -103,11 +110,21 @@ func checkIDs(r *http.Request) error {
 	return nil
 }
 
+func isMultipart(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt == "multipart/form-data"
+}
+
 // validateIDs answers 400 with the field-named error for a console
 // request carrying a malformed ID, before any handler runs, so a legacy
 // or garbled ID never shows as an empty page or "not found".
 func (h *Handler) validateIDs(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isMultipart(r) {
+			// checkIDs parses multipart bodies before any handler bounds
+			// them; the largest console multipart is an upload.
+			r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+4096)
+		}
 		if err := checkIDs(r); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)

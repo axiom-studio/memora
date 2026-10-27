@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -125,5 +127,51 @@ func TestUI_MalformedFormFailsClosed(t *testing.T) {
 		if w.Code != 400 || reached || !strings.Contains(w.Body.String(), "malformed form") {
 			t.Fatalf("%q: status %d, handler reached %v, body %q; want 400 malformed form", body, w.Code, reached, w.Body.String())
 		}
+	}
+}
+
+// TestUI_MultipartBodyIDsChecked (#6407): a multipart console upload,
+// which is what the browser sends, is parsed by the ID middleware, so its
+// body IDs are validated and the handler still sees its fields and file.
+func TestUI_MultipartBodyIDsChecked(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+	ws := types.NewID()
+	upload := func(query string, fields map[string]string) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for k, v := range fields {
+			_ = mw.WriteField(k, v)
+		}
+		fw, _ := mw.CreateFormFile("file", "notes.md")
+		_, _ = fw.Write([]byte("uploaded notes"))
+		_ = mw.Close()
+		r := httptest.NewRequest("POST", "/ui/api/memories/upload"+query, &buf)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+
+	if w := upload("", map[string]string{"workspace_id": ws}); w.Code != 200 || !strings.Contains(w.Body.String(), "Document Uploaded") {
+		t.Fatalf("valid multipart upload: status %d body %q, want 200 Document Uploaded", w.Code, w.Body.String())
+	}
+	for name, c := range map[string]struct {
+		query  string
+		fields map[string]string
+		field  string
+	}{
+		"bad body collection_id": {"?workspace_id=" + ws, map[string]string{"collection_id": "garbage"}, "collection_id"},
+		"bad body workspace_id":  {"", map[string]string{"workspace_id": "../../etc"}, "workspace_id"},
+	} {
+		if w := upload(c.query, c.fields); w.Code != 400 || !strings.Contains(w.Body.String(), c.field+" must be a UUID") {
+			t.Fatalf("%s: status %d body %q, want 400 naming %s", name, w.Code, w.Body.String(), c.field)
+		}
+	}
+	// The middleware bounds the body it parses.
+	if w := upload("", map[string]string{"workspace_id": ws, "pad": strings.Repeat("x", maxUploadBytes+8192)}); w.Code != 400 || !strings.Contains(w.Body.String(), "malformed form") {
+		t.Fatalf("oversized multipart: status %d, want 400 malformed form", w.Code)
 	}
 }
