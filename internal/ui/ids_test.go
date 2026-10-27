@@ -107,3 +107,23 @@ func TestUI_UnknownUUIDIsNotFound(t *testing.T) {
 		}
 	}
 }
+
+// TestUI_MalformedFormFailsClosed (#6366): a form body with a bad
+// percent-escape is refused, wherever the bad pair sits; ParseForm still
+// fills r.Form with the other pairs, so letting it through skipped every
+// ID check.
+func TestUI_MalformedFormFailsClosed(t *testing.T) {
+	h := mustHandler(t)
+	reached := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true })
+	for _, body := range []string{"memory_id=../../etc&bad=%zz", "bad=%zz&memory_id=../../etc", "memory_id=" + types.NewID() + "&bad=%zz"} {
+		reached = false
+		r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		h.validateIDs(next).ServeHTTP(w, r)
+		if w.Code != 400 || reached || !strings.Contains(w.Body.String(), "malformed form") {
+			t.Fatalf("%q: status %d, handler reached %v, body %q; want 400 malformed form", body, w.Code, reached, w.Body.String())
+		}
+	}
+}

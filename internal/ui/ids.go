@@ -80,8 +80,11 @@ func checkIDs(r *http.Request) error {
 			}
 		}
 	}
+	// ParseForm keeps the pairs it parsed before an error, and handlers
+	// read them with FormValue, so a malformed form must not skip the
+	// checks below (#6366).
 	if err := r.ParseForm(); err != nil {
-		return nil //nolint:nilerr // the handler reports a malformed form
+		return fmt.Errorf("%w: malformed form", types.ErrInvalidInput)
 	}
 	for name, field := range idParams {
 		for _, v := range r.Form[name] {
