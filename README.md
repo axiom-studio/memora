@@ -45,11 +45,11 @@ export MEMORA_WORKSPACE=$WS
 ./bin/memora-cli recall enterprise
 
 # 5) Patch it — only the changed cell re-embeds (the moat)
-WMK=$(./bin/memora-cli lookup mem_XXXX -o json | jq -r .head_watermark)
-./bin/memora-cli patch mem_XXXX \
+WMK=$(./bin/memora-cli lookup 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 -o json | jq -r .head_watermark)
+./bin/memora-cli patch 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58 \
     --patch '[{"old_string":"enterprise","new_string":"premium"}]' \
     --if-match $WMK
-#   ✓ Patched mem_XXXX
+#   ✓ Patched 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58
 #     Cells re-embed: 1
 #     Cells skipped:  0 (the moat)
 ```
@@ -64,7 +64,7 @@ Attach via MCP (Claude Code, etc.):
 
 ```bash
 ./bin/memora-core mcp --data-dir=./data
-# JSON-RPC 2.0 over stdio; 25 OSS tools.
+# JSON-RPC 2.0 over stdio; 26 OSS tools.
 ```
 
 ## Docker Compose Setups

@@ -53,22 +53,33 @@ func TestOAuthAgent_InactiveToken(t *testing.T) {
 	}
 }
 
-func TestOAuthAgent_AgentIDMismatch(t *testing.T) {
+// TestOAuthAgent_IdentityKey_FromClaim: the key names the introspection
+// endpoint, the claim and its value, so different clients get different
+// agents and a token without the claim is refused rather than mapping
+// every such token to one agent.
+func TestOAuthAgent_IdentityKey_FromClaim(t *testing.T) {
+	clientID := "client-a"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(IntrospectionResponse{
-			Active:   true,
-			ClientID: "agent_different",
-		})
+		json.NewEncoder(w).Encode(IntrospectionResponse{Active: true, ClientID: clientID})
 	}))
 	defer srv.Close()
-
 	o := &OAuthAgent{IntrospectionURL: srv.URL, Client: srv.Client()}
-	err := o.Verify(context.Background(), adapter.IdentityVerifyInput{
-		AgentID:       "agent_expected",
-		IdentityProof: map[string]any{"access_token": "token"},
-	})
-	if err == nil {
-		t.Fatal("expected error for agent_id mismatch")
+	proof := map[string]any{"access_token": "token"}
+
+	keyA, err := o.IdentityKey(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("IdentityKey: %v", err)
+	}
+	if want := "oauth_agent|" + srv.URL + "|client_id|client-a"; keyA != want {
+		t.Fatalf("key = %q, want %q", keyA, want)
+	}
+	clientID = "client-b"
+	if keyB, _ := o.IdentityKey(context.Background(), proof); keyB == keyA {
+		t.Fatal("different client_ids produced the same key")
+	}
+	clientID = ""
+	if _, err := o.IdentityKey(context.Background(), proof); err == nil {
+		t.Fatal("a token without client_id must be refused")
 	}
 }
 

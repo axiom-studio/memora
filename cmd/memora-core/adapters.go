@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,6 +26,17 @@ import (
 // The returned close func releases every opened store; on error, anything
 // already opened is closed before returning.
 func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logger) (svc *service.Service, closeAll func(), err error) {
+	return openCoreAdaptersWith(ctx, cfg, logger, adapterOptions{})
+}
+
+// adapterOptions are open-time switches for maintenance commands.
+type adapterOptions struct {
+	// RebuildVectors lets a vector store sized for another dimension
+	// discard its vectors and resize (memora-core reembed).
+	RebuildVectors bool
+}
+
+func openCoreAdaptersWith(ctx context.Context, cfg config.Config, logger *slog.Logger, opts adapterOptions) (svc *service.Service, closeAll func(), err error) {
 	// Commands also validate up front to exit with EX_CONFIG; checking here
 	// too means no command can open adapters on an invalid config (#4378).
 	if err := cfg.Validate(); err != nil {
@@ -55,6 +67,14 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("open metadata (driver %q): %w", cfg.Storage.MetadataDriver, err)
 	}
 	closers = append(closers, meta.Close)
+	if err := refuseLegacyIDs(ctx, meta); err != nil {
+		return nil, nil, err
+	}
+	nodeID, nodeName, err := resolveNode(ctx, cfg.Node, meta)
+	if err != nil {
+		return nil, nil, err
+	}
+	logger.Info("node identity", "node_id", nodeID, "node_name", nodeName)
 
 	led, err := adapter.OpenLedger(ctx, adapter.LedgerConfig{Driver: cfg.Storage.LedgerDriver, DSN: dsnOr(cfg.Storage.LedgerDSN)})
 	if err != nil {
@@ -67,10 +87,23 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		return nil, nil, fmt.Errorf("open embedding (model %q): %w", cfg.Embedding.Model, err)
 	}
 	logger.Info("embedding provider ready", "model", embedProvider.ModelID(), "dim", embedProvider.Dim())
+	if !embedding.Searchable(embedProvider) {
+		logger.Warn("embedding model produces no searchable vectors: vector search is unavailable and hybrid search uses keywords only; set embedding.model (e.g. hash:default offline)",
+			"model", embedProvider.ModelID())
+		// A rebuild drops the old vectors; refuse it before the vector
+		// store opens, since this model could not write new ones (#6349).
+		if opts.RebuildVectors {
+			return nil, nil, fmt.Errorf("%w: reembed needs a real embedding model (model %q produces no searchable vectors); the stored vectors were left untouched",
+				types.ErrCapability, embedProvider.ModelID())
+		}
+	}
 
 	// The vector store sizes its column from Dim, so the embedder opens
 	// first and dictates it (Issue #4375).
-	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN), Dim: embedProvider.Dim()})
+	vec, err := adapter.OpenVector(ctx, adapter.VectorConfig{
+		Driver: cfg.Storage.VectorDriver, DSN: dsnOr(cfg.Storage.VectorDSN),
+		Dim: embedProvider.Dim(), Model: embedProvider.ModelID(), Rebuild: opts.RebuildVectors,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open vector (driver %q, dim %d): %w", cfg.Storage.VectorDriver, embedProvider.Dim(), err)
 	}
@@ -92,6 +125,8 @@ func openCoreAdapters(ctx context.Context, cfg config.Config, logger *slog.Logge
 		Ledger:   led,
 		Embedder: embedProvider,
 		Identity: identityMap,
+		NodeID:   nodeID,
+		NodeName: nodeName,
 	}
 
 	if cfg.Storage.ContentDriver != "" {
@@ -162,6 +197,49 @@ var libpqPassword = regexp.MustCompile(`(?i)\b((?:ssl)?password\s*=\s*)('(?:[^'\
 // redactedQueryParams are URL query parameters that carry a secret; pgx and
 // libpq accept a password there as well as in the userinfo (#6034).
 var redactedQueryParams = map[string]bool{"password": true, "sslpassword": true}
+
+// resolveNode returns this node's ID and name. A configured [node] id
+// wins; otherwise the ID persisted in the metadata store is used, minted
+// on first start, so it survives restarts and config-free containers.
+// The name defaults to the hostname.
+func resolveNode(ctx context.Context, cfg config.NodeConfig, meta adapter.MetadataStore) (id, name string, err error) {
+	id = cfg.ID
+	if id == "" {
+		if id, err = meta.EnsureNodeID(ctx, types.NewID()); err != nil {
+			return "", "", fmt.Errorf("resolve node id: %w", err)
+		}
+	}
+	name = cfg.Name
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	return id, name, nil
+}
+
+// refuseLegacyIDs stops start-up on a database written before Memora's
+// IDs were UUIDv4s. Pre-1.0 releases do not migrate such data (PRD ID-8,
+// docs/user-docs/operations.md "Upgrading from Prefixed IDs"): every
+// table, vector key and content path holds the old IDs, and serving them
+// would fail validation on every request. Every memory lives in a
+// workspace, so checking workspace IDs is enough. O(workspaces), once.
+func refuseLegacyIDs(ctx context.Context, meta adapter.MetadataStore) error {
+	cursor := ""
+	for {
+		page, next, err := meta.ListWorkspacesPaged(ctx, cursor, 500)
+		if err != nil {
+			return fmt.Errorf("check workspace IDs: %w", err)
+		}
+		for _, w := range page {
+			if _, err := types.ParseID("workspace_id", w.ID); err != nil {
+				return adapter.LegacyIDsError(w.ID)
+			}
+		}
+		if next == "" {
+			return nil
+		}
+		cursor = next
+	}
+}
 
 // redactDSN masks the passwords in a URL DSN (postgres://user:pw@host/db,
 // ?password=pw) or a libpq keyword DSN (password=pw, password='p w') so it

@@ -3,11 +3,14 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/federation"
 	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
@@ -19,6 +22,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/readyz", s.readyz)
 	s.mux.HandleFunc("/metrics", s.metrics)
 
+	s.mux.HandleFunc("/v1/search", s.handleSearch)
+	s.mux.HandleFunc("/v1/federation/search", s.handleFederationSearch)
+	s.mux.HandleFunc("/v1/federation/memories/", s.handleFederationMemory)
+	s.mux.HandleFunc("/v1/federation/peers", s.handlePeers)
+	s.mux.HandleFunc("/v1/federation/peers/", s.handlePeers)
+	s.mux.HandleFunc("/v1/memories/", s.handleNodeMemory)
 	s.mux.HandleFunc("/v1/workspaces", s.handleWorkspaces)
 	s.mux.HandleFunc("/v1/workspaces/", s.handleWorkspacePath)
 }
@@ -44,6 +53,15 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		} else {
 			resp.Adapter["vector"] = "ok"
 		}
+		// Rows from another embedding model, and live cells with no
+		// vector from the active one, are not reached by vector search
+		// until `memora-core reembed` (S-7, #6180); readiness is
+		// unaffected.
+		if h, ok, err := s.cfg.Service.VectorHealth(r.Context()); err == nil && ok {
+			resp.Adapter["stale_vectors"] = strconv.Itoa(h.Stale)
+			resp.Adapter["missing_vectors"] = strconv.Itoa(h.Missing)
+			resp.StaleVectors, resp.MissingVectors = &h.Stale, &h.Missing
+		}
 	}
 	if s.cfg.Service.Ledger != nil {
 		if err := s.cfg.Service.Ledger.Ping(r.Context()); err != nil {
@@ -65,6 +83,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	_, _ = w.Write([]byte("# Memora minimal metrics\nmemora_up 1\n"))
+	s.cfg.Federation.Metrics().WritePrometheus(w)
 }
 
 // /v1/workspaces (collection)
@@ -87,15 +106,13 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 		if limit <= 0 || limit > 200 {
 			limit = 100
 		}
-		ws, err := s.cfg.Service.Metadata.ListWorkspaces(r.Context(), limit+1)
+		ws, nextCursor, err := s.cfg.Service.Metadata.ListWorkspaces(r.Context(), r.URL.Query().Get("cursor"), limit)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
-		var nextCursor string
-		if len(ws) > limit {
-			nextCursor = ws[limit-1].ID
-			ws = ws[:limit]
+		if ws == nil {
+			ws = []types.Workspace{}
 		}
 		resp := map[string]any{"workspaces": ws}
 		if nextCursor != "" {
@@ -118,6 +135,9 @@ func (s *Server) handleWorkspacePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wsID := parts[0]
+	if !s.validID(w, "workspace_id", wsID) {
+		return
+	}
 
 	if len(parts) == 1 {
 		s.handleWorkspaceSingle(w, r, wsID)
@@ -183,6 +203,9 @@ func (s *Server) handleWorkspaceSingle(w http.ResponseWriter, r *http.Request, i
 
 // /v1/workspaces/{ws_id}/collections[/{coll_id}]
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "collection_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		coll, err := s.cfg.Service.Metadata.ListCollections(r.Context(), wsID)
@@ -229,18 +252,25 @@ func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request, wsID str
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		s.handleListMemories(w, r, wsID)
 	case len(rest) >= 1:
-		// rest[0] may be `mem_xxx`, possibly with ':append' suffix.
+		// rest[0] is a memory ID, possibly with an ':append' or '@{wmk}' suffix.
 		seg := rest[0]
 		if idx := strings.Index(seg, ":append"); idx >= 0 {
-			s.handleAppend(w, r, wsID, seg[:idx])
+			if s.validID(w, "memory_id", seg[:idx]) {
+				s.handleAppend(w, r, wsID, seg[:idx])
+			}
 			return
 		}
 		memID, wmk, ok := parseMemoryAtWatermark(seg)
 		if ok && len(rest) == 1 && r.Method == http.MethodGet {
-			s.handleGetAtWatermark(w, r, wsID, memID, wmk)
+			if s.validID(w, "memory_id", memID) && s.validID(w, "watermark", wmk) {
+				s.handleGetAtWatermark(w, r, wsID, memID, wmk)
+			}
 			return
 		}
 		memID = seg
+		if !s.validID(w, "memory_id", memID) {
+			return
+		}
 		if len(rest) == 1 {
 			switch r.Method {
 			case http.MethodGet:
@@ -295,16 +325,29 @@ func (s *Server) handleImprint(w http.ResponseWriter, r *http.Request, wsID stri
 }
 
 func (s *Server) handleListMemories(w http.ResponseWriter, r *http.Request, wsID string) {
+	if !s.validOptionalID(w, "collection_id", r.URL.Query().Get("collection_id")) {
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 50
 	}
-	mems, err := s.cfg.Service.Metadata.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), limit)
+	if limit > 1000 {
+		limit = 1000
+	}
+	mems, next, err := s.cfg.Service.Metadata.ListMemories(r.Context(), wsID, r.URL.Query().Get("collection_id"), r.URL.Query().Get("cursor"), limit)
 	if err != nil {
 		s.writeErrorFromService(w, err)
 		return
 	}
-	s.writeJSON(w, 200, map[string]any{"memories": mems})
+	if mems == nil {
+		mems = []types.Memory{}
+	}
+	resp := map[string]any{"memories": mems}
+	if next != "" {
+		resp["next_cursor"] = next
+	}
+	s.writeJSON(w, 200, resp)
 }
 
 func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request, wsID, id string) {
@@ -414,8 +457,46 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request, wsID strin
 	s.writeJSON(w, 200, resp)
 }
 
+// /v1/search — node-wide search. In multi-tenant mode the request is
+// pinned to the X-Memora-Workspace tenant and refused without one:
+// node-wide must never mean cross-tenant, so the pin fails closed.
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		s.writeError(w, 405, "method_not_allowed", "", nil)
+		return
+	}
+	var req api.SearchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeError(w, 400, "invalid_input", err.Error(), nil)
+		return
+	}
+	tenant, _ := r.Context().Value(ctxKeyWorkspace).(string)
+	if req.Federated && s.cfg.Mode == "multi-tenant" {
+		// Peers search their whole node; a tenant must not reach that.
+		s.writeError(w, 403, "federation_multi_tenant", "federated search is not available in multi-tenant mode", nil)
+		return
+	}
+	switch {
+	case tenant != "":
+		req.WorkspaceIDs = []string{tenant}
+	case s.cfg.Mode == "multi-tenant":
+		s.writeError(w, 400, "missing_workspace", "X-Memora-Workspace is required in multi-tenant mode", nil)
+		return
+	}
+	resp, err := s.cfg.Service.Search(r.Context(), req)
+	if err != nil {
+		s.writeErrorFromService(w, err)
+		return
+	}
+	s.writeJSON(w, 200, resp)
+}
+
 // /v1/workspaces/{ws_id}/recall/pins[/{pin_id}]
 func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "pin_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		pins, err := s.cfg.Service.Metadata.ListPins(r.Context(), wsID)
@@ -457,13 +538,13 @@ func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string,
 			Label:       req.Label,
 			CreatedBy:   agentFrom(r.Context()),
 		}
-		if err := s.cfg.Service.Metadata.CreatePin(r.Context(), p); err != nil {
+		if err := s.cfg.Service.CreatePin(r.Context(), p); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
 		s.writeJSON(w, 201, api.PinResponse{PinID: p.PinID, Watermark: p.Watermark})
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Metadata.DeletePin(r.Context(), wsID, rest[0]); err != nil {
+		if err := s.cfg.Service.DeletePin(r.Context(), wsID, rest[0], agentFrom(r.Context())); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -475,6 +556,9 @@ func (s *Server) handlePins(w http.ResponseWriter, r *http.Request, wsID string,
 
 // /v1/workspaces/{ws_id}/agents[/{agent_id}]
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID string, rest []string) {
+	if len(rest) == 1 && !s.validID(w, "agent_id", rest[0]) {
+		return
+	}
 	switch {
 	case len(rest) == 0 && r.Method == http.MethodGet:
 		ags, err := s.cfg.Service.Metadata.ListAgents(r.Context(), wsID, 0)
@@ -499,7 +583,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 			Model:            req.Model,
 			Capabilities:     req.Capabilities,
 		}
-		if err := s.cfg.Service.Metadata.RegisterAgent(r.Context(), a); err != nil {
+		if err := s.cfg.Service.RegisterAgent(r.Context(), a, r.Header.Get("Memora-Agent-Id")); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -512,7 +596,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request, wsID strin
 		}
 		s.writeJSON(w, 200, a)
 	case len(rest) == 1 && r.Method == http.MethodDelete:
-		if err := s.cfg.Service.Metadata.DeactivateAgent(r.Context(), wsID, rest[0]); err != nil {
+		if err := s.cfg.Service.DeactivateAgent(r.Context(), wsID, rest[0], r.Header.Get("Memora-Agent-Id")); err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
@@ -556,15 +640,11 @@ func (s *Server) handleMemoryEdges(w http.ResponseWriter, r *http.Request, wsID,
 			PropertiesJSON:   req.Properties,
 			CreatedByAgentID: agentFrom(r.Context()),
 		}
-		out, err := s.cfg.Service.GraphLink(r.Context(), e)
+		out, ledgerID, err := s.cfg.Service.Link(r.Context(), e)
 		if err != nil {
 			s.writeErrorFromService(w, err)
 			return
 		}
-		ledgerID := s.cfg.Service.AppendLedger(r.Context(), api.LedgerEntry{
-			WorkspaceID: wsID, Op: "link", Target: out.EdgeID, AgentID: agentFrom(r.Context()),
-			WatermarkAfter: out.Watermark, Metadata: map[string]any{"edge_type": string(out.EdgeType)},
-		})
 		s.writeJSON(w, 201, api.LinkResponse{Edge: out, LedgerID: ledgerID})
 	default:
 		s.writeError(w, 405, "method_not_allowed", "", nil)
@@ -587,6 +667,16 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 		if err := decodeJSON(r, &req); err != nil {
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
+		}
+		// A malformed ID is a client bug, so it fails the whole batch;
+		// per-edge results are for edges that are well-formed.
+		for i, e := range req.Edges {
+			for _, f := range [...][2]string{{"source_memory_id", e.SourceMemoryID}, {"target_memory_id", e.TargetMemoryID}} {
+				if _, err := types.ParseID(f[0], f[1]); err != nil {
+					s.writeError(w, 400, "invalid_input", fmt.Sprintf("edges[%d]: %v", i, err), nil)
+					return
+				}
+			}
 		}
 		agent := agentFrom(r.Context())
 		edges := make([]types.Edge, len(req.Edges))
@@ -625,6 +715,9 @@ func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request, wsID string
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
+	if !s.validID(w, "edge_id", seg) {
+		return
+	}
 	if err := s.cfg.Service.GraphUnlink(r.Context(), wsID, seg, agentFrom(r.Context())); err != nil {
 		s.writeErrorFromService(w, err)
 		return
@@ -649,6 +742,9 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
 			return
 		}
+		if !s.validID(w, "memory_id", req.MemoryID) {
+			return
+		}
 		edges, headers, err := s.cfg.Service.GraphNeighbors(r.Context(), wsID, req.MemoryID,
 			adapter.NeighborsOpts{Direction: req.Direction, EdgeTypes: req.EdgeTypes, K: req.K})
 		if err != nil {
@@ -664,6 +760,9 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, wsID string
 		var req api.TraverseRequest
 		if err := decodeJSON(r, &req); err != nil {
 			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		if !s.validID(w, "seed_memory_id", req.SeedMemoryID) {
 			return
 		}
 		tr, err := s.cfg.Service.GraphTraverse(r.Context(), wsID, req.SeedMemoryID,
@@ -746,6 +845,16 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 		s.writeError(w, 405, "method_not_allowed", "", nil)
 		return
 	}
+	if !s.validOptionalID(w, "memory_id", r.URL.Query().Get("memory_id")) ||
+		!s.validOptionalID(w, "since_ledger_id", r.URL.Query().Get("since_ledger_id")) ||
+		!s.validOptionalID(w, "agent_id", r.URL.Query().Get("agent_id")) ||
+		!s.validOptionalID(w, "edge_id", r.URL.Query().Get("edge_id")) {
+		return
+	}
+	if s.cfg.Service.Ledger == nil {
+		s.writeError(w, 501, "capability_unavailable", "no LedgerStore is configured", nil)
+		return
+	}
 	caps := s.cfg.Service.Ledger.Capabilities()
 	if !caps.SupportsQuery {
 		s.writeError(w, 501, "capability_unavailable", "configured LedgerStore does not support query", nil)
@@ -783,5 +892,225 @@ func (s *Server) handleLedger(w http.ResponseWriter, r *http.Request, wsID strin
 	s.writeJSON(w, 200, api.LedgerResponse{Entries: entries, NextCursor: next})
 }
 
+// validID writes a 400 and returns false unless id is a UUID. field
+// names the parameter in the error, since a UUID doesn't say what kind
+// of thing it points at.
+func (s *Server) validID(w http.ResponseWriter, field, id string) bool {
+	if _, err := types.ParseID(field, id); err != nil {
+		s.writeErrorFromService(w, err)
+		return false
+	}
+	return true
+}
+
+// validOptionalID is validID for optional parameters: empty is allowed.
+func (s *Server) validOptionalID(w http.ResponseWriter, field, id string) bool {
+	return id == "" || s.validID(w, field, id)
+}
+
 // Used by handlers to bubble named errors up.
 var _ = errors.New
+
+// handleFederationSearch is POST /v1/federation/search, called by an
+// authenticated peer (the middleware has run AuthenticatePeer, including
+// the loop guard). It searches every workspace on this node with this
+// node's own embedder and never fans out further: federation is one hop.
+func (s *Server) handleFederationSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		s.writeError(w, 405, "method_not_allowed", "", nil)
+		return
+	}
+	peer := peerFrom(r.Context())
+	if peer == nil { // unreachable: the middleware authenticates this route
+		s.writeError(w, 401, "federation_unauthorized", "peer authentication required", nil)
+		return
+	}
+	if s.cfg.Mode == "multi-tenant" {
+		// Peers are trusted per node, not per tenant; a node-wide search
+		// would cross tenants, so it fails closed.
+		s.writeError(w, 403, "federation_multi_tenant", "federation search is not available in multi-tenant mode", nil)
+		return
+	}
+	if qps := s.inboundQPS(peer.PeerID); !s.inbound.AllowRate(peer.PeerID, qps) {
+		s.ledgerRejected(r, peer.PeerID, federation.ReasonRateLimited)
+		s.observeInbound(peer.PeerID, federation.ReasonRateLimited)
+		w.Header().Set("Retry-After", retryAfter(qps))
+		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
+		return
+	}
+	var req api.FederationSearchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeError(w, 400, "invalid_input", err.Error(), nil)
+		return
+	}
+	resp, err := s.cfg.Service.Search(r.Context(), api.SearchRequest{
+		Query: req.Query, Mode: req.Mode, K: req.K,
+		IncludeContent: req.IncludeContent, MaxContentBytes: req.MaxContentBytes,
+	})
+	if err != nil {
+		s.observeInbound(peer.PeerID, federation.OutcomeError)
+		s.writeErrorFromService(w, err)
+		return
+	}
+	s.observeInbound(peer.PeerID, federation.OutcomeOK)
+	s.cfg.Service.AppendLedger(r.Context(), federation.InboundSearchEntry(peer.PeerID, req.Query, peer.FederationPath, len(resp.Results)))
+	for i := range resp.Results {
+		resp.Results[i].NodeID = s.cfg.Service.NodeID
+		resp.Results[i].NodeName = s.cfg.Service.NodeName
+	}
+	s.writeJSON(w, 200, resp)
+}
+
+// ledgerRejected records a refused peer call as a node-level ledger entry
+// (no workspace). F-8 extends this to every rejection reason.
+func (s *Server) ledgerRejected(r *http.Request, peerID, reason string) {
+	if s.cfg.Service == nil {
+		return
+	}
+	s.cfg.Service.AppendLedger(r.Context(), federation.RejectedEntry(peerID, reason, federation.PeerRouteTemplate(r.URL.Path)))
+}
+
+// observeInbound counts a peer-route call for /metrics. A caller that
+// is not a registered peer is counted as "unknown", so callers cannot
+// grow the label space.
+func (s *Server) observeInbound(peerID, outcome string) {
+	label := "unknown"
+	if peerID != "" && s.cfg.Federation.Peer(peerID) != nil {
+		label = peerID
+	}
+	s.cfg.Federation.Metrics().ObserveInbound(label, outcome)
+}
+
+// inboundQPS is the rate a peer may call this node at: its own
+// inbound_qps when set, else federation.inbound_qps, else the default.
+func (s *Server) inboundQPS(peerID string) float64 {
+	if p := s.cfg.Federation.Peer(peerID); p != nil && p.InboundQPS > 0 {
+		return p.InboundQPS
+	}
+	if s.cfg.FederationInboundQPS > 0 {
+		return s.cfg.FederationInboundQPS
+	}
+	return federation.DefaultInboundQPS
+}
+
+// retryAfter is the Retry-After for a peer limited to qps: the seconds
+// until the limiter refills one token, at least 1.
+func retryAfter(qps float64) string {
+	return strconv.Itoa(int(math.Max(1, math.Ceil(1/qps))))
+}
+
+// handleNodeMemory is GET /v1/memories/{memory_id}?node={node_id}: the
+// full memory from the node that holds it. Without node, or with this
+// node's ID, it is looked up across this node's workspaces; otherwise it
+// is fetched from that peer with the peer's credentials (F-6).
+func (s *Server) handleNodeMemory(w http.ResponseWriter, r *http.Request) {
+	memID := strings.TrimPrefix(r.URL.Path, "/v1/memories/")
+	node := r.URL.Query().Get("node")
+	if node != "" && !s.validID(w, "node", node) {
+		return
+	}
+	remote := node != "" && node != s.cfg.Service.NodeID
+	tenant, _ := r.Context().Value(ctxKeyWorkspace).(string)
+	if s.cfg.Mode == "multi-tenant" {
+		if remote {
+			s.writeError(w, 403, "federation_multi_tenant", "fetching from a peer is not available in multi-tenant mode", nil)
+			return
+		}
+		if tenant == "" {
+			s.writeError(w, 400, "missing_workspace", "X-Memora-Workspace is required in multi-tenant mode", nil)
+			return
+		}
+	}
+	env, err := s.cfg.Service.FetchMemoryFrom(r.Context(), node, memID)
+	switch {
+	case err == nil:
+	case errors.Is(err, federation.ErrUnknownNode):
+		s.writeError(w, 404, "unknown_node", "node is not a peer of this node", map[string]any{"node": node})
+		return
+	case remote && !errors.Is(err, types.ErrNotFound) && !errors.Is(err, types.ErrInvalidInput):
+		s.writeError(w, 502, federation.PeerErrorCode(err), "the owning node did not answer", map[string]any{"node": node})
+		return
+	default:
+		s.writeErrorFromService(w, err)
+		return
+	}
+	if tenant != "" && env.WorkspaceID != tenant {
+		s.writeError(w, 404, "not_found", "memory not found", nil)
+		return
+	}
+	s.writeJSON(w, 200, env)
+}
+
+// handleFederationMemory is GET /v1/federation/memories/{memory_id},
+// called by an authenticated peer: the full memory, looked up across
+// this node's workspaces (F-6).
+func (s *Server) handleFederationMemory(w http.ResponseWriter, r *http.Request) {
+	peer := peerFrom(r.Context())
+	if peer == nil { // unreachable: the middleware authenticates this route
+		s.writeError(w, 401, "federation_unauthorized", "peer authentication required", nil)
+		return
+	}
+	if s.cfg.Mode == "multi-tenant" {
+		s.writeError(w, 403, "federation_multi_tenant", "federation is not available in multi-tenant mode", nil)
+		return
+	}
+	if qps := s.inboundQPS(peer.PeerID); !s.inbound.AllowRate(peer.PeerID, qps) {
+		s.ledgerRejected(r, peer.PeerID, federation.ReasonRateLimited)
+		s.observeInbound(peer.PeerID, federation.ReasonRateLimited)
+		w.Header().Set("Retry-After", retryAfter(qps))
+		s.writeError(w, 429, "rate_limited", "peer rate limit exceeded", nil)
+		return
+	}
+	memID := strings.TrimPrefix(r.URL.Path, "/v1/federation/memories/")
+	env, err := s.cfg.Service.FetchMemory(r.Context(), memID)
+	outcome, wsID := federation.OutcomeOf(err), ""
+	if err == nil {
+		wsID = env.WorkspaceID
+	}
+	s.observeInbound(peer.PeerID, outcome)
+	s.cfg.Service.AppendLedger(r.Context(), federation.FetchEntry("inbound", peer.PeerID, memID, wsID, outcome))
+	if err != nil {
+		s.writeErrorFromService(w, err)
+		return
+	}
+	s.writeJSON(w, 200, env)
+}
+
+// handlePeers serves the runtime peer registry (F-7), behind the API key:
+// GET /v1/federation/peers lists peers without keys; POST creates or
+// replaces one; DELETE /v1/federation/peers/{node_id} removes one.
+func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
+	m := s.cfg.FederationPeers
+	if m == nil {
+		s.writeError(w, 404, "federation_disabled", "federation is not enabled on this node", nil)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		peers, err := m.List(r.Context())
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, map[string]any{"peers": peers})
+	case http.MethodPost:
+		var req api.PeerRequest
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, 400, "invalid_input", err.Error(), nil)
+			return
+		}
+		v, err := m.Upsert(r.Context(), req)
+		if err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		s.writeJSON(w, 200, v)
+	case http.MethodDelete:
+		if err := m.Delete(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/federation/peers/")); err != nil {
+			s.writeErrorFromService(w, err)
+			return
+		}
+		w.WriteHeader(204)
+	}
+}

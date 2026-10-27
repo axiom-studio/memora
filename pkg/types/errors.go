@@ -22,7 +22,13 @@ var (
 	ErrNotEmpty       = errors.New("memora: container has live children")
 	ErrFederationLoop = errors.New("memora: federation loop detected")
 	ErrFederationAuth = errors.New("memora: federation peer not authorized")
-	ErrFederationDown = errors.New("memora: all federation peers failed")
+	// ErrFederationRevoked is a known peer presenting a valid credential
+	// whose access has been revoked (403, not 401: retrying will not help).
+	ErrFederationRevoked = errors.New("memora: federation peer revoked")
+	ErrFederationDown    = errors.New("memora: all federation peers failed")
+	// ErrAgentDeactivated is a write by an agent an operator deactivated
+	// in that workspace (403, agent_deactivated).
+	ErrAgentDeactivated = errors.New("memora: agent deactivated")
 )
 
 func errEmpty(field string) error {
@@ -31,4 +37,10 @@ func errEmpty(field string) error {
 
 func errf(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidInput, fmt.Sprintf(format, args...))
+}
+
+// parseErr is ParseID for validators, which only need the error.
+func parseErr(field, id string) error {
+	_, err := ParseID(field, id)
+	return err
 }

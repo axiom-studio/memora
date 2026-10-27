@@ -16,16 +16,27 @@ graph_driver = "none"
 content_driver = "postgres"
 
 [embedding]
-model = "noop:default"
+model = "hash:default"  # offline lexical vectors; set a semantic model for real deployments
+
+[node]
+id = "2f7b9c02-4d3e-4b8a-8e61-000000000003"
+name = "node3"
 
 [federation]
 enabled = true
-federation_id = "fed_prod_cluster"
+federation_id = "5e3d2c1b-0000-4000-8000-000000000002"
+# Local demo only: the nodes call each other over the compose network in
+# cleartext, at private addresses. For a real deployment use https://
+# peer URLs (optionally with mTLS) and remove these two lines.
+insecure_peer_hosts = ["memora-node1", "memora-node2"]
+private_peer_hosts = ["memora-node1", "memora-node2"]
 
 [[federation.peers]]
+node_id = "2f7b9c02-4d3e-4b8a-8e61-000000000001"
 name = "node1"
 url = "http://memora-node1:7777"
 
 [[federation.peers]]
+node_id = "2f7b9c02-4d3e-4b8a-8e61-000000000002"
 name = "node2"
 url = "http://memora-node2:7777"

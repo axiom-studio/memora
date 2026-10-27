@@ -38,7 +38,7 @@ func newTestService(t *testing.T) *service.Service {
 	}
 	t.Cleanup(func() { _ = vec.Close() })
 
-	embedProvider, _ := embedding.Open("noop:default")
+	embedProvider, _ := embedding.Open("hash:default")
 	return &service.Service{
 		Metadata: primary,
 		Vector:   vec,
@@ -96,7 +96,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+	agentH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
 
 	// Create workspace.
 	status, ws := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "e2e-ws"}, nil))
@@ -132,7 +132,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	}
 
 	// Update with correct If-Match.
-	updateH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
+	updateH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7", "If-Match": wmk}
 	status, upd := doJSON(t, c, jsonReq(t, "PUT", memBase+"/"+memID, map[string]any{
 		"content": "hello world v2"}, updateH))
 	if status != 200 {
@@ -144,7 +144,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	}
 
 	// Update with stale watermark — expect 412.
-	staleH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
+	staleH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7", "If-Match": wmk}
 	status, _ = doJSON(t, c, jsonReq(t, "PUT", memBase+"/"+memID, map[string]any{
 		"content": "hello world v3"}, staleH))
 	if status != 412 {
@@ -152,7 +152,7 @@ func TestMemoryLifecycle_E2E(t *testing.T) {
 	}
 
 	// Append.
-	appendH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": newWmk}
+	appendH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7", "If-Match": newWmk}
 	status, app := doJSON(t, c, jsonReq(t, "POST", memBase+"/"+memID+":append", map[string]any{
 		"content": " appended text",
 	}, appendH))
@@ -266,7 +266,7 @@ func TestCrossTenantReadPrevention(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+	agentH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
 
 	// Create workspace A and B
 	status, respA := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_a"}, nil))
@@ -307,7 +307,7 @@ func TestCrossTenantDestructiveForget(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+	agentH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
 
 	// Create workspace A and B
 	status, respA := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "workspace_a"}, nil))
@@ -395,7 +395,7 @@ func TestCrossTenantWritesCellsAndPins(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_test"}
+	agentH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
 
 	_, a := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "owner"}, nil))
 	_, b := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "attacker"}, nil))
@@ -408,8 +408,8 @@ func TestCrossTenantWritesCellsAndPins(t *testing.T) {
 	}
 	memID, _ := imp["id"].(string)
 	wmk, _ := imp["watermark"].(string)
-	casH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": wmk}
-	staleH := map[string]string{"Memora-Agent-Id": "agent_opaque_test", "If-Match": "wmk_stale"}
+	casH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7", "If-Match": wmk}
+	staleH := map[string]string{"Memora-Agent-Id": "2b4224a8-95b4-4171-9e6b-689847d53ac7", "If-Match": "wmk_stale"}
 	foreign := base + "/" + wsB + "/memories/" + memID
 
 	cases := []struct {
@@ -460,7 +460,7 @@ func TestRecallPins_RequireAndRecordAgent(t *testing.T) {
 	ts := newTestServer(t)
 	c := ts.Client()
 	base := ts.URL + "/v1/workspaces"
-	agentH := map[string]string{"Memora-Agent-Id": "agent_opaque_pinner"}
+	agentH := map[string]string{"Memora-Agent-Id": "04f376d3-a9f3-4f79-a903-10fa5d3dfb35"}
 
 	_, ws := doJSON(t, c, jsonReq(t, "POST", base, map[string]any{"name": "pins"}, nil))
 	wsID, _ := ws["id"].(string)
@@ -477,7 +477,7 @@ func TestRecallPins_RequireAndRecordAgent(t *testing.T) {
 
 	_, list := doJSON(t, c, jsonReq(t, "GET", pins, nil, nil))
 	entries, _ := list["pins"].([]any)
-	if len(entries) != 1 || entries[0].(map[string]any)["created_by"] != "agent_opaque_pinner" {
+	if len(entries) != 1 || entries[0].(map[string]any)["created_by"] != "04f376d3-a9f3-4f79-a903-10fa5d3dfb35" {
 		t.Fatalf("listed pins = %v, want created_by agent_opaque_pinner", list)
 	}
 

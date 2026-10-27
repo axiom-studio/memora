@@ -29,8 +29,8 @@ func TestContentStore_RoundTrip(t *testing.T) {
 	}
 	defer cs.Close()
 
-	ws := "ws_test_content_" + types.NewID("t")
-	mem := "mem_test_" + types.NewID("t")
+	ws := types.NewID()
+	mem := types.NewID()
 
 	if err := cs.PutMemoryContent(ctx, ws, mem, "md5abc", "hello world"); err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestMetadataStore_WorkspaceCRUD(t *testing.T) {
 	defer ms.Close()
 
 	w := &types.Workspace{
-		Name:   "test-ws-" + types.NewID("t"),
+		Name:   "test-ws-" + types.NewID(),
 		Region: "us-east",
 	}
 	if err := ms.CreateWorkspace(ctx, w); err != nil {
@@ -103,7 +103,7 @@ func TestMetadataStore_WorkspaceCRUD(t *testing.T) {
 		t.Fatalf("workspace mismatch: %+v", got)
 	}
 
-	all, err := ms.ListWorkspaces(ctx, 100)
+	all, _, err := ms.ListWorkspaces(ctx, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestMetadataStore_MemoryCRUD(t *testing.T) {
 	}
 	defer ms.Close()
 
-	w := &types.Workspace{Name: "mem-test-ws-" + types.NewID("t")}
+	w := &types.Workspace{Name: "mem-test-ws-" + types.NewID()}
 	if err := ms.CreateWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestMetadataStore_CASConflict(t *testing.T) {
 	}
 	defer ms.Close()
 
-	w := &types.Workspace{Name: "cas-test-" + types.NewID("t")}
+	w := &types.Workspace{Name: "cas-test-" + types.NewID()}
 	if err := ms.CreateWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}
@@ -238,13 +238,13 @@ func TestMetadataStore_AgentRegistry(t *testing.T) {
 	}
 	defer ms.Close()
 
-	w := &types.Workspace{Name: "agent-test-" + types.NewID("t")}
+	w := &types.Workspace{Name: "agent-test-" + types.NewID()}
 	if err := ms.CreateWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}
 	defer ms.DeleteWorkspace(ctx, w.ID)
 
-	agentID := types.NewID(types.AgentIDPrefix) // Agent.Validate requires the agent_ prefix
+	agentID := types.NewID() // Agent.Validate requires the agent_ prefix
 	a := &types.Agent{
 		AgentID:          agentID,
 		WorkspaceID:      w.ID,
@@ -296,7 +296,7 @@ func TestMetadataStore_CellsAndRecallReady(t *testing.T) {
 	}
 	defer ms.Close()
 
-	w := &types.Workspace{Name: "cells-test-" + types.NewID("t")}
+	w := &types.Workspace{Name: "cells-test-" + types.NewID()}
 	if err := ms.CreateWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}

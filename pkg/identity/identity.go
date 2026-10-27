@@ -32,12 +32,14 @@ func (Opaque) Verify(_ context.Context, _ adapter.IdentityVerifyInput) error {
 
 // ----- anthropic_session -----
 
-// AnthropicSession derives agent_id from session metadata. The recipe
-// (per #297 §17.4):
+// AnthropicSession identifies an agent by its session metadata. The
+// identity key (recipe per #297 §17.4) is
 //
-//	agent_id = "agent_anthropic_session_" + base32(
-//	    sha256(session_id + ":" + model + ":" + sha256(system_prompt))[:16]
-//	)
+//	"anthropic_session|" + base32(
+//	    sha256(session_id + ":" + model + ":" + sha256(system_prompt))
+//	)[:16]
+//
+// and the server resolves it to the agent's UUIDv4 agent_id.
 type AnthropicSession struct{}
 
 func (AnthropicSession) Name() string { return string(types.IdentityProviderAnthropicSession) }
@@ -45,24 +47,26 @@ func (AnthropicSession) Capabilities() adapter.IdentityCapabilities {
 	return adapter.IdentityCapabilities{RequiresProof: true, SupportsRotation: false}
 }
 
-// Verify checks the supplied identity_proof reproduces the agent_id.
-func (a AnthropicSession) Verify(_ context.Context, in adapter.IdentityVerifyInput) error {
-	sessionID, _ := in.IdentityProof["session_id"].(string)
-	model, _ := in.IdentityProof["model"].(string)
-	systemPrompt, _ := in.IdentityProof["system_prompt"].(string)
-	if sessionID == "" || model == "" {
-		return fmt.Errorf("anthropic_session: identity_proof requires session_id and model")
-	}
-	want := DeriveAnthropicSessionID(sessionID, model, systemPrompt)
-	if !strings.EqualFold(want, in.AgentID) {
-		return fmt.Errorf("anthropic_session: agent_id %q does not match derivation %q", in.AgentID, want)
-	}
-	return nil
+// Verify checks the identity_proof is well-formed; see IdentityKey.
+func (a AnthropicSession) Verify(ctx context.Context, in adapter.IdentityVerifyInput) error {
+	_, err := a.IdentityKey(ctx, in.IdentityProof)
+	return err
 }
 
-// DeriveAnthropicSessionID returns the canonical agent_id for the
-// given Anthropic session metadata.
-func DeriveAnthropicSessionID(sessionID, model, systemPrompt string) string {
+// IdentityKey implements adapter.IdentityKeyer.
+func (AnthropicSession) IdentityKey(_ context.Context, proof map[string]any) (string, error) {
+	sessionID, _ := proof["session_id"].(string)
+	model, _ := proof["model"].(string)
+	systemPrompt, _ := proof["system_prompt"].(string)
+	if sessionID == "" || model == "" {
+		return "", fmt.Errorf("anthropic_session: identity_proof requires session_id and model")
+	}
+	return AnthropicSessionKey(sessionID, model, systemPrompt), nil
+}
+
+// AnthropicSessionKey returns the identity key for the given Anthropic
+// session metadata.
+func AnthropicSessionKey(sessionID, model, systemPrompt string) string {
 	promptHash := sha256.Sum256([]byte(systemPrompt))
 	src := sessionID + ":" + model + ":" + string(promptHash[:])
 	full := sha256.Sum256([]byte(src))
@@ -70,7 +74,7 @@ func DeriveAnthropicSessionID(sessionID, model, systemPrompt string) string {
 	if len(enc) > 16 {
 		enc = enc[:16]
 	}
-	return "agent_anthropic_session_" + strings.ToLower(enc)
+	return "anthropic_session|" + strings.ToLower(enc)
 }
 
 func init() {

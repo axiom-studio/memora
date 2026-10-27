@@ -108,7 +108,7 @@ When a Workspace enables it, a new Memory is compared against existing ones at w
 | Incoming links per target | `100` per target Memory per day. |
 | Per-imprint override | `auto_link: false` on a single imprint request turns it off for that write. |
 
-Auto-link edges are attributed to the reserved agent `agent_system_auto_link`, which keeps them distinguishable from anything a real agent asserted.
+Auto-link edges are attributed to the reserved agent `2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61` (display name `system-auto-link`), which keeps them distinguishable from anything a real agent asserted.
 
 ## Recall
 
@@ -117,13 +117,13 @@ Recall takes a query and returns ranked hits. Four modes are available; `hybrid`
 | Status | Description |
 |---|---|
 | `lookup` | Fetch specific Memories by ID. No scoring. |
-| `keyword` | Case-insensitive substring match over the Workspace's Memories. |
+| `keyword` | Full-text search over the Workspace's Memories, ranked by relevance (BM25 on SQLite, `ts_rank` on Postgres). A Memory matching more of the query's words ranks higher. |
 | `vector` | Embed the query and run a nearest-neighbour search over Cell vectors. |
-| `hybrid` | Run both and merge by weighted score. Default weights are `0.7` vector and `0.3` keyword. |
+| `hybrid` | Run both and merge their rankings by reciprocal rank fusion: a Memory scores `Σ weight / (60 + rank)` over the two lists, so the keyword and vector score scales never mix. `weights.vector` and `weights.keyword` scale each list's votes; they default to equal. If one side fails, the results come from the other and the response lists it in `degraded` (`vector_unavailable` or `keyword_unavailable`). Each Memory appears once, with its best-matching Cell. |
 
 ```text
 query → mode ─ lookup  ─> fetch by ID ──┐
-             ├ keyword ─> substring scan ┤
+             ├ keyword ─> full-text index┤
              ├ vector  ─> vector search  ├─> seed hits ─> graph expansion? ─ no ─> sort, truncate
              └ hybrid  ─> both, merged  ─┘                       │
                                                                 yes
@@ -135,9 +135,9 @@ Every hit is labelled `via: seed` or `via: graph`. Graph-expanded hits carry pro
 
 Expansion scores a hit as `weight × decay^layer × seed score`, with expansion weight defaulting to `0.2`, the per-layer decay fixed at `0.7`, and direction defaulting to `out`. A second-hop neighbour therefore scores well below a direct hit, which is the intent: graph expansion widens recall without letting distant relatives outrank actual matches. When expansion is on, results are truncated to `k` plus the requested maximum number of neighbours rather than to `k` alone.
 
-Filters apply to both seeds and expansion: collection, writing agent (a single value, an `in` list, or a `not_in` list), creation-time range, and tag key/value.
+Filters apply to both seeds and expansion: collection, writing agent (a single value, an `in` list, or a `not_in` list), creation-time range (`ts_after` and `ts_before`, both inclusive), and tag key/value (each listed key must have one of its listed values). They select which memories compete, rather than trimming the top results, so a filtered recall or search returns `k` hits whenever `k` matching memories exist. Keyword search applies them in the index query. Vector search, whose store holds no memory metadata, asks the vector store again with a larger limit until it has `k` matches or has read every cell (at most 20,000 cells).
 
-> **Keyword search is a substring scan, not a full-text index.** It lists up to 500 Memories in the Workspace and filters them in memory. It does not rank by term frequency, and on a Workspace larger than 500 Memories it does not see past that window. Vector and hybrid recall are the modes that scale.
+> **Keyword search matches words, not substrings.** The query is split into words, and a Memory matches if it contains any of them, after English stemming (`running` matches `run`). Punctuation and full-text operators such as quotes, `*`, `NEAR` or `-` are treated as plain text. Searching for part of a word (`roadm` for `roadmap`) finds nothing. Use vector or hybrid mode for that.
 
 ## The Audit Ledger
 

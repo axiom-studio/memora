@@ -2,13 +2,18 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 // EX_CONFIG is the sysexits.h exit code for configuration errors.
@@ -19,6 +24,7 @@ type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Storage    StorageConfig    `toml:"storage"`
 	Embedding  EmbeddingConfig  `toml:"embedding"`
+	Node       NodeConfig       `toml:"node"`
 	Federation FederationConfig `toml:"federation"`
 	Telemetry  TelemetryConfig  `toml:"telemetry"`
 
@@ -70,17 +76,74 @@ type EmbeddingConfig struct {
 	Async bool `toml:"async"`
 }
 
+// NodeConfig identifies this node to its federation peers. ID is a
+// UUIDv4; when empty the node mints one on first start and keeps it in
+// the metadata store. Name is a display label (default: the hostname).
+type NodeConfig struct {
+	ID   string `toml:"id"`
+	Name string `toml:"name"`
+}
+
 type FederationConfig struct {
-	Enabled      bool         `toml:"enabled"`
-	FederationID string       `toml:"federation_id"`
-	Peers        []PeerConfig `toml:"peers"`
+	Enabled bool `toml:"enabled"`
+	// FederationID is an optional UUIDv4 cluster label. Nodes are
+	// identified by [node] id, never by this.
+	FederationID string `toml:"federation_id"`
+	// InboundQPS caps each peer's calls to this node's peer routes
+	// (default federation.DefaultInboundQPS).
+	InboundQPS float64 `toml:"inbound_qps"`
+	// PeerTimeoutMS and OutboundQPS are the defaults for each peer's
+	// timeout_ms and rate_limit_qps (5000 ms and 50 when unset).
+	PeerTimeoutMS int `toml:"peer_timeout_ms"`
+	// SecretKeyFile holds the 32-byte key that seals peer api_keys in
+	// the metadata store (default <data_dir>/federation.key, created on
+	// first start). $MEMORA_FEDERATION_SECRET overrides it.
+	SecretKeyFile string  `toml:"secret_key_file"`
+	OutboundQPS   float64 `toml:"outbound_qps"`
+	// InsecurePeerHosts lists peer URL hosts this node may call over
+	// http://, which sends the peer key in cleartext. Loopback hosts
+	// need no entry; any other http:// peer is refused.
+	InsecurePeerHosts []string `toml:"insecure_peer_hosts"`
+	// PrivatePeerHosts lets peers reach loopback, private, link-local
+	// and other non-public addresses, which are refused otherwise. An
+	// entry is a URL host (name or IP), which may then resolve to any
+	// address, or a CIDR, which allows the addresses inside it.
+	PrivatePeerHosts []string     `toml:"private_peer_hosts"`
+	Peers            []PeerConfig `toml:"peers"`
 }
 
 type PeerConfig struct {
-	Name    string `toml:"name"`
-	URL     string `toml:"url"`
+	NodeID string `toml:"node_id"` // the peer's [node] id (UUIDv4)
+	Name   string `toml:"name"`
+	URL    string `toml:"url"`
+	// APIKey is the outbound credential: the key this node presents to
+	// the peer in X-Memora-Federation-Auth.
 	APIKey  string `toml:"api_key"`
 	TLSCert string `toml:"tls_cert"`
+	// ClientCertFile and ClientKeyFile are the TLS client certificate
+	// this node presents when it calls the peer (outbound mTLS).
+	ClientCertFile string `toml:"client_cert_file"`
+	ClientKeyFile  string `toml:"client_key_file"`
+	// InboundKeySHA256 is the hex SHA-256 of the key the peer presents
+	// to this node. Only the hash is configured, so the key itself never
+	// sits in this node's config. Empty means the peer cannot call in.
+	InboundKeySHA256 string `toml:"inbound_key_sha256"`
+	// ClientCertSHA256, when set, additionally requires the peer to
+	// present a TLS client certificate with this SHA-256 fingerprint.
+	ClientCertSHA256 string `toml:"client_cert_sha256"`
+	// Revoked keeps the peer known but refuses its inbound calls (403)
+	// and leaves it out of federated searches.
+	Revoked bool `toml:"revoked"`
+	// TimeoutMS and RateLimitQPS bound this node's calls to the peer;
+	// 0 takes federation.peer_timeout_ms / federation.outbound_qps.
+	TimeoutMS    int     `toml:"timeout_ms"`
+	RateLimitQPS float64 `toml:"rate_limit_qps"`
+	// InboundQPS caps this peer's calls to this node; 0 takes
+	// federation.inbound_qps.
+	InboundQPS float64 `toml:"inbound_qps"`
+	// KeyUnavailable is set by the peer registry, never by config: a
+	// stored api_key exists but did not open with the federation secret.
+	KeyUnavailable bool `toml:"-"`
 }
 
 type TelemetryConfig struct {
@@ -182,6 +245,13 @@ func (c *Config) expandPaths() {
 	c.Server.TLS.CertFile = expandTilde(c.Server.TLS.CertFile)
 	c.Server.TLS.KeyFile = expandTilde(c.Server.TLS.KeyFile)
 	c.Server.APIKeyFile = expandTilde(c.Server.APIKeyFile)
+	c.Federation.SecretKeyFile = expandTilde(c.Federation.SecretKeyFile)
+	for i := range c.Federation.Peers {
+		p := &c.Federation.Peers[i]
+		p.TLSCert = expandTilde(p.TLSCert)
+		p.ClientCertFile = expandTilde(p.ClientCertFile)
+		p.ClientKeyFile = expandTilde(p.ClientKeyFile)
+	}
 }
 
 // GraphEnabled reports whether a graph store should be opened. "" and
@@ -239,20 +309,61 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf(`storage.graph_driver "sqlite_graph" requires storage.metadata_driver "sqlite" (got %q); set storage.graph_driver = "none" (or MEMORA_GRAPH_DRIVER=none) to run without the context graph`, c.Storage.MetadataDriver))
 	}
 
-	if c.Federation.Enabled {
-		if c.Federation.FederationID == "" {
-			errs = append(errs, errors.New("federation.enabled requires federation.federation_id"))
-		} else if !strings.HasPrefix(c.Federation.FederationID, "fed_") {
-			errs = append(errs, fmt.Errorf("federation.federation_id %q must start with fed_ prefix", c.Federation.FederationID))
+	if c.Node.ID != "" {
+		if _, err := types.ParseID("node.id", c.Node.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.Federation.FederationID != "" {
+		if _, err := types.ParseID("federation.federation_id", c.Federation.FederationID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.Federation.InboundQPS < 0 || c.Federation.OutboundQPS < 0 || c.Federation.PeerTimeoutMS < 0 {
+		errs = append(errs, errors.New("federation.inbound_qps, outbound_qps and peer_timeout_ms must not be negative"))
+	}
+	for _, h := range c.Federation.InsecurePeerHosts {
+		if strings.TrimSpace(h) == "" {
+			errs = append(errs, errors.New("federation.insecure_peer_hosts: empty entry"))
+		}
+	}
+	for _, h := range c.Federation.PrivatePeerHosts {
+		if strings.TrimSpace(h) == "" {
+			errs = append(errs, errors.New("federation.private_peer_hosts: empty entry"))
+		} else if strings.Contains(h, "/") {
+			if _, err := netip.ParsePrefix(strings.TrimSpace(h)); err != nil {
+				errs = append(errs, fmt.Errorf("federation.private_peer_hosts: %q is not a CIDR: %v", h, err))
+			}
 		}
 	}
 	for i, p := range c.Federation.Peers {
+		if _, err := types.ParseID(fmt.Sprintf("federation.peers[%d].node_id", i), p.NodeID); err != nil {
+			errs = append(errs, err)
+		}
 		if p.URL == "" {
 			errs = append(errs, fmt.Errorf("federation.peers[%d]: url is required", i))
+		}
+		if p.TimeoutMS < 0 || p.RateLimitQPS < 0 || p.InboundQPS < 0 {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: timeout_ms, rate_limit_qps and inbound_qps must not be negative", i))
+		}
+		if (p.ClientCertFile == "") != (p.ClientKeyFile == "") {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_file and client_key_file must be set together", i))
+		}
+		if p.InboundKeySHA256 != "" && !isSHA256Hex(p.InboundKeySHA256) {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: inbound_key_sha256 must be 64 hex characters", i))
+		}
+		if p.ClientCertSHA256 != "" && !isSHA256Hex(p.ClientCertSHA256) {
+			errs = append(errs, fmt.Errorf("federation.peers[%d]: client_cert_sha256 must be 64 hex characters", i))
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// isSHA256Hex reports whether s is a hex-encoded SHA-256 digest.
+func isSHA256Hex(s string) bool {
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == sha256.Size
 }
 
 // ResolveAPIKey resolves the API key from either the inline value or
@@ -283,6 +394,8 @@ func (c *Config) ResolveAPIKey() (string, error) {
 // wins over the file value when set and non-empty.
 func (c *Config) ApplyEnv() {
 	setIfEnv(&c.Server.Addr, "MEMORA_ADDR")
+	setIfEnv(&c.Node.ID, "MEMORA_NODE_ID")
+	setIfEnv(&c.Node.Name, "MEMORA_NODE_NAME")
 	setIfEnv(&c.Server.Mode, "MEMORA_MODE")
 	setIfEnv(&c.Server.APIKey, "MEMORA_API_KEY")
 	setIfEnv(&c.Storage.DataDir, "MEMORA_DATA_DIR")

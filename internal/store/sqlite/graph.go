@@ -17,7 +17,7 @@ import (
 // GraphLink creates a typed edge. CAS-like uniqueness on the live triple.
 func (s *Store) GraphLink(ctx context.Context, e types.Edge) (types.Edge, error) {
 	if e.EdgeID == "" {
-		e.EdgeID = types.NewID(types.EdgeIDPrefix)
+		e.EdgeID = types.NewID()
 	}
 	if err := e.Validate(); err != nil {
 		return types.Edge{}, err
@@ -50,7 +50,7 @@ SELECT COUNT(*) FROM memora_edges WHERE workspace_id = ? AND source_memory_id = 
 		err := s.db.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM memora_edges_view
 WHERE workspace_id = ? AND source_memory_id = ? AND target_memory_id = ? AND edge_type = 'parent_of'
-  AND edge_id LIKE 'edg_synthetic_%'`,
+  AND is_synthetic = 1`,
 			e.WorkspaceID, e.SourceMemoryID, e.TargetMemoryID).Scan(&seen)
 		if err == nil && seen > 0 {
 			return types.Edge{}, types.ErrAlreadyLinked
@@ -107,7 +107,7 @@ func isUniqueViolation(err error) bool {
 
 // GraphUnlink soft-deletes an edge.
 func (s *Store) GraphUnlink(ctx context.Context, workspaceID, edgeID, agentID string) error {
-	if strings.HasPrefix(edgeID, "edg_synthetic_") {
+	if isSyntheticEdge(ctx, s.db, workspaceID, edgeID) {
 		return types.ErrSyntheticEdge
 	}
 	res, err := s.db.ExecContext(ctx, `

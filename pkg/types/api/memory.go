@@ -109,4 +109,9 @@ type ForgetResponse struct {
 type MemoryEnvelope struct {
 	*types.Memory
 	Cells []types.Cell `json:"cells,omitempty"`
+	// NodeID and NodeName identify the node that holds the memory; set by
+	// the node-wide fetch routes (GET /v1/memories/{id},
+	// GET /v1/federation/memories/{id}).
+	NodeID   string `json:"node_id,omitempty"`
+	NodeName string `json:"node_name,omitempty"`
 }

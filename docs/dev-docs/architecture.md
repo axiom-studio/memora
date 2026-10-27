@@ -61,7 +61,7 @@ public Go packages third parties can vendor.
 | `internal/embed/queue` | Async worker pool + the `text_md5` skip-re-embed moat. |
 | `internal/service` | Business-logic layer (Imprint / Update / Patch / Append / Recall / Forget / graph traversal helpers). |
 | `internal/server/http` | net/http REST surface — middleware, routes, error envelope. |
-| `internal/mcp` | Bundled MCP JSON-RPC 2.0 stdio server (25 OSS tools). |
+| `internal/mcp` | Bundled MCP JSON-RPC 2.0 stdio server (26 OSS tools). |
 
 ## The patch-mode moat
 

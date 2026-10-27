@@ -1,0 +1,322 @@
+package federation
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"reflect"
+	"strings"
+	"sync"
+
+	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/pkg/adapter"
+	"github.com/axiom-studio/memora/pkg/types"
+	"github.com/axiom-studio/memora/pkg/types/api"
+)
+
+// Manager edits the runtime peer registry (F-7): peers live in the
+// metadata store, and every edit is persisted and then swapped into the
+// Registry, so the next search, fetch or inbound call sees it. Config
+// file peers are only a seed.
+type Manager struct {
+	reg    *Registry
+	store  adapter.PeerStore
+	sealer *Sealer
+	mu     sync.Mutex // serializes edits: validate, persist, reload
+
+	// AllowClientCertPins is set when the server serves TLS; without it
+	// a client_cert_sha256 pin could never be satisfied and is refused.
+	AllowClientCertPins bool
+	// Audit, when set, records every peer added, changed or removed
+	// (Service.AppendLedger, which stamps the request ID).
+	Audit func(context.Context, api.LedgerEntry) string
+}
+
+func (m *Manager) audit(ctx context.Context, e api.LedgerEntry) {
+	if m.Audit != nil {
+		m.Audit(ctx, e)
+	}
+}
+
+// NewManager returns a Manager for reg backed by store, sealing outbound
+// keys with sealer.
+func NewManager(reg *Registry, store adapter.PeerStore, sealer *Sealer) *Manager {
+	return &Manager{reg: reg, store: store, sealer: sealer}
+}
+
+// Seed imports each config-file peer the store has never held, live or
+// deleted, so a runtime edit or removal is never overwritten. It returns
+// how many were imported. Call Reload afterwards.
+func (m *Manager) Seed(ctx context.Context, peers []config.PeerConfig) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.reg.Validate(peers); err != nil {
+		return 0, err
+	}
+	// The config list can be valid on its own and still conflict with a
+	// stored peer (a shared inbound key, say). Check the set the store
+	// would hold before writing anything: a seeded row is never removed,
+	// so it would fail every later start (#6353).
+	// Only peers SeedPeer would insert are checked: a config peer whose
+	// row exists, even as a tombstone, is never written.
+	stored, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	ids, err := m.store.AllPeerIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	known := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		known[id] = true
+	}
+	union := m.toConfig(stored)
+	for _, pc := range peers {
+		if !known[pc.NodeID] {
+			union = append(union, pc)
+		}
+	}
+	if len(union) > len(stored) {
+		if err := m.reg.Validate(union); err != nil {
+			return 0, fmt.Errorf("config peers conflict with the stored peers, so none were seeded; fix or remove the config peer: %w", err)
+		}
+	}
+	n := 0
+	for _, pc := range peers {
+		sealed, err := m.sealer.Seal(pc.APIKey, pc.NodeID)
+		if err != nil {
+			return n, err
+		}
+		ok, err := m.store.SeedPeer(ctx, adapter.PeerRecord{
+			NodeID: pc.NodeID, Name: pc.Name, URL: pc.URL,
+			InboundKeySHA256: strings.ToLower(pc.InboundKeySHA256), SealedAPIKey: sealed,
+			TLSCert: pc.TLSCert, ClientCertFile: pc.ClientCertFile, ClientKeyFile: pc.ClientKeyFile,
+			ClientCertSHA256: strings.ToLower(pc.ClientCertSHA256),
+			TimeoutMS:        pc.TimeoutMS, RateLimitQPS: pc.RateLimitQPS, InboundQPS: pc.InboundQPS, Revoked: pc.Revoked,
+		})
+		if err != nil {
+			return n, err
+		}
+		if ok {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Reload replaces the registry's peers with the store's.
+func (m *Manager) Reload(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.reloadLocked(ctx)
+}
+
+func (m *Manager) reloadLocked(ctx context.Context) error {
+	recs, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return err
+	}
+	return m.reg.Replace(m.toConfig(recs))
+}
+
+// withdrawLocked applies a removal or revocation to the live registry
+// when reloading the stored peers failed: the edit is already persisted,
+// and the peer must not stay trusted until the other peer is fixed.
+func (m *Manager) withdrawLocked(nodeID string, remove bool, reloadErr error) {
+	m.reg.Withdraw(nodeID, remove)
+	slog.Default().Warn("federation peers did not reload; applied this peer's removal or revocation alone, other peers keep their last loaded settings until the failing one is fixed",
+		"node_id", nodeID, "removed", remove, "err", reloadErr)
+}
+
+// toConfig opens each record's sealed key. A key that does not open (the
+// federation secret changed) leaves that peer without an outbound key,
+// so it is not searched, rather than failing the whole registry.
+func (m *Manager) toConfig(recs []adapter.PeerRecord) []config.PeerConfig {
+	out := make([]config.PeerConfig, 0, len(recs))
+	for _, r := range recs {
+		key, err := m.sealer.Open(r.SealedAPIKey, r.NodeID)
+		unavailable := false
+		if err != nil {
+			slog.Default().Warn("federation peer api_key unreadable; peer will not be searched until it is set again",
+				"peer", r.Name, "node_id", r.NodeID, "err", err)
+			key, unavailable = "", len(r.SealedAPIKey) > 0
+		}
+		out = append(out, config.PeerConfig{
+			NodeID: r.NodeID, Name: r.Name, URL: r.URL, APIKey: key,
+			InboundKeySHA256: r.InboundKeySHA256, TLSCert: r.TLSCert,
+			ClientCertFile: r.ClientCertFile, ClientKeyFile: r.ClientKeyFile,
+			ClientCertSHA256: r.ClientCertSHA256, TimeoutMS: r.TimeoutMS,
+			RateLimitQPS: r.RateLimitQPS, InboundQPS: r.InboundQPS, Revoked: r.Revoked,
+			KeyUnavailable: unavailable,
+		})
+	}
+	return out
+}
+
+// List returns the peers as the API shows them: no keys.
+func (m *Manager) List(ctx context.Context) ([]api.PeerView, error) {
+	recs, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.PeerView, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, m.view(r))
+	}
+	return out, nil
+}
+
+// view is the API's view of a stored peer. A stored api_key that does
+// not open with this node's secret is reported as unreadable, not as a
+// usable key (#6177).
+func (m *Manager) view(r adapter.PeerRecord) api.PeerView {
+	v := viewRecord(r)
+	if v.HasAPIKey {
+		if _, err := m.sealer.Open(r.SealedAPIKey, r.NodeID); err != nil {
+			v.HasAPIKey, v.APIKeyStatus = false, "unreadable"
+		}
+	}
+	return v
+}
+
+func viewRecord(r adapter.PeerRecord) api.PeerView {
+	trust := string(TrustAPIKey)
+	if r.TLSCert != "" || r.ClientCertFile != "" {
+		trust = string(TrustMTLS)
+	}
+	return api.PeerView{
+		NodeID: r.NodeID, Name: r.Name, URL: r.URL, TrustMode: trust,
+		HasInboundKey: r.InboundKeySHA256 != "", HasAPIKey: len(r.SealedAPIKey) > 0,
+		ClientCertSHA256: r.ClientCertSHA256, TimeoutMS: r.TimeoutMS, RateLimitQPS: r.RateLimitQPS,
+		InboundQPS: r.InboundQPS, Revoked: r.Revoked, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+// Upsert creates or replaces a peer and swaps it into the registry. An
+// omitted key keeps the stored one; TLS file paths are kept from the
+// stored peer (they are set only in config). The whole peer set is
+// validated, client TLS files included, before anything is written.
+func (m *Manager) Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView, error) {
+	if _, err := types.ParseID("node_id", req.NodeID); err != nil {
+		return api.PeerView{}, err
+	}
+	invalid := func(msg string) (api.PeerView, error) {
+		return api.PeerView{}, fmt.Errorf("%w: %s", types.ErrInvalidInput, msg)
+	}
+	switch {
+	case strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.URL) == "":
+		return invalid("name and url are required")
+	case req.InboundKey != "" && req.InboundKeySHA256 != "":
+		return invalid("set inbound_key or inbound_key_sha256, not both")
+	case req.TimeoutMS < 0 || req.RateLimitQPS < 0 || req.InboundQPS < 0:
+		return invalid("timeout_ms, rate_limit_qps and inbound_qps must not be negative")
+	case req.ClientCertSHA256 != "" && !m.AllowClientCertPins:
+		return invalid("client_cert_sha256 needs server.tls")
+	}
+
+	if err := m.reg.CheckPeerURL(ctx, strings.TrimSpace(req.URL)); err != nil {
+		return invalid(err.Error())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	recs, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return api.PeerView{}, err
+	}
+	rec := adapter.PeerRecord{NodeID: req.NodeID}
+	idx := -1
+	for i := range recs {
+		if recs[i].NodeID == req.NodeID {
+			rec, idx = recs[i], i
+		}
+	}
+	prev, prevURL := rec, rec.URL
+	rec.Name, rec.URL = strings.TrimSpace(req.Name), strings.TrimSpace(req.URL)
+	if idx >= 0 && rec.URL != prevURL && len(rec.SealedAPIKey) > 0 && req.APIKey == "" {
+		// The stored key was given for the old URL; keeping it would
+		// hand it to whatever host the new URL names.
+		return invalid("changing a peer's url needs its api_key again")
+	}
+	rec.ClientCertSHA256 = strings.ToLower(req.ClientCertSHA256)
+	rec.TimeoutMS, rec.RateLimitQPS, rec.InboundQPS, rec.Revoked = req.TimeoutMS, req.RateLimitQPS, req.InboundQPS, req.Revoked
+	switch {
+	case req.InboundKey != "":
+		sum := sha256.Sum256([]byte(req.InboundKey))
+		rec.InboundKeySHA256 = hex.EncodeToString(sum[:])
+	case req.InboundKeySHA256 != "":
+		rec.InboundKeySHA256 = strings.ToLower(req.InboundKeySHA256)
+	}
+	if req.APIKey != "" {
+		if rec.SealedAPIKey, err = m.sealer.Seal(req.APIKey, req.NodeID); err != nil {
+			return api.PeerView{}, err
+		}
+	}
+	if idx >= 0 {
+		recs[idx] = rec
+	} else {
+		recs = append(recs, rec)
+	}
+	// Revoking a peer, and changing nothing else, only restricts it, so
+	// it never waits on another stored peer that no longer builds.
+	unrevoked := rec
+	unrevoked.Revoked = prev.Revoked
+	pureRevoke := idx >= 0 && rec.Revoked && !prev.Revoked && reflect.DeepEqual(unrevoked, prev)
+	if err := m.reg.Validate(m.toConfig(recs)); err != nil && !pureRevoke {
+		return api.PeerView{}, fmt.Errorf("%w: %v", types.ErrInvalidInput, err)
+	}
+	if err := m.store.UpsertPeer(ctx, rec); err != nil {
+		return api.PeerView{}, err
+	}
+	if err := m.reloadLocked(ctx); err != nil {
+		if !pureRevoke {
+			return api.PeerView{}, err
+		}
+		m.withdrawLocked(rec.NodeID, false, err)
+	}
+	action := PeerActionUpdate
+	if idx < 0 {
+		action = PeerActionCreate
+	}
+	m.audit(ctx, PeerChangeEntry(action, rec.NodeID, rec.Name, rec.URL, prevURL, req.APIKey != "", req.InboundKey != "" || req.InboundKeySHA256 != "", rec.Revoked))
+	stored, err := m.store.ListPeers(ctx)
+	if err != nil {
+		return api.PeerView{}, err
+	}
+	for _, r := range stored {
+		if r.NodeID == req.NodeID {
+			return m.view(r), nil
+		}
+	}
+	return api.PeerView{}, errors.New("federation: upserted peer not found")
+}
+
+// Delete removes a peer: it stops being searched and its inbound calls
+// are refused from the next request on. types.ErrNotFound when absent.
+func (m *Manager) Delete(ctx context.Context, nodeID string) error {
+	if _, err := types.ParseID("node_id", nodeID); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var name, url string
+	if recs, err := m.store.ListPeers(ctx); err == nil {
+		for _, r := range recs {
+			if r.NodeID == nodeID {
+				name, url = r.Name, r.URL
+			}
+		}
+	}
+	if err := m.store.DeletePeer(ctx, nodeID); err != nil {
+		return err
+	}
+	if err := m.reloadLocked(ctx); err != nil {
+		m.withdrawLocked(nodeID, true, err)
+	}
+	m.audit(ctx, PeerChangeEntry(PeerActionDelete, nodeID, name, url, "", false, false, false))
+	return nil
+}

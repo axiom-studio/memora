@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -221,7 +222,7 @@ func (p *blockingProvider) Embed(ctx context.Context, texts []string) ([][]float
 // property: re-embed exactly the cells whose text_md5 changed.
 func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 	h := newHarness(t)
-	provider, err := embedding.Open("noop:default")
+	provider, err := embedding.Open("hash:default")
 	if err != nil {
 		t.Fatalf("open provider: %v", err)
 	}
@@ -231,13 +232,13 @@ func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 	if err := h.metadata.CreateWorkspace(h.ctx, ws); err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	mem := h.imprint(ws.ID, "moat-content", "agent_opaque_m")
+	mem := h.imprint(ws.ID, "moat-content", "a9157203-7129-4bbf-be81-db1ad9012fcb")
 
 	texts := make([]string, 25)
 	for i := range texts {
 		texts[i] = fmt.Sprintf("cell-%d-content", i)
 	}
-	old := h.seedCells(mem.ID, "agent_opaque_m", texts)
+	old := h.seedCells(mem.ID, "a9157203-7129-4bbf-be81-db1ad9012fcb", texts)
 
 	res0, err := queue.EmbedNow(h.ctx, deps, ws.ID, "", mem.ID, nil, old)
 	if err != nil {
@@ -278,17 +279,17 @@ func TestEmbedNow_PatchedCellOnly_RestSkipped(t *testing.T) {
 // jobs up to BatchSize per Provider.Embed call.
 func TestPool_Batching_RespectsBatchSize(t *testing.T) {
 	h := newHarness(t)
-	inner, _ := embedding.Open("noop:default")
+	inner, _ := embedding.Open("hash:default")
 	rec := &recordingProvider{inner: inner}
 
 	ws := &types.Workspace{Name: "batching"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
-	mem := h.imprint(ws.ID, "x", "agent_opaque_b")
+	mem := h.imprint(ws.ID, "x", "1e1eb705-8a26-40a7-bd4f-b29139923d72")
 	texts := make([]string, 25)
 	for i := range texts {
 		texts[i] = fmt.Sprintf("b-%d", i)
 	}
-	stored := h.seedCells(mem.ID, "agent_opaque_b", texts)
+	stored := h.seedCells(mem.ID, "1e1eb705-8a26-40a7-bd4f-b29139923d72", texts)
 
 	// Workers=1 so we deterministically observe call counts. BatchSize=8.
 	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: rec},
@@ -318,15 +319,15 @@ func TestPool_Batching_RespectsBatchSize(t *testing.T) {
 // of a memory has been embedded.
 func TestPool_RecallReadyFlip(t *testing.T) {
 	h := newHarness(t)
-	provider, _ := embedding.Open("noop:default")
+	provider, _ := embedding.Open("hash:default")
 
 	ws := &types.Workspace{Name: "ready"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
 
-	memA := h.imprint(ws.ID, "a", "agent_opaque_r")
-	cellsA := h.seedCells(memA.ID, "agent_opaque_r", []string{"a0", "a1", "a2"})
-	memB := h.imprint(ws.ID, "b", "agent_opaque_r")
-	cellsB := h.seedCells(memB.ID, "agent_opaque_r", []string{"b0", "b1"})
+	memA := h.imprint(ws.ID, "a", "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db")
+	cellsA := h.seedCells(memA.ID, "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db", []string{"a0", "a1", "a2"})
+	memB := h.imprint(ws.ID, "b", "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db")
+	cellsB := h.seedCells(memB.ID, "17b7c4b1-9da5-40c6-9d4e-b1b7b64da3db", []string{"b0", "b1"})
 
 	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: provider},
 		queue.PoolConfig{Workers: 2, BatchSize: 4, BatchFlushInterval: 20 * time.Millisecond})
@@ -358,15 +359,15 @@ func TestPool_RecallReadyFlip(t *testing.T) {
 // retried up to RetryAttempts and that the cell ends up embedded.
 func TestPool_RetryWithBackoff(t *testing.T) {
 	h := newHarness(t)
-	inner, _ := embedding.Open("noop:default")
+	inner, _ := embedding.Open("hash:default")
 	rec := &recordingProvider{inner: inner, failErr: errors.New("transient: upstream 503")}
 	rec.failures.Store(2) // first 2 attempts fail, third succeeds
 	rl := &recordingLedger{}
 
 	ws := &types.Workspace{Name: "retry"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
-	mem := h.imprint(ws.ID, "r", "agent_opaque_rt")
-	cells := h.seedCells(mem.ID, "agent_opaque_rt", []string{"rt0"})
+	mem := h.imprint(ws.ID, "r", "255e4542-f04d-4537-a772-df0d1826594c")
+	cells := h.seedCells(mem.ID, "255e4542-f04d-4537-a772-df0d1826594c", []string{"rt0"})
 
 	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: rec, Ledger: rl},
 		queue.PoolConfig{Workers: 1, BatchSize: 4, BatchFlushInterval: 10 * time.Millisecond,
@@ -398,14 +399,14 @@ func TestPool_RetryWithBackoff(t *testing.T) {
 // sqlite ledger Query scan bug tracked in a follow-up issue.
 func TestPool_PermanentFailure_AppendsEmbedFailed(t *testing.T) {
 	h := newHarness(t)
-	inner, _ := embedding.Open("noop:default")
+	inner, _ := embedding.Open("hash:default")
 	bad := &alwaysFailProvider{inner: inner, err: errors.New("permanent: bad API key")}
 	rl := &recordingLedger{}
 
 	ws := &types.Workspace{Name: "fail"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
-	mem := h.imprint(ws.ID, "f", "agent_opaque_f")
-	cells := h.seedCells(mem.ID, "agent_opaque_f", []string{"f0", "f1", "f2"})
+	mem := h.imprint(ws.ID, "f", "eb194e2c-b7e2-4bbc-9ceb-f17889caa39a")
+	cells := h.seedCells(mem.ID, "eb194e2c-b7e2-4bbc-9ceb-f17889caa39a", []string{"f0", "f1", "f2"})
 
 	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: bad, Ledger: rl},
 		queue.PoolConfig{Workers: 1, BatchSize: 8, BatchFlushInterval: 10 * time.Millisecond,
@@ -461,14 +462,14 @@ func TestPool_PermanentFailure_AppendsEmbedFailed(t *testing.T) {
 // before reaching Provider.Embed.
 func TestPool_InFlightDedup_SameCell(t *testing.T) {
 	h := newHarness(t)
-	inner, _ := embedding.Open("noop:default")
+	inner, _ := embedding.Open("hash:default")
 	release := make(chan struct{})
 	bp := &blockingProvider{inner: inner, release: release}
 
 	ws := &types.Workspace{Name: "dedup"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
-	mem := h.imprint(ws.ID, "d", "agent_opaque_d")
-	cells := h.seedCells(mem.ID, "agent_opaque_d", []string{"d0"})
+	mem := h.imprint(ws.ID, "d", "06e2eae9-edfa-42db-b0d6-61fe0b2593bb")
+	cells := h.seedCells(mem.ID, "06e2eae9-edfa-42db-b0d6-61fe0b2593bb", []string{"d0"})
 
 	// Workers=2 so the duplicate has a chance to be picked up by the
 	// other worker, exercising the cross-worker dedup gate.
@@ -502,18 +503,18 @@ func TestPool_InFlightDedup_SameCell(t *testing.T) {
 // text_md5 + vector_key in the primary is not re-embedded.
 func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 	h := newHarness(t)
-	inner, _ := embedding.Open("noop:default")
+	inner, _ := embedding.Open("hash:default")
 	rec := &recordingProvider{inner: inner}
 
 	ws := &types.Workspace{Name: "skip"}
 	_ = h.metadata.CreateWorkspace(h.ctx, ws)
-	mem := h.imprint(ws.ID, "s", "agent_opaque_s")
-	cells := h.seedCells(mem.ID, "agent_opaque_s", []string{"s0", "s1"})
+	mem := h.imprint(ws.ID, "s", "6f7f7923-2a05-485e-92ce-ff66c4c0c7c3")
+	cells := h.seedCells(mem.ID, "6f7f7923-2a05-485e-92ce-ff66c4c0c7c3", []string{"s0", "s1"})
 
 	// Manually mark cells as already embedded so the skip-check fires.
 	for i := range cells {
 		cells[i].VectorKey = cells[i].CellID
-		cells[i].EmbeddingModel = "noop:default"
+		cells[i].EmbeddingModel = "hash:default"
 	}
 	if err := h.metadata.UpsertCells(h.ctx, mem.ID, cells); err != nil {
 		t.Fatalf("upsert: %v", err)
@@ -538,3 +539,34 @@ func TestPool_SkipsAlreadyEmbeddedCells(t *testing.T) {
 
 // Silence "imported and not used" if api is only referenced indirectly.
 var _ = api.LedgerEntry{}
+
+// TestPool_EmbedFailedLedger_RedactsURLQuery (#6165): the ledger is
+// readable by any key holder, so a provider error carrying a URL with a
+// key in its query string is stored redacted.
+func TestPool_EmbedFailedLedger_RedactsURLQuery(t *testing.T) {
+	const sentinel = "AIzaSENTINEL0123456789"
+	h := newHarness(t)
+	inner, _ := embedding.Open("hash:default")
+	bad := &alwaysFailProvider{inner: inner, err: errors.New(`gemini: Post "https://p.example/embed?key=` + sentinel + `": EOF`)}
+	rl := &recordingLedger{}
+	ws := &types.Workspace{Name: "redact"}
+	_ = h.metadata.CreateWorkspace(h.ctx, ws)
+	agent := types.NewID()
+	mem := h.imprint(ws.ID, "r", agent)
+	cells := h.seedCells(mem.ID, agent, []string{"r0"})
+
+	pool := queue.NewPool(queue.EmbedderDeps{Metadata: h.metadata, Vector: h.vector, Provider: bad, Ledger: rl},
+		queue.PoolConfig{Workers: 1, BatchSize: 8, BatchFlushInterval: 10 * time.Millisecond,
+			RetryAttempts: 1, RetryBaseDelay: time.Millisecond})
+	pool.Submit(queue.Job{WorkspaceID: ws.ID, MemoryID: mem.ID, Cell: cells[0]})
+	pool.Close()
+
+	entries, _, err := rl.Query(h.ctx, adapter.LedgerQuery{WorkspaceID: ws.ID, Op: []string{queue.OpEmbedFailed}})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("embed_failed entries = %d, %v", len(entries), err)
+	}
+	msg, _ := entries[0].Metadata["error"].(string)
+	if strings.Contains(msg, sentinel) || !strings.Contains(msg, "?[redacted]") {
+		t.Fatalf("ledger error = %q; want the URL query redacted", msg)
+	}
+}

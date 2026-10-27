@@ -12,16 +12,27 @@ graph_driver = "sqlite_graph"
 content_driver = "file"
 
 [embedding]
-model = "noop:default"
+model = "hash:default"  # offline lexical vectors; set a semantic model for real deployments
+
+[node]
+id = "1d0e5a01-6c1b-4a7e-9f20-000000000001"
+name = "node1"
 
 [federation]
 enabled = true
-federation_id = "fed_demo_cluster"
+federation_id = "4d2c1b0a-0000-4000-8000-000000000001"
+# Local demo only: the nodes call each other over the compose network in
+# cleartext, at private addresses. For a real deployment use https://
+# peer URLs (optionally with mTLS) and remove these two lines.
+insecure_peer_hosts = ["memora-node2", "memora-node3"]
+private_peer_hosts = ["memora-node2", "memora-node3"]
 
 [[federation.peers]]
+node_id = "1d0e5a01-6c1b-4a7e-9f20-000000000002"
 name = "node2"
 url = "http://memora-node2:7777"
 
 [[federation.peers]]
+node_id = "1d0e5a01-6c1b-4a7e-9f20-000000000003"
 name = "node3"
 url = "http://memora-node3:7777"

@@ -247,9 +247,6 @@ func (h *Handler) renderRecallResults(w http.ResponseWriter, wsID string, resp *
 	if resp.GraphNodesExpanded > 0 {
 		metaParts = append(metaParts, fmt.Sprintf("%d graph nodes expanded", resp.GraphNodesExpanded))
 	}
-	if resp.FederationID != "" {
-		metaParts = append(metaParts, "federation: "+resp.FederationID)
-	}
 	if resp.PartialSuccess {
 		metaParts = append(metaParts, "partial success")
 	}
@@ -274,8 +271,8 @@ func (h *Handler) renderRecallResults(w http.ResponseWriter, wsID string, resp *
 	fmt.Fprint(w, `<th>Text (preview)</th></tr></thead><tbody>`)
 	for _, hit := range resp.Results {
 		via := hit.Via
-		if hit.PeerID != "" {
-			via = "fed:" + hit.PeerID
+		if strings.HasPrefix(via, "federation:") && hit.NodeName != "" {
+			via = "fed:" + hit.NodeName
 		}
 		fmt.Fprintf(w, `<tr><td class="mono"><a href="/ui/workspaces/%s/memories/%s">%s</a></td><td class="text-right">%.3f</td><td>%s</td>`,
 			template.HTMLEscapeString(wsID),

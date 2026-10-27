@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS memora_ledger (
     redacted         BOOLEAN NOT NULL DEFAULT FALSE,
     redacted_fields  JSONB
 );
-CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts    ON memora_ledger(workspace_id, ts);
+DROP INDEX IF EXISTS idx_ledger_ws_ts;
+CREATE INDEX IF NOT EXISTS idx_ledger_ws_ts_id ON memora_ledger(workspace_id, ts, ledger_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_agent ON memora_ledger(workspace_id, agent_id, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_ws_op    ON memora_ledger(workspace_id, op, ts);
 CREATE INDEX IF NOT EXISTS idx_ledger_target   ON memora_ledger(workspace_id, target, ts)`); err != nil {
@@ -119,7 +120,7 @@ func (s *Store) AppendBatch(ctx context.Context, entries []api.LedgerEntry) erro
 
 func (s *Store) appendEntry(ctx context.Context, ex any, e *api.LedgerEntry) error {
 	if e.LedgerID == "" {
-		e.LedgerID = types.NewID(types.LedgerIDPrefix)
+		e.LedgerID = types.NewID()
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
@@ -192,7 +193,10 @@ func (s *Store) Query(ctx context.Context, q adapter.LedgerQuery) ([]api.LedgerE
 		argN++
 	}
 	if q.SinceLedgerID != "" {
-		addFilter("ledger_id < $%d", q.SinceLedgerID)
+		// Keyset cursor matching ORDER BY ts DESC, ledger_id DESC: rows
+		// strictly after the cursor entry. Ledger IDs are random UUIDs, so
+		// the cursor's own ts must be part of the comparison.
+		addFilter("(ts, ledger_id) < ((SELECT ts FROM memora_ledger WHERE ledger_id = $%[1]d), $%[1]d)", q.SinceLedgerID)
 	}
 
 	sqlStr := `SELECT ledger_id, workspace_id, op, target, agent_id, api_key_id, user_id,

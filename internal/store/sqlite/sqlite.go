@@ -57,9 +57,19 @@ func (s *Store) Open(ctx context.Context, cfg adapter.MetadataConfig) error {
 	db.SetMaxOpenConns(1) // SQLite serializes writers; one conn keeps WAL behavior predictable.
 	s.db = db
 	s.dsn = cfg.DSN
+	// Before any migration or seeding: a database from before UUIDv4 IDs
+	// is refused untouched, so the old release can still open it.
+	if err := s.refuseLegacyIDs(ctx); err != nil {
+		_ = db.Close()
+		return err
+	}
 	if err := s.runMigrations(ctx); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("sqlite: migrate: %w", err)
+	}
+	if err := s.normalizeCreatedAt(ctx); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("sqlite: normalize created_at: %w", err)
 	}
 	if err := s.ensureLegacyAgent(ctx); err != nil {
 		_ = db.Close()
@@ -202,13 +212,37 @@ func (s *Store) ensureLegacyAgent(ctx context.Context) error {
 	for _, wsID := range wsIDs {
 		for _, agentID := range types.ReservedAgentIDs {
 			_, err := s.db.ExecContext(ctx, `
-INSERT INTO memora_agents (agent_id, workspace_id, identity_provider, registered_at, active)
-VALUES (?, ?, 'opaque', datetime('now'), 1)
-ON CONFLICT(agent_id) DO NOTHING`, agentID, wsID)
+INSERT INTO memora_agents (agent_id, workspace_id, display_name, identity_provider, registered_at, active)
+VALUES (?, ?, ?, 'opaque', datetime('now'), 1)
+ON CONFLICT(workspace_id, agent_id) DO NOTHING`, agentID, wsID, types.ReservedAgentDisplayNames[agentID])
 			if err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// refuseLegacyIDs reads, without writing, whether an existing database
+// holds a workspace whose id is not a UUID (adapter.ErrLegacyIDs).
+func (s *Store) refuseLegacyIDs(ctx context.Context) error {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'memora_workspaces'`).Scan(&n); err != nil || n == 0 {
+		return err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM memora_workspaces`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if _, err := types.ParseID("workspace_id", id); err != nil {
+			return adapter.LegacyIDsError(id)
+		}
+	}
+	return rows.Err()
 }

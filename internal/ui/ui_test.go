@@ -2,14 +2,20 @@ package ui
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/config"
+	"github.com/axiom-studio/memora/internal/federation"
+	storesqlite "github.com/axiom-studio/memora/internal/store/sqlite"
+	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -458,7 +464,7 @@ func (m *mockDataSource) RecallFull(_ context.Context, _ string, _ api.RecallReq
 	return nil, fmt.Errorf("recall not configured")
 }
 func (m *mockDataSource) CreateWorkspace(_ context.Context, input CreateWorkspaceInput) (string, error) {
-	return "ws_test_new", m.err
+	return "35e81a82-f317-42ba-9a87-83c5eec2d61d", m.err
 }
 func (m *mockDataSource) UpdateWorkspace(_ context.Context, _ string, _ UpdateWorkspaceInput) error {
 	return m.err
@@ -467,7 +473,7 @@ func (m *mockDataSource) DeleteWorkspace(_ context.Context, _ string) error {
 	return m.err
 }
 func (m *mockDataSource) CreateCollection(_ context.Context, input CreateCollectionInput) (string, error) {
-	return "coll_test_new", m.err
+	return "2fdd89f4-8797-4e45-abc8-a799dc24bda6", m.err
 }
 func (m *mockDataSource) DeleteCollection(_ context.Context, _ string) error {
 	return m.err
@@ -477,7 +483,7 @@ func (m *mockDataSource) ImprintMemory(_ context.Context, _ string, _ api.Imprin
 		return nil, m.err
 	}
 	return &api.ImprintResponse{
-		ID:           "mem_test_123",
+		ID:           "a84a5cec-4093-4c63-b0e4-7d3c6057e081",
 		Watermark:    "wm_abc",
 		CellsCreated: 3,
 		RecallReady:  true,
@@ -490,7 +496,7 @@ func (m *mockDataSource) AppendMemory(_ context.Context, _, _ string, _ api.Appe
 		return nil, m.err
 	}
 	return &api.AppendResponse{
-		ID:         "mem_test_123",
+		ID:         "a84a5cec-4093-4c63-b0e4-7d3c6057e081",
 		Watermark:  "wm_appended",
 		CellsAdded: 2,
 		LedgerID:   "led_app",
@@ -501,7 +507,7 @@ func (m *mockDataSource) ForgetMemory(_ context.Context, _, _ string) (*api.Forg
 		return nil, m.err
 	}
 	return &api.ForgetResponse{
-		ID:            "mem_test_123",
+		ID:            "a84a5cec-4093-4c63-b0e4-7d3c6057e081",
 		Watermark:     "wm_forgotten",
 		CascadedEdges: 3,
 		LedgerID:      "led_forget",
@@ -512,7 +518,7 @@ func (m *mockDataSource) PatchMemory(_ context.Context, _, _ string, _ api.Patch
 		return nil, m.err
 	}
 	return &api.PatchResponse{
-		ID:             "mem_test_123",
+		ID:             "a84a5cec-4093-4c63-b0e4-7d3c6057e081",
 		Watermark:      "wm_patched",
 		PatchesApplied: 2,
 		CellsReembed:   1,
@@ -525,7 +531,7 @@ func (m *mockDataSource) UpdateMemory(_ context.Context, _, _ string, _ api.Upda
 		return nil, m.err
 	}
 	return &api.UpdateResponse{
-		ID:           "mem_test_123",
+		ID:           "a84a5cec-4093-4c63-b0e4-7d3c6057e081",
 		Watermark:    "wm_def",
 		CellsReembed: 2,
 		CellsSkipped: 1,
@@ -557,7 +563,7 @@ func (m *mockDataSource) LinkEdge(_ context.Context, _, _, _, _ string) (string,
 	if m.err != nil {
 		return "", m.err
 	}
-	return "edge_test_new", nil
+	return "6b9ee74a-f21a-45c6-893e-02b24f8b1d55", nil
 }
 func (m *mockDataSource) UnlinkEdge(_ context.Context, _, _ string) error {
 	return m.err
@@ -565,11 +571,8 @@ func (m *mockDataSource) UnlinkEdge(_ context.Context, _, _ string) error {
 func (m *mockDataSource) GetWatermarkHistory(_ context.Context, _, _ string, _ time.Time) ([]types.WatermarkHistoryEntry, error) {
 	return m.watermarks, m.err
 }
-func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error     { return m.err }
-func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error        { return m.err }
-func (m *mockDataSource) AddPeer(_ context.Context, _ PeerInfo) error              { return m.err }
-func (m *mockDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error { return m.err }
-func (m *mockDataSource) RemovePeer(_ context.Context, _ string) error             { return m.err }
+func (m *mockDataSource) UpsertTag(_ context.Context, _, _, _, _ string) error { return m.err }
+func (m *mockDataSource) DeleteTag(_ context.Context, _, _, _ string) error    { return m.err }
 func (m *mockDataSource) AuditQuery(_ context.Context, _, _ string, _ []string, _, _ *time.Time, _ string, _ int) ([]api.LedgerEntry, string, error) {
 	return m.auditEntries, m.auditCursor, m.err
 }
@@ -577,7 +580,7 @@ func (m *mockDataSource) ListPins(_ context.Context, _ string) ([]PinSummary, er
 	return m.pins, m.err
 }
 func (m *mockDataSource) CreatePin(_ context.Context, _, _, _ string, _ int, _, _ string) (string, error) {
-	return "pin_test", m.err
+	return "ac594a2e-78d9-4b5c-ae8c-3c3f81f73745", m.err
 }
 func (m *mockDataSource) DeletePin(_ context.Context, _, _ string) error { return m.err }
 func (m *mockDataSource) HealthStatus(_ context.Context) (*HealthInfo, error) {
@@ -602,10 +605,8 @@ func TestDashboardCards_WithData(t *testing.T) {
 			EmbedQueueDepth: 7,
 		},
 	})
-	h.SetFederation(&FederationInfo{
-		FederationID: "test-fed",
-		Peers:        []PeerInfo{{ID: "p1", Name: "node2"}, {ID: "p2", Name: "node3"}},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "test-fed"})
+	h.SetPeers(realPeers(t, "node2", "node3"))
 
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -650,8 +651,8 @@ func TestRecentActivity_WithEntries(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		entries: []api.LedgerEntry{
-			{Op: "imprint", Target: "mem_abc", AgentID: "agent_1", Timestamp: time.Now()},
-			{Op: "recall", Target: "mem_xyz", AgentID: "agent_2", Timestamp: time.Now()},
+			{Op: "imprint", Target: "735d3a41-398f-4d41-bef8-9773d48fa02f", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", Timestamp: time.Now()},
+			{Op: "recall", Target: "d2e68fff-497d-4c81-93e8-e6a9388c2442", AgentID: "cfbc51d8-74fc-4d7c-bc7d-5cbaa40cf2ba", Timestamp: time.Now()},
 		},
 	})
 
@@ -696,8 +697,8 @@ func TestWorkspaceList(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		workspaces: []WorkspaceSummary{
-			{ID: "ws_abc", Name: "Production", EmbeddingModel: "text-embedding-3-small", AgentCount: 3, MemoryCount: 42, CreatedAt: time.Now()},
-			{ID: "ws_def", Name: "Staging", EmbeddingModel: "text-embedding-3-small", AgentCount: 1, MemoryCount: 5, CreatedAt: time.Now()},
+			{ID: "65727904-2abe-4a88-a7a5-853476162254", Name: "Production", EmbeddingModel: "text-embedding-3-small", AgentCount: 3, MemoryCount: 42, CreatedAt: time.Now()},
+			{ID: "e3a6148c-6521-4200-973c-9c72b2f4e255", Name: "Staging", EmbeddingModel: "text-embedding-3-small", AgentCount: 1, MemoryCount: 5, CreatedAt: time.Now()},
 		},
 	})
 	mux := http.NewServeMux()
@@ -708,10 +709,10 @@ func TestWorkspaceList(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	if !strings.Contains(body, "ws_abc") || !strings.Contains(body, "Production") {
+	if !strings.Contains(body, "65727904-2abe-4a88-a7a5-853476162254") || !strings.Contains(body, "Production") {
 		t.Errorf("workspace list missing first workspace: %s", body)
 	}
-	if !strings.Contains(body, "ws_def") || !strings.Contains(body, "Staging") {
+	if !strings.Contains(body, "e3a6148c-6521-4200-973c-9c72b2f4e255") || !strings.Contains(body, "Staging") {
 		t.Errorf("workspace list missing second workspace: %s", body)
 	}
 	if !strings.Contains(body, "<table>") {
@@ -744,7 +745,7 @@ func TestWorkspaceDetail_Overview(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
 			WorkspaceSummary: WorkspaceSummary{
-				ID: "ws_abc", Name: "Production", EmbeddingModel: "text-embedding-3-small",
+				ID: "65727904-2abe-4a88-a7a5-853476162254", Name: "Production", EmbeddingModel: "text-embedding-3-small",
 				AgentCount: 3, MemoryCount: 42, CreatedAt: time.Now(),
 			},
 			Region: "us-east-1", ChunkerID: "paragraph", AutoLinkEnabled: true,
@@ -753,12 +754,12 @@ func TestWorkspaceDetail_Overview(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=overview", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=overview", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	for _, want := range []string{"ws_abc", "Production", "us-east-1", "paragraph", "Enabled"} {
+	for _, want := range []string{"65727904-2abe-4a88-a7a5-853476162254", "Production", "us-east-1", "paragraph", "Enabled"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("workspace detail missing %q", want)
 		}
@@ -772,18 +773,18 @@ func TestWorkspaceDetail_Agents(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		agents: []AgentSummary{
-			{AgentID: "agent_1", DisplayName: "Bot A", IdentityProvider: "opaque", AgentType: "chat"},
+			{AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", DisplayName: "Bot A", IdentityProvider: "opaque", AgentType: "chat"},
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=agents", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=agents", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	if !strings.Contains(body, "agent_1") || !strings.Contains(body, "Bot A") {
+	if !strings.Contains(body, "004681e8-d399-4612-8c7b-f6b11a0428b5") || !strings.Contains(body, "Bot A") {
 		t.Errorf("agent tab missing agent data: %s", body)
 	}
 }
@@ -795,18 +796,18 @@ func TestWorkspaceDetail_Collections(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		collections: []CollectionSummary{
-			{ID: "coll_1", Name: "Knowledge Base", CreatedAt: time.Now()},
+			{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "Knowledge Base", CreatedAt: time.Now()},
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=ws_abc&tab=collections", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=collections", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 
-	if !strings.Contains(body, "coll_1") || !strings.Contains(body, "Knowledge Base") {
+	if !strings.Contains(body, "ff6069b2-4f27-4d65-a135-f29b5e8fec4e") || !strings.Contains(body, "Knowledge Base") {
 		t.Errorf("collections tab missing data: %s", body)
 	}
 }
@@ -818,18 +819,18 @@ func TestMemoryList(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		memories: []MemorySummary{
-			{ID: "mem_abc", AgentID: "agent_1", RecallReady: true, Content: "Hello world", UpdatedAt: time.Now()},
+			{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", RecallReady: true, Content: "Hello world", UpdatedAt: time.Now()},
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-list?ws=ws_test", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-list?ws=759dbbe1-9fcc-4069-90ec-f799ac861b95", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_abc") {
-		t.Error("memory list missing mem_abc")
+	if !strings.Contains(body, "735d3a41-398f-4d41-bef8-9773d48fa02f") {
+		t.Error("memory list missing 735d3a41-398f-4d41-bef8-9773d48fa02f")
 	}
 	if !strings.Contains(body, "Hello world") {
 		t.Error("memory list missing content preview")
@@ -843,19 +844,19 @@ func TestMemoryDetail_Content(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		memory: &MemorySummary{
-			ID: "mem_abc", Content: "Full content here", ContentMD5: "abc123",
-			Watermark: "wmk_1", AgentID: "agent_1", RecallReady: true,
+			ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "Full content here", ContentMD5: "abc123",
+			Watermark: "wmk_1", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5", RecallReady: true,
 			CreatedAt: time.Now(), UpdatedAt: time.Now(),
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=content", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&tab=content", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{"mem_abc", "Full content here", "abc123", "wmk_1"} {
+	for _, want := range []string{"735d3a41-398f-4d41-bef8-9773d48fa02f", "Full content here", "abc123", "wmk_1"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("memory detail missing %q", want)
 		}
@@ -876,7 +877,7 @@ func TestMemoryDetail_Cells(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=cells", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&tab=cells", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -892,17 +893,17 @@ func TestMemoryDetail_Edges(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		edges: []EdgeSummary{
-			{EdgeID: "edge_1", SourceMemoryID: "mem_abc", TargetMemoryID: "mem_def", EdgeType: "related", AgentID: "agent_1"},
+			{EdgeID: "a2145e16-f3a2-48c7-b141-a0f8117f2844", SourceMemoryID: "735d3a41-398f-4d41-bef8-9773d48fa02f", TargetMemoryID: "9693d7dc-fff0-4ffd-9201-bc2da80786df", EdgeType: "related", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=edges", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&tab=edges", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "edge_1") || !strings.Contains(body, "related") {
+	if !strings.Contains(body, "a2145e16-f3a2-48c7-b141-a0f8117f2844") || !strings.Contains(body, "related") {
 		t.Error("edges tab missing edge data")
 	}
 }
@@ -915,18 +916,18 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		watermarks: []types.WatermarkHistoryEntry{
 			{
-				TargetID:        "mem_abc",
+				TargetID:        "735d3a41-398f-4d41-bef8-9773d48fa02f",
 				Watermark:       "wmk_01EXAMPLE",
 				Op:              "imprint",
-				AgentID:         "agent_test",
+				AgentID:         "434becf0-b125-41d5-8379-5a945dc8fb5e",
 				CreatedAt:       time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC),
 				ContentMD5After: "abc123",
 			},
 			{
-				TargetID:         "mem_abc",
+				TargetID:         "735d3a41-398f-4d41-bef8-9773d48fa02f",
 				Watermark:        "wmk_02EXAMPLE",
 				Op:               "update",
-				AgentID:          "agent_test",
+				AgentID:          "434becf0-b125-41d5-8379-5a945dc8fb5e",
 				CreatedAt:        time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC),
 				ContentMD5Before: "abc123",
 				ContentMD5After:  "def456",
@@ -936,7 +937,7 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=watermarks", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&tab=watermarks", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -952,7 +953,7 @@ func TestMemoryDetail_Watermarks(t *testing.T) {
 	if !strings.Contains(body, "update") {
 		t.Error("missing update op")
 	}
-	if !strings.Contains(body, "agent_test") {
+	if !strings.Contains(body, "434becf0-b125-41d5-8") { // the table shows 20 chars
 		t.Error("missing agent ID")
 	}
 	if !strings.Contains(body, "def456") {
@@ -969,7 +970,7 @@ func TestMemoryDetail_WatermarksEmpty(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=mem_abc&ws=ws_test&tab=watermarks", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&tab=watermarks", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -986,7 +987,7 @@ func TestRecallResults(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		recallResp: &api.RecallResponse{
 			Results: []api.RecallHit{
-				{MemoryID: "mem_abc", Score: 0.95, Text: "match text", Via: "seed"},
+				{MemoryID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Score: 0.95, Text: "match text", Via: "seed"},
 			},
 			TotalCandidatesScanned: 100,
 			LatencyMS:              15,
@@ -995,11 +996,11 @@ func TestRecallResults(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/recall-results?ws=ws_test&q=test+query&mode=hybrid", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/recall-results?ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&q=test+query&mode=hybrid", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_abc") || !strings.Contains(body, "0.95") {
+	if !strings.Contains(body, "735d3a41-398f-4d41-bef8-9773d48fa02f") || !strings.Contains(body, "0.95") {
 		t.Errorf("recall results missing data: %s", body)
 	}
 	if !strings.Contains(body, "100 candidates") {
@@ -1015,7 +1016,7 @@ func TestMemoriesPage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc/memories", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254/memories", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
@@ -1035,14 +1036,14 @@ func TestMemoryDetailPage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc/memories/mem_123", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254/memories/c1c4b15b-b641-42b1-a4b2-e5302797669d", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_123") {
+	if !strings.Contains(body, "c1c4b15b-b641-42b1-a4b2-e5302797669d") {
 		t.Error("memory detail page missing memory ID")
 	}
 	if !strings.Contains(body, "Content") && !strings.Contains(body, "Cells") {
@@ -1061,14 +1062,14 @@ func TestWorkspaceDetailPage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws_abc", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "ws_abc") {
+	if !strings.Contains(body, "65727904-2abe-4a88-a7a5-853476162254") {
 		t.Error("workspace detail page should contain workspace ID")
 	}
 	if !strings.Contains(body, "Overview") {
@@ -1098,8 +1099,8 @@ func TestAuditList(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
 		auditEntries: []api.LedgerEntry{
-			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
-			{LedgerID: "led-2", Op: "forget", Target: "mem-xyz", AgentID: "agent-2", WorkspaceID: "ws-1", LatencyMS: 7, Timestamp: time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC)},
+			{LedgerID: "led-1", Op: "imprint", Target: "fc340556-e833-41be-bb3d-428d3ebe2c8c", AgentID: "26096ca9-acde-4c31-bd4c-479ef452b5aa", WorkspaceID: "76944604-4ae9-4490-be45-edd729af5598", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+			{LedgerID: "led-2", Op: "forget", Target: "5262903f-c84c-4778-86cf-40dcc88c316d", AgentID: "19577b55-5eee-4e2c-b3c0-54407686125a", WorkspaceID: "76944604-4ae9-4490-be45-edd729af5598", LatencyMS: 7, Timestamp: time.Date(2026, 1, 15, 11, 0, 0, 0, time.UTC)},
 		},
 	})
 	mux := http.NewServeMux()
@@ -1160,7 +1161,7 @@ func TestAuditExport_CSV(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
 		auditEntries: []api.LedgerEntry{
-			{LedgerID: "led-1", Op: "imprint", Target: "mem-abc", AgentID: "agent-1", WorkspaceID: "ws-1", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
+			{LedgerID: "led-1", Op: "imprint", Target: "fc340556-e833-41be-bb3d-428d3ebe2c8c", AgentID: "26096ca9-acde-4c31-bd4c-479ef452b5aa", WorkspaceID: "76944604-4ae9-4490-be45-edd729af5598", LatencyMS: 42, Timestamp: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)},
 		},
 	})
 	mux := http.NewServeMux()
@@ -1288,13 +1289,9 @@ func TestSettingsDetail_Nil(t *testing.T) {
 func TestFederationStatus(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed-test-123",
-		Peers: []PeerInfo{
-			{ID: "peer-0", Name: "us-east", Endpoint: "https://east.example.com", TrustMode: "mtls"},
-			{ID: "peer-1", Name: "eu-west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws-1", "ws-2"}},
-		},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "fed-test-123"})
+	pm := realPeers(t, "us-east", "eu-west")
+	h.SetPeers(pm)
 	mux := http.NewServeMux()
 	h.Register(mux)
 
@@ -1305,10 +1302,14 @@ func TestFederationStatus(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	for _, want := range []string{"fed-test-123", "us-east", "eu-west", "mtls", "api_key", "east.example.com"} {
+	peers, _ := pm.List(context.Background())
+	for _, want := range []string{"fed-test-123", "us-east", "eu-west", "api_key", "us-east.example.com", peers[0].NodeID, "inbound, outbound"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in federation status", want)
 		}
+	}
+	if strings.Contains(body, "key-us-east") || strings.Contains(body, "key-eu-west") {
+		t.Error("federation status shows a peer key")
 	}
 }
 
@@ -1331,7 +1332,7 @@ func TestGraphPage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/ws-1/graph", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/workspaces/76944604-4ae9-4490-be45-edd729af5598/graph", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
@@ -1347,8 +1348,8 @@ func TestSearch(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
 		workspaces: []WorkspaceSummary{
-			{ID: "ws-alpha", Name: "Alpha Workspace"},
-			{ID: "ws-beta", Name: "Beta Workspace"},
+			{ID: "18b6e740-0f73-49d6-97af-2829c444660a", Name: "Alpha Workspace"},
+			{ID: "bc5a2241-7082-4bff-af71-c758adec3338", Name: "Beta Workspace"},
 		},
 	})
 	mux := http.NewServeMux()
@@ -1361,10 +1362,10 @@ func TestSearch(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	if !strings.Contains(body, "ws-alpha") {
+	if !strings.Contains(body, "18b6e740-0f73-49d6-97af-2829c444660a") {
 		t.Error("missing workspace result")
 	}
-	if strings.Contains(body, "ws-beta") {
+	if strings.Contains(body, "bc5a2241-7082-4bff-af71-c758adec3338") {
 		t.Error("should not contain non-matching workspace")
 	}
 }
@@ -1386,7 +1387,7 @@ func TestSearch_Empty(t *testing.T) {
 func TestSearch_NoResults(t *testing.T) {
 	h, _ := NewHandler()
 	h.SetDataSource(&mockDataSource{
-		workspaces: []WorkspaceSummary{{ID: "ws-1", Name: "Test"}},
+		workspaces: []WorkspaceSummary{{ID: "76944604-4ae9-4490-be45-edd729af5598", Name: "Test"}},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
@@ -1481,7 +1482,7 @@ func TestWorkspaceCreate(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/ws_test_new") {
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/35e81a82-f317-42ba-9a87-83c5eec2d61d") {
 		t.Errorf("expected redirect to new workspace, got %q", loc)
 	}
 }
@@ -1503,7 +1504,7 @@ func TestWorkspaceCreate_MissingName(t *testing.T) {
 func TestWorkspaceUpdate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	form := strings.NewReader("id=ws_123&name=updated-ws")
+	form := strings.NewReader("id=2b8b4d04-38d3-4ef8-b32f-63209083cb31&name=updated-ws")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/workspaces/update", form)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1511,7 +1512,7 @@ func TestWorkspaceUpdate(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/ws_123") {
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "/ui/workspaces/2b8b4d04-38d3-4ef8-b32f-63209083cb31") {
 		t.Errorf("expected redirect to workspace, got %q", loc)
 	}
 }
@@ -1519,7 +1520,7 @@ func TestWorkspaceUpdate(t *testing.T) {
 func TestWorkspaceDelete(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	form := strings.NewReader("id=ws_123&confirm=ws_123")
+	form := strings.NewReader("id=2b8b4d04-38d3-4ef8-b32f-63209083cb31&confirm=2b8b4d04-38d3-4ef8-b32f-63209083cb31")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/workspaces/delete", form)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1535,7 +1536,7 @@ func TestWorkspaceDelete(t *testing.T) {
 func TestWorkspaceDelete_WrongConfirm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	form := strings.NewReader("id=ws_123&confirm=wrong")
+	form := strings.NewReader("id=2b8b4d04-38d3-4ef8-b32f-63209083cb31&confirm=wrong")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/workspaces/delete", form)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1550,13 +1551,13 @@ func TestWorkspaceEditForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", EmbeddingModel: "noop:default"},
+			WorkspaceSummary: WorkspaceSummary{ID: "2b8b4d04-38d3-4ef8-b32f-63209083cb31", Name: "test-ws", EmbeddingModel: "hash:default"},
 			Region:           "us-east-1",
 			ChunkerID:        "default",
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/workspace-edit-form?id=ws_123", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-edit-form?id=2b8b4d04-38d3-4ef8-b32f-63209083cb31", nil)
 	h.partialWorkspaceEditForm(w, r)
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -1574,11 +1575,11 @@ func TestWorkspaceDeleteForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary: WorkspaceSummary{ID: "ws_123", Name: "test-ws", MemoryCount: 5, AgentCount: 2},
+			WorkspaceSummary: WorkspaceSummary{ID: "2b8b4d04-38d3-4ef8-b32f-63209083cb31", Name: "test-ws", MemoryCount: 5, AgentCount: 2},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/workspace-delete-form?id=ws_123", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-delete-form?id=2b8b4d04-38d3-4ef8-b32f-63209083cb31", nil)
 	h.partialWorkspaceDeleteForm(w, r)
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -1595,7 +1596,7 @@ func TestWorkspaceDeleteForm(t *testing.T) {
 func TestWorkspaceListHasCreateButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		workspaces: []WorkspaceSummary{{ID: "ws_1", Name: "test"}},
+		workspaces: []WorkspaceSummary{{ID: "ee92e879-1c13-4a7c-b122-14b795cd0d74", Name: "test"}},
 	})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/ui/partials/workspace-list", nil)
@@ -1609,13 +1610,13 @@ func TestWorkspaceListHasCreateButton(t *testing.T) {
 func TestCollectionCreateForm(t *testing.T) {
 	h := mustHandler(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/collection-create-form?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/collection-create-form?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialCollectionCreateForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Create Collection") {
 		t.Error("missing Create Collection heading")
 	}
-	if !strings.Contains(body, `value="ws_abc"`) {
+	if !strings.Contains(body, `value="65727904-2abe-4a88-a7a5-853476162254"`) {
 		t.Error("missing workspace_id hidden field")
 	}
 }
@@ -1624,13 +1625,13 @@ func TestCollectionCreate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=ws_abc&name=my-coll"))
+	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&name=my-coll"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleCollectionCreate(w, r)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "ws_abc") {
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "65727904-2abe-4a88-a7a5-853476162254") {
 		t.Errorf("expected redirect to workspace, got %q", loc)
 	}
 }
@@ -1639,7 +1640,7 @@ func TestCollectionCreate_MissingName(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=ws_abc&name="))
+	r := httptest.NewRequest("POST", "/ui/api/collections/create", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&name="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleCollectionCreate(w, r)
 	body := w.Body.String()
@@ -1652,13 +1653,13 @@ func TestCollectionDelete(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=coll_xyz&workspace_id=ws_abc&confirm=coll_xyz"))
+	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=3ee9b357-50d1-4601-8bd6-eddecc43d94f&workspace_id=65727904-2abe-4a88-a7a5-853476162254&confirm=3ee9b357-50d1-4601-8bd6-eddecc43d94f"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleCollectionDelete(w, r)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "ws_abc") {
+	if loc := w.Header().Get("HX-Redirect"); !strings.Contains(loc, "65727904-2abe-4a88-a7a5-853476162254") {
 		t.Errorf("expected redirect to workspace, got %q", loc)
 	}
 }
@@ -1667,7 +1668,7 @@ func TestCollectionDelete_WrongConfirm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=coll_xyz&workspace_id=ws_abc&confirm=wrong"))
+	r := httptest.NewRequest("POST", "/ui/api/collections/delete", strings.NewReader("id=3ee9b357-50d1-4601-8bd6-eddecc43d94f&workspace_id=65727904-2abe-4a88-a7a5-853476162254&confirm=wrong"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleCollectionDelete(w, r)
 	body := w.Body.String()
@@ -1680,11 +1681,11 @@ func TestCollectionDeleteForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		collections: []CollectionSummary{
-			{ID: "coll_xyz", Name: "test-coll", MemoryCount: 5},
+			{ID: "3ee9b357-50d1-4601-8bd6-eddecc43d94f", Name: "test-coll", MemoryCount: 5},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/collection-delete-form?id=coll_xyz&ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/collection-delete-form?id=3ee9b357-50d1-4601-8bd6-eddecc43d94f&ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialCollectionDeleteForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Delete Collection") {
@@ -1698,10 +1699,10 @@ func TestCollectionDeleteForm(t *testing.T) {
 func TestCollectionsTabHasCreateButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		collections: []CollectionSummary{{ID: "coll_1", Name: "test"}},
+		collections: []CollectionSummary{{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "test"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=collections", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=collections", nil)
 	h.partialWorkspaceDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Create Collection") {
@@ -1712,16 +1713,16 @@ func TestCollectionsTabHasCreateButton(t *testing.T) {
 func TestMemoryImprintForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+		collections: []CollectionSummary{{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "docs"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-imprint-form?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-imprint-form?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialMemoryImprintForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Imprint Memory") {
 		t.Error("missing Imprint Memory heading")
 	}
-	if !strings.Contains(body, `value="ws_abc"`) {
+	if !strings.Contains(body, `value="65727904-2abe-4a88-a7a5-853476162254"`) {
 		t.Error("missing workspace_id hidden field")
 	}
 	if !strings.Contains(body, "docs") {
@@ -1733,11 +1734,11 @@ func TestMemoryImprint(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content=hello+world&chunker_id=markdown"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&content=hello+world&chunker_id=markdown"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryImprint(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_test_123") {
+	if !strings.Contains(body, "a84a5cec-4093-4c63-b0e4-7d3c6057e081") {
 		t.Error("missing memory ID in response")
 	}
 	if !strings.Contains(body, "Memory Created") {
@@ -1752,7 +1753,7 @@ func TestMemoryImprint_MissingContent(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content="))
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&content="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryImprint(w, r)
 	body := w.Body.String()
@@ -1765,14 +1766,14 @@ func TestMemoryImprint_WithTags(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=ws_abc&content=test&tag_key=env&tag_value=prod&tag_key=team&tag_value=backend"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/imprint", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&content=test&tag_key=env&tag_value=prod&tag_key=team&tag_value=backend"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryImprint(w, r)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_test_123") {
+	if !strings.Contains(body, "a84a5cec-4093-4c63-b0e4-7d3c6057e081") {
 		t.Error("missing memory ID in response")
 	}
 }
@@ -1781,7 +1782,7 @@ func TestMemoryListHasNewMemoryButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialMemoryList(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "New Memory") {
@@ -1792,10 +1793,10 @@ func TestMemoryListHasNewMemoryButton(t *testing.T) {
 func TestMemoryEditForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "hello world", Watermark: "wm_123", Tags: map[string]string{"env": "prod"}},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "hello world", Watermark: "wm_123", Tags: map[string]string{"env": "prod"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-edit-form?ws=ws_abc&id=mem_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-edit-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=735d3a41-398f-4d41-bef8-9773d48fa02f", nil)
 	h.partialMemoryEditForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Edit Memory") {
@@ -1816,7 +1817,7 @@ func TestMemoryUpdate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content=updated+content&expected_watermark=wm_123"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&content=updated+content&expected_watermark=wm_123"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryUpdate(w, r)
 	body := w.Body.String()
@@ -1832,7 +1833,7 @@ func TestMemoryUpdate_CASConflict(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{err: fmt.Errorf("memora: cas conflict (head watermark moved)")})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content=updated&expected_watermark=wm_old"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&content=updated&expected_watermark=wm_old"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryUpdate(w, r)
 	body := w.Body.String()
@@ -1848,7 +1849,7 @@ func TestMemoryUpdate_MissingContent(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content="))
+	r := httptest.NewRequest("POST", "/ui/api/memories/update", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&content="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryUpdate(w, r)
 	body := w.Body.String()
@@ -1860,10 +1861,10 @@ func TestMemoryUpdate_MissingContent(t *testing.T) {
 func TestMemoryDetailHasEditButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "test"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_abc&ws=ws_abc&tab=content", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=65727904-2abe-4a88-a7a5-853476162254&tab=content", nil)
 	h.partialMemoryDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Edit") {
@@ -1877,10 +1878,10 @@ func TestMemoryPatchForm_ContentCannotBreakOutOfScript(t *testing.T) {
 	payload := "a</script><img src=x onerror=alert(1)>\u2028b&c"
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: payload, Watermark: "wm_123"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: payload, Watermark: "wm_123"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=ws_abc&id=mem_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=735d3a41-398f-4d41-bef8-9773d48fa02f", nil)
 	h.partialMemoryPatchForm(w, r)
 	body := w.Body.String()
 
@@ -1905,10 +1906,10 @@ func TestMemoryPatchForm_ContentCannotBreakOutOfScript(t *testing.T) {
 func TestMemoryPatchForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "hello world", Watermark: "wm_123"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "hello world", Watermark: "wm_123"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=ws_abc&id=mem_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-patch-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=735d3a41-398f-4d41-bef8-9773d48fa02f", nil)
 	h.partialMemoryPatchForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Patch Memory") {
@@ -1929,7 +1930,7 @@ func TestMemoryPatch(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=hello&new_string=goodbye&replace_all=false&expected_watermark=wm_123"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&old_string=hello&new_string=goodbye&replace_all=false&expected_watermark=wm_123"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryPatch(w, r)
 	body := w.Body.String()
@@ -1948,7 +1949,7 @@ func TestMemoryPatch_NoOps(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=&new_string=test"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&old_string=&new_string=test"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryPatch(w, r)
 	body := w.Body.String()
@@ -1961,7 +1962,7 @@ func TestMemoryPatch_CASConflict(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{err: fmt.Errorf("memora: cas conflict (head watermark moved)")})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&old_string=hello&new_string=bye&replace_all=false&expected_watermark=wm_old"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/patch", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&old_string=hello&new_string=bye&replace_all=false&expected_watermark=wm_old"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryPatch(w, r)
 	body := w.Body.String()
@@ -1973,10 +1974,10 @@ func TestMemoryPatch_CASConflict(t *testing.T) {
 func TestMemoryDetailHasPatchButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "test"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_abc&ws=ws_abc&tab=content", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=65727904-2abe-4a88-a7a5-853476162254&tab=content", nil)
 	h.partialMemoryDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Patch") {
@@ -1987,10 +1988,10 @@ func TestMemoryDetailHasPatchButton(t *testing.T) {
 func TestMemoryAppendForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "hello", Watermark: "wm_123"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "hello", Watermark: "wm_123"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-append-form?ws=ws_abc&id=mem_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-append-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=735d3a41-398f-4d41-bef8-9773d48fa02f", nil)
 	h.partialMemoryAppendForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Append to Memory") {
@@ -2005,7 +2006,7 @@ func TestMemoryAppend(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content=appended+text&expected_watermark=wm_123"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&content=appended+text&expected_watermark=wm_123"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryAppend(w, r)
 	body := w.Body.String()
@@ -2021,7 +2022,7 @@ func TestMemoryAppend_MissingContent(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&content="))
+	r := httptest.NewRequest("POST", "/ui/api/memories/append", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&content="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryAppend(w, r)
 	body := w.Body.String()
@@ -2033,12 +2034,12 @@ func TestMemoryAppend_MissingContent(t *testing.T) {
 func TestMemoryForgetForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "test"},
 		cells:  []CellSummary{{CellID: "cell_1"}, {CellID: "cell_2"}},
-		edges:  []EdgeSummary{{EdgeID: "edge_1"}},
+		edges:  []EdgeSummary{{EdgeID: "a2145e16-f3a2-48c7-b141-a0f8117f2844"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-forget-form?ws=ws_abc&id=mem_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-forget-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=735d3a41-398f-4d41-bef8-9773d48fa02f", nil)
 	h.partialMemoryForgetForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Forget Memory") {
@@ -2056,7 +2057,7 @@ func TestMemoryForget(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&confirm=mem_abc"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&confirm=735d3a41-398f-4d41-bef8-9773d48fa02f"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryForget(w, r)
 	body := w.Body.String()
@@ -2072,7 +2073,7 @@ func TestMemoryForget_WrongConfirm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=ws_abc&memory_id=mem_abc&confirm=wrong"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/forget", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&memory_id=735d3a41-398f-4d41-bef8-9773d48fa02f&confirm=wrong"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryForget(w, r)
 	body := w.Body.String()
@@ -2084,10 +2085,10 @@ func TestMemoryForget_WrongConfirm(t *testing.T) {
 func TestMemoryDetailHasAppendAndForgetButtons(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_abc", Content: "test"},
+		memory: &MemorySummary{ID: "735d3a41-398f-4d41-bef8-9773d48fa02f", Content: "test"},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_abc&ws=ws_abc&tab=content", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=735d3a41-398f-4d41-bef8-9773d48fa02f&ws=65727904-2abe-4a88-a7a5-853476162254&tab=content", nil)
 	h.partialMemoryDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Append") {
@@ -2101,10 +2102,10 @@ func TestMemoryDetailHasAppendAndForgetButtons(t *testing.T) {
 func TestUploadForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+		collections: []CollectionSummary{{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "docs"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/upload-form?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/upload-form?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialUploadForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Upload Document") {
@@ -2137,14 +2138,14 @@ func TestMemoryUpload_ViaContent(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=ws_abc&content=uploaded+text&chunker_id=markdown"))
+	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&content=uploaded+text&chunker_id=markdown"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryUpload(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Document Uploaded") {
 		t.Error("missing success heading")
 	}
-	if !strings.Contains(body, "mem_test_123") {
+	if !strings.Contains(body, "a84a5cec-4093-4c63-b0e4-7d3c6057e081") {
 		t.Error("missing memory ID")
 	}
 }
@@ -2153,7 +2154,7 @@ func TestMemoryUpload_EmptyContent(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=ws_abc&content="))
+	r := httptest.NewRequest("POST", "/ui/api/memories/upload", strings.NewReader("workspace_id=65727904-2abe-4a88-a7a5-853476162254&content="))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleMemoryUpload(w, r)
 	body := w.Body.String()
@@ -2166,7 +2167,7 @@ func TestMemoryListHasUploadButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialMemoryList(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Upload Document") {
@@ -2178,11 +2179,11 @@ func TestRecallQueryBar(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		collections: []CollectionSummary{
-			{ID: "coll_1", Name: "Notes"},
+			{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "Notes"},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-query-bar?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-query-bar?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialRecallQueryBar(w, r)
 	body := w.Body.String()
 	for _, want := range []string{"recall-q", "recall-mode", "recall-k", "recall-filters", "graph_depth", "graph_direction", "include_cells", "Notes", "recall-full"} {
@@ -2209,10 +2210,10 @@ func TestRecallFull_WithResults(t *testing.T) {
 	h.SetDataSource(&mockDataSource{
 		recallResp: &api.RecallResponse{
 			Results: []api.RecallHit{
-				{MemoryID: "mem_1", Score: 0.95, Text: "hello world", Via: "seed"},
-				{MemoryID: "mem_2", Score: 0.8, Text: "graph result", Via: "graph",
+				{MemoryID: "22132404-d6ef-407b-9604-29c0ba7289c5", Score: 0.95, Text: "hello world", Via: "seed"},
+				{MemoryID: "ba4e82bd-10ab-4902-b12b-be6f442152da", Score: 0.8, Text: "graph result", Via: "graph",
 					GraphProvenance: &api.GraphProvenance{
-						FromMemoryID: "mem_1", EdgeID: "e1", EdgeType: "related", Layer: 1,
+						FromMemoryID: "22132404-d6ef-407b-9604-29c0ba7289c5", EdgeID: "e1", EdgeType: "related", Layer: 1,
 					}},
 			},
 			TotalCandidatesScanned: 50,
@@ -2221,13 +2222,13 @@ func TestRecallFull_WithResults(t *testing.T) {
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=hello&mode=hybrid&k=10&graph_depth=2&graph_direction=out", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=65727904-2abe-4a88-a7a5-853476162254&q=hello&mode=hybrid&k=10&graph_depth=2&graph_direction=out", nil)
 	h.partialRecallFull(w, r)
 	body := w.Body.String()
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	for _, want := range []string{"mem_1", "mem_2", "0.950", "graph nodes expanded", "Graph Path", "related", "L1"} {
+	for _, want := range []string{"22132404-d6ef-407b-9604-29c0ba7289c5", "ba4e82bd-10ab-4902-b12b-be6f442152da", "0.950", "graph nodes expanded", "Graph Path", "related", "L1"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("recall full results missing %q", want)
 		}
@@ -2238,16 +2239,16 @@ func TestRecallFull_WithFilters(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		recallResp: &api.RecallResponse{
-			Results:                []api.RecallHit{{MemoryID: "mem_f", Score: 0.7, Text: "filtered", Via: "seed"}},
+			Results:                []api.RecallHit{{MemoryID: "7f3bab74-547d-4adc-8aec-ea8993ff5b26", Score: 0.7, Text: "filtered", Via: "seed"}},
 			TotalCandidatesScanned: 10,
 			LatencyMS:              5,
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=test&collection_id=coll_1&agent_id=agent_x&ts_after=2025-01-01&ts_before=2025-12-31", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=65727904-2abe-4a88-a7a5-853476162254&q=test&collection_id=ff6069b2-4f27-4d65-a135-f29b5e8fec4e&agent_id=b88830ed-9673-4e88-a9ad-8a7f6d73c620&ts_after=2025-01-01&ts_before=2025-12-31", nil)
 	h.partialRecallFull(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "mem_f") {
+	if !strings.Contains(body, "7f3bab74-547d-4adc-8aec-ea8993ff5b26") {
 		t.Error("expected filtered result")
 	}
 }
@@ -2256,7 +2257,7 @@ func TestRecallFull_NoQuery(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialRecallFull(w, r)
 	if !strings.Contains(w.Body.String(), "Enter a query") {
 		t.Error("expected prompt for empty query")
@@ -2269,7 +2270,7 @@ func TestRecallFull_NoResults(t *testing.T) {
 		recallResp: &api.RecallResponse{Results: nil, TotalCandidatesScanned: 5, LatencyMS: 3},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=nothing", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=65727904-2abe-4a88-a7a5-853476162254&q=nothing", nil)
 	h.partialRecallFull(w, r)
 	if !strings.Contains(w.Body.String(), "No Results") {
 		t.Error("expected no results message")
@@ -2286,7 +2287,7 @@ func TestRecallFull_EmbeddingPending(t *testing.T) {
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=ws_abc&q=test", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/recall-full?ws=65727904-2abe-4a88-a7a5-853476162254&q=test", nil)
 	h.partialRecallFull(w, r)
 	if !strings.Contains(w.Body.String(), "still being embedded") {
 		t.Error("expected embedding pending notice")
@@ -2297,10 +2298,10 @@ func TestAgentRegisterForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/agent-register-form?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/agent-register-form?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialAgentRegisterForm(w, r)
 	body := w.Body.String()
-	for _, want := range []string{"agent_id", "display_name", "identity_provider", "agent_type", "model", "Register"} {
+	for _, want := range []string{"agent_id", "leave empty to generate one", "identity_provider", "agent_type", "model", "Register"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("register form missing %q", want)
 		}
@@ -2326,7 +2327,7 @@ func TestAgentRegisterForm_NoWS(t *testing.T) {
 func TestAgentRegister(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=agent_test_bot&display_name=Test+Bot&identity_provider=opaque&agent_type=assistant&model=claude"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&agent_id=8f14e45f-ceea-467a-9575-12345678abcd&display_name=Test+Bot&identity_provider=opaque&agent_type=assistant&model=claude"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2339,29 +2340,29 @@ func TestAgentRegister(t *testing.T) {
 	}
 }
 
-func TestAgentRegister_BadPrefix(t *testing.T) {
+func TestAgentRegister_NonUUIDRejected(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=bad_id&identity_provider=opaque"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&agent_id=agent_my_bot&identity_provider=opaque"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleAgentRegister(w, r)
-	if !strings.Contains(w.Body.String(), "must start with agent_") {
-		t.Error("expected prefix validation error")
+	if !strings.Contains(w.Body.String(), "Agent ID must be a UUID") {
+		t.Errorf("expected UUID validation error, got %q", w.Body.String())
 	}
 }
 
-func TestAgentRegister_MissingID(t *testing.T) {
+func TestAgentRegister_EmptyIDGeneratesOne(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=&identity_provider=opaque"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&agent_id=&identity_provider=opaque"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/register", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleAgentRegister(w, r)
-	if !strings.Contains(w.Body.String(), "required") {
-		t.Error("expected required validation error")
+	if w.Header().Get("HX-Redirect") == "" {
+		t.Errorf("empty agent_id should register with a generated UUID, got %q", w.Body.String())
 	}
 }
 
@@ -2369,10 +2370,10 @@ func TestAgentDeactivateForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/agent-deactivate-form?ws=ws_abc&id=agent_bot", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/agent-deactivate-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=c7892920-fc50-4acb-94df-29de66f1b542", nil)
 	h.partialAgentDeactivateForm(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "agent_bot") {
+	if !strings.Contains(body, "c7892920-fc50-4acb-94df-29de66f1b542") {
 		t.Error("deactivate form missing agent ID")
 	}
 	if !strings.Contains(body, "Deactivate") {
@@ -2383,7 +2384,7 @@ func TestAgentDeactivateForm(t *testing.T) {
 func TestAgentDeactivate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=agent_bot&confirm=agent_bot"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&agent_id=b7b5439a-c4c9-405e-85d1-cdcb38f81877&confirm=b7b5439a-c4c9-405e-85d1-cdcb38f81877"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/deactivate", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2396,7 +2397,7 @@ func TestAgentDeactivate(t *testing.T) {
 func TestAgentDeactivate_WrongConfirm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&agent_id=agent_bot&confirm=wrong"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&agent_id=b7b5439a-c4c9-405e-85d1-cdcb38f81877&confirm=wrong"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/agents/deactivate", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2410,11 +2411,11 @@ func TestWorkspaceAgentsHasRegisterButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		agents: []AgentSummary{
-			{AgentID: "agent_test", DisplayName: "Test", IdentityProvider: "opaque", Deactivated: false},
+			{AgentID: "434becf0-b125-41d5-8379-5a945dc8fb5e", DisplayName: "Test", IdentityProvider: "opaque", Deactivated: false},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=agents", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=agents", nil)
 	h.partialWorkspaceDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Register Agent") {
@@ -2429,7 +2430,7 @@ func TestGraphView(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialGraphView(w, r)
 	body := w.Body.String()
 	for _, want := range []string{"graph-container", "graph-canvas", "graph-seed", "graph-depth", "loadGraph", "Context Graph"} {
@@ -2454,20 +2455,20 @@ func TestGraphDataEndpoint(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		graphData: &GraphData{
-			Nodes:           []GraphNode{{ID: "mem_1", Label: "mem_1", Type: "memory"}, {ID: "mem_2", Label: "mem_2", Type: "memory"}},
-			Edges:           []GraphEdge{{ID: "e_1", Source: "mem_1", Target: "mem_2", Label: "related_to"}},
+			Nodes:           []GraphNode{{ID: "22132404-d6ef-407b-9604-29c0ba7289c5", Label: "22132404-d6ef-407b-9604-29c0ba7289c5", Type: "memory"}, {ID: "ba4e82bd-10ab-4902-b12b-be6f442152da", Label: "ba4e82bd-10ab-4902-b12b-be6f442152da", Type: "memory"}},
+			Edges:           []GraphEdge{{ID: "e_1", Source: "22132404-d6ef-407b-9604-29c0ba7289c5", Target: "ba4e82bd-10ab-4902-b12b-be6f442152da", Label: "related_to"}},
 			NodeCount:       2,
 			EdgeCountByType: map[string]int{"related_to": 1},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/data?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/data?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.handleGraphData(w, r)
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"mem_1", "mem_2", "related_to", "node_count"} {
+	for _, want := range []string{"22132404-d6ef-407b-9604-29c0ba7289c5", "ba4e82bd-10ab-4902-b12b-be6f442152da", "related_to", "node_count"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("graph data response missing %q", want)
 		}
@@ -2496,7 +2497,7 @@ func TestGraphTabInWorkspacePage(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/workspaces/ws_abc/graph", nil)
+	r := httptest.NewRequest("GET", "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254/graph", nil)
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
@@ -2511,17 +2512,17 @@ func TestGraphNeighborsEndpoint(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		graphData: &GraphData{
-			Nodes: []GraphNode{{ID: "mem_1", Label: "mem_1", Type: "seed"}, {ID: "mem_2", Label: "mem_2", Type: "neighbor"}},
-			Edges: []GraphEdge{{ID: "e_1", Source: "mem_1", Target: "mem_2", Label: "references"}},
+			Nodes: []GraphNode{{ID: "22132404-d6ef-407b-9604-29c0ba7289c5", Label: "22132404-d6ef-407b-9604-29c0ba7289c5", Type: "seed"}, {ID: "ba4e82bd-10ab-4902-b12b-be6f442152da", Label: "ba4e82bd-10ab-4902-b12b-be6f442152da", Type: "neighbor"}},
+			Edges: []GraphEdge{{ID: "e_1", Source: "22132404-d6ef-407b-9604-29c0ba7289c5", Target: "ba4e82bd-10ab-4902-b12b-be6f442152da", Label: "references"}},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=ws_abc&memory_id=mem_1&direction=both&k=10", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=65727904-2abe-4a88-a7a5-853476162254&memory_id=22132404-d6ef-407b-9604-29c0ba7289c5&direction=both&k=10", nil)
 	h.handleGraphNeighbors(w, r)
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	for _, want := range []string{"mem_1", "mem_2", "references"} {
+	for _, want := range []string{"22132404-d6ef-407b-9604-29c0ba7289c5", "ba4e82bd-10ab-4902-b12b-be6f442152da", "references"} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("neighbors response missing %q", want)
 		}
@@ -2532,7 +2533,7 @@ func TestGraphNeighborsEndpoint_NoMemID(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/neighbors?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.handleGraphNeighbors(w, r)
 	if w.Code != 400 {
 		t.Errorf("want 400, got %d", w.Code)
@@ -2543,17 +2544,17 @@ func TestGraphTraverseEndpoint(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		graphData: &GraphData{
-			Nodes: []GraphNode{{ID: "mem_s", Label: "mem_s", Type: "seed"}},
+			Nodes: []GraphNode{{ID: "0b32159a-5184-42a9-9fe5-e919c2b605c9", Label: "0b32159a-5184-42a9-9fe5-e919c2b605c9", Type: "seed"}},
 			Edges: nil,
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=ws_abc&seed=mem_s&depth=3&direction=out", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=65727904-2abe-4a88-a7a5-853476162254&seed=0b32159a-5184-42a9-9fe5-e919c2b605c9&depth=3&direction=out", nil)
 	h.handleGraphTraverse(w, r)
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "mem_s") {
+	if !strings.Contains(w.Body.String(), "0b32159a-5184-42a9-9fe5-e919c2b605c9") {
 		t.Error("traverse response missing seed node")
 	}
 }
@@ -2562,7 +2563,7 @@ func TestGraphTraverseEndpoint_NoSeed(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/traverse?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.handleGraphTraverse(w, r)
 	if w.Code != 400 {
 		t.Errorf("want 400, got %d", w.Code)
@@ -2573,7 +2574,7 @@ func TestGraphStatsEndpoint(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/graph/stats?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/api/graph/stats?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.handleGraphStats(w, r)
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
@@ -2588,7 +2589,7 @@ func TestGraphViewHasQueryTabs(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/graph-view?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialGraphView(w, r)
 	body := w.Body.String()
 	for _, want := range []string{"graph-tab-overview", "graph-tab-neighbors", "graph-tab-traverse", "showGraphTab", "loadNeighbors", "loadTraverse", "nb-memory-id", "tr-seed", "edge-type-filter"} {
@@ -2602,10 +2603,10 @@ func TestEdgeLinkForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/edge-link-form?ws=ws_abc&source=mem_1", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/edge-link-form?ws=65727904-2abe-4a88-a7a5-853476162254&source=22132404-d6ef-407b-9604-29c0ba7289c5", nil)
 	h.partialEdgeLinkForm(w, r)
 	body := w.Body.String()
-	for _, want := range []string{"source_memory_id", "target_memory_id", "edge_type", "references", "parent_of", "mem_1"} {
+	for _, want := range []string{"source_memory_id", "target_memory_id", "edge_type", "references", "parent_of", "22132404-d6ef-407b-9604-29c0ba7289c5"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("link form missing %q", want)
 		}
@@ -2615,7 +2616,7 @@ func TestEdgeLinkForm(t *testing.T) {
 func TestEdgeLink(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&source_memory_id=mem_1&target_memory_id=mem_2&edge_type=references"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&source_memory_id=22132404-d6ef-407b-9604-29c0ba7289c5&target_memory_id=ba4e82bd-10ab-4902-b12b-be6f442152da&edge_type=references"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2623,7 +2624,7 @@ func TestEdgeLink(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "edge_test_new") {
+	if !strings.Contains(w.Body.String(), "6b9ee74a-f21a-45c6-893e-02b24f8b1d55") {
 		t.Error("expected edge ID in response")
 	}
 }
@@ -2631,7 +2632,7 @@ func TestEdgeLink(t *testing.T) {
 func TestEdgeLink_SelfLoop(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&source_memory_id=mem_1&target_memory_id=mem_1&edge_type=references"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&source_memory_id=22132404-d6ef-407b-9604-29c0ba7289c5&target_memory_id=22132404-d6ef-407b-9604-29c0ba7289c5&edge_type=references"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2644,7 +2645,7 @@ func TestEdgeLink_SelfLoop(t *testing.T) {
 func TestEdgeLink_MissingFields(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&source_memory_id=mem_1"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&source_memory_id=22132404-d6ef-407b-9604-29c0ba7289c5"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/edges/link", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2658,10 +2659,10 @@ func TestEdgeUnlinkForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/edge-unlink-form?ws=ws_abc&id=edge_123", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/edge-unlink-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=163e9aec-caa3-403b-a6d1-6247040f989d", nil)
 	h.partialEdgeUnlinkForm(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "edge_123") || !strings.Contains(body, "Unlink") {
+	if !strings.Contains(body, "163e9aec-caa3-403b-a6d1-6247040f989d") || !strings.Contains(body, "Unlink") {
 		t.Error("unlink form missing edge ID or button")
 	}
 }
@@ -2669,7 +2670,7 @@ func TestEdgeUnlinkForm(t *testing.T) {
 func TestEdgeUnlink(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&edge_id=edge_123&confirm=edge_123"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&edge_id=163e9aec-caa3-403b-a6d1-6247040f989d&confirm=163e9aec-caa3-403b-a6d1-6247040f989d"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/edges/unlink", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2682,7 +2683,7 @@ func TestEdgeUnlink(t *testing.T) {
 func TestEdgeUnlink_WrongConfirm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&edge_id=edge_123&confirm=wrong"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&edge_id=163e9aec-caa3-403b-a6d1-6247040f989d&confirm=wrong"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/edges/unlink", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2695,13 +2696,13 @@ func TestEdgeUnlink_WrongConfirm(t *testing.T) {
 func TestEdgesTabHasLinkButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		memory: &MemorySummary{ID: "mem_x", Content: "test"},
+		memory: &MemorySummary{ID: "af76efb0-26c1-4901-a106-cdfe1acf9a64", Content: "test"},
 		edges: []EdgeSummary{
-			{EdgeID: "edge_1", SourceMemoryID: "mem_x", TargetMemoryID: "mem_y", EdgeType: "references", AgentID: "agent_1"},
+			{EdgeID: "a2145e16-f3a2-48c7-b141-a0f8117f2844", SourceMemoryID: "af76efb0-26c1-4901-a106-cdfe1acf9a64", TargetMemoryID: "692a4100-24f3-4d9f-b3ba-12d75a7826df", EdgeType: "references", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_x&ws=ws_abc&tab=edges", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=af76efb0-26c1-4901-a106-cdfe1acf9a64&ws=65727904-2abe-4a88-a7a5-853476162254&tab=edges", nil)
 	h.partialMemoryDetail(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Link Edge") {
@@ -2715,10 +2716,10 @@ func TestEdgesTabHasLinkButton(t *testing.T) {
 func TestBulkOpsForm(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
-		collections: []CollectionSummary{{ID: "coll_1", Name: "docs"}},
+		collections: []CollectionSummary{{ID: "ff6069b2-4f27-4d65-a135-f29b5e8fec4e", Name: "docs"}},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/bulk-ops-form?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/bulk-ops-form?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialBulkOpsForm(w, r)
 	body := w.Body.String()
 	for _, want := range []string{"Bulk Operations", "Seed", "Dump", "Import", "Replay", "showBulkTab", "streamBulkOp", "docs"} {
@@ -2744,7 +2745,7 @@ func TestBulkSeed(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	records := `[{"content":"hello world","tags":{"k":"v"}}]`
-	body := fmt.Sprintf("workspace_id=ws_abc&collection_id=coll_1&chunker_id=markdown&auto_link=true&records=%s", records)
+	body := fmt.Sprintf("workspace_id=65727904-2abe-4a88-a7a5-853476162254&collection_id=ff6069b2-4f27-4d65-a135-f29b5e8fec4e&chunker_id=markdown&auto_link=true&records=%s", records)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/seed", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2761,7 +2762,7 @@ func TestBulkSeed(t *testing.T) {
 func TestBulkSeed_EmptyRecords(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	body := "workspace_id=ws_abc&records=[]"
+	body := "workspace_id=65727904-2abe-4a88-a7a5-853476162254&records=[]"
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/seed", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2776,16 +2777,16 @@ func TestBulkDump(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		memories: []MemorySummary{
-			{ID: "mem_1", Content: "test content", ContentMD5: "abc", AgentID: "agent_1"},
+			{ID: "22132404-d6ef-407b-9604-29c0ba7289c5", Content: "test content", ContentMD5: "abc", AgentID: "004681e8-d399-4612-8c7b-f6b11a0428b5"},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/api/bulk/dump?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/api/bulk/dump?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.handleBulkDump(w, r)
 	if w.Header().Get("Content-Type") != "application/x-ndjson" {
 		t.Errorf("expected ndjson content type, got %s", w.Header().Get("Content-Type"))
 	}
-	if !strings.Contains(w.Body.String(), "mem_1") {
+	if !strings.Contains(w.Body.String(), "22132404-d6ef-407b-9604-29c0ba7289c5") {
 		t.Error("dump missing memory ID")
 	}
 	if !strings.Contains(w.Body.String(), "test content") {
@@ -2797,7 +2798,7 @@ func TestBulkImport(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	records := `[{"content":"imported text","content_md5":"new123"}]`
-	body := fmt.Sprintf("workspace_id=ws_abc&conflict=skip&records=%s", records)
+	body := fmt.Sprintf("workspace_id=65727904-2abe-4a88-a7a5-853476162254&conflict=skip&records=%s", records)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/import", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2815,11 +2816,11 @@ func TestBulkImport_SkipDuplicate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		memories: []MemorySummary{
-			{ID: "mem_existing", ContentMD5: "dup123"},
+			{ID: "80d98601-8488-4c2d-901c-27ead2416df9", ContentMD5: "dup123"},
 		},
 	})
 	records := `[{"content":"dup content","content_md5":"dup123"}]`
-	body := fmt.Sprintf("workspace_id=ws_abc&conflict=skip&records=%s", records)
+	body := fmt.Sprintf("workspace_id=65727904-2abe-4a88-a7a5-853476162254&conflict=skip&records=%s", records)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/import", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2834,7 +2835,7 @@ func TestBulkReplay(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	records := `[{"op":"imprint","content":"replayed content"}]`
-	body := fmt.Sprintf("workspace_id=ws_abc&records=%s", records)
+	body := fmt.Sprintf("workspace_id=65727904-2abe-4a88-a7a5-853476162254&records=%s", records)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/replay", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2852,7 +2853,7 @@ func TestBulkReplay_UnsupportedOp(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	records := `[{"op":"unknown_op","content":"foo"}]`
-	body := fmt.Sprintf("workspace_id=ws_abc&records=%s", records)
+	body := fmt.Sprintf("workspace_id=65727904-2abe-4a88-a7a5-853476162254&records=%s", records)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/ui/api/bulk/replay", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -2867,7 +2868,7 @@ func TestMemoryListHasBulkOpsButton(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-list?ws=65727904-2abe-4a88-a7a5-853476162254", nil)
 	h.partialMemoryList(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Bulk Ops") {
@@ -2878,72 +2879,197 @@ func TestMemoryListHasBulkOpsButton(t *testing.T) {
 	}
 }
 
+// realPeers returns a federation.Manager on a real SQLite store with one
+// peer per name (node IDs minted, keys "key-<name>").
+func realPeers(t *testing.T, names ...string) *federation.Manager {
+	t.Helper()
+	ctx := context.Background()
+	meta := &storesqlite.Store{}
+	if err := meta.Open(ctx, adapter.MetadataConfig{DSN: filepath.Join(t.TempDir(), "peers.db")}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	reg, err := federation.NewRegistry(config.FederationConfig{Enabled: true}, types.NewID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	sealer, err := federation.NewSealer(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := federation.NewManager(reg, meta, sealer)
+	for _, n := range names {
+		if _, err := m.Upsert(ctx, api.PeerRequest{
+			NodeID: types.NewID(), Name: n, URL: "https://" + n + ".example.com",
+			InboundKey: "key-" + n, APIKey: "key-" + n,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return m
+}
+
+func postForm(h func(http.ResponseWriter, *http.Request), path, form string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", path, strings.NewReader(form))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h(w, r)
+	return w
+}
+
 func TestPeerAddForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{
-		workspaces: []WorkspaceSummary{{ID: "ws_1", Name: "test-ws"}},
-	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-add-form", nil)
-	h.partialPeerAddForm(w, r)
+	h.partialPeerAddForm(w, httptest.NewRequest("GET", "/ui/partials/peer-add-form", nil))
 	body := w.Body.String()
-	for _, want := range []string{"Add Federation Peer", "trust_mode", "mtls", "api_key", "test-ws"} {
+	for _, want := range []string{"Add Federation Peer", `name="node_id"`, `name="inbound_key"`, `name="api_key"`, `type="password"`, `name="timeout_ms"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peer add form missing %q", want)
 		}
 	}
 }
 
-func TestPeerAdd(t *testing.T) {
+// TestPeerAdd_ReachesRegistry: the console's add form creates the peer in
+// the runtime registry, keys write-only.
+func TestPeerAdd_ReachesRegistry(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("name=west-peer&endpoint=https://peer.example.com&trust_mode=mtls"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerAdd(w, r)
+	pm := realPeers(t)
+	h.SetPeers(pm)
+	id := types.NewID()
+	w := postForm(h.handlePeerAdd, "/ui/api/peers/add",
+		"node_id="+id+"&name=west-peer&endpoint=https://peer.example.com&inbound_key=in-secret&api_key=out-secret&timeout_ms=2500")
 	if w.Header().Get("HX-Redirect") != "/ui/federation" {
-		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+		t.Fatalf("add: %q %s", w.Header().Get("HX-Redirect"), w.Body.String())
+	}
+	peers, _ := pm.List(context.Background())
+	if len(peers) != 1 || peers[0].NodeID != id || peers[0].Name != "west-peer" || !peers[0].HasInboundKey || !peers[0].HasAPIKey || peers[0].TimeoutMS != 2500 {
+		t.Fatalf("registry = %+v", peers)
 	}
 }
 
-func TestPeerAdd_MissingName(t *testing.T) {
+func TestPeerAdd_Validation(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/add", strings.NewReader("endpoint=https://peer.example.com"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerAdd(w, r)
-	if !strings.Contains(w.Body.String(), "Name and endpoint are required") {
-		t.Error("expected validation error for missing name")
+	h.SetPeers(realPeers(t))
+	if w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "endpoint=https://peer.example.com"); !strings.Contains(w.Body.String(), "Node ID, name and endpoint are required") {
+		t.Errorf("missing fields: %s", w.Body.String())
+	}
+	if w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "node_id=peer_1&name=x&endpoint=https://x"); !strings.Contains(w.Body.String(), "node_id must be a UUID") {
+		t.Errorf("bad node id: %s", w.Body.String())
 	}
 }
 
 func TestPeerEditForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers: []PeerInfo{
-			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "api_key", Workspaces: []string{"ws_1"}},
-		},
-	})
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=peer_1", nil)
-	h.partialPeerEditForm(w, r)
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+peers[0].NodeID, nil))
 	body := w.Body.String()
-	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", "api_key"} {
+	for _, want := range []string{"Edit Peer", "west", "https://west.example.com", peers[0].NodeID, "blank keeps the stored key", "required when the endpoint changes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peer edit form missing %q", want)
 		}
+	}
+	if strings.Contains(body, "key-west") {
+		t.Error("edit form shows a stored key")
+	}
+}
+
+// TestPeerUpdate_KeepsKeys: editing without retyping keys keeps them and
+// can revoke the peer.
+func TestPeerUpdate_KeepsKeys(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	id := peers[0].NodeID
+	w := postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west.example.com&revoked=true")
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("update: %s", w.Body.String())
+	}
+	peers, _ = pm.List(context.Background())
+	if p := peers[0]; p.Name != "west-2" || p.URL != "https://west.example.com" || !p.Revoked || !p.HasInboundKey || !p.HasAPIKey {
+		t.Fatalf("after update = %+v, want renamed, revoked, keys kept", p)
+	}
+	// A new endpoint never inherits the key given for the old one.
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com")
+	if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "needs its api_key again") {
+		t.Fatalf("endpoint change without a key: %s", w.Body.String())
+	}
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west-2&endpoint=https://west2.example.com&api_key=key-west2")
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("endpoint change with a key: %s", w.Body.String())
+	}
+	if peers, _ = pm.List(context.Background()); peers[0].URL != "https://west2.example.com" {
+		t.Fatalf("after endpoint change = %+v", peers[0])
+	}
+}
+
+// TestPeerUpdate_KeepsLimitsAndPin (#6350): the edit form shows a peer's
+// QPS limits and client certificate pin, so saving it unchanged keeps
+// them; a bad QPS is refused.
+func TestPeerUpdate_KeepsLimitsAndPin(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t)
+	pm.AllowClientCertPins = true
+	h.SetPeers(pm)
+	id, pin := types.NewID(), strings.Repeat("ab", 32)
+	if _, err := pm.Upsert(context.Background(), api.PeerRequest{
+		NodeID: id, Name: "west", URL: "https://west.example.com", InboundKey: "key-west", APIKey: "key-west",
+		ClientCertSHA256: pin, RateLimitQPS: 2.5, InboundQPS: 7,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+id, nil))
+	for _, want := range []string{`name="rate_limit_qps" min="0" step="any" value="2.5"`, `name="inbound_qps" min="0" step="any" value="7"`, `name="client_cert_sha256" autocomplete="off" value="` + pin + `"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("edit form missing %q", want)
+		}
+	}
+
+	w = postForm(h.handlePeerUpdate, "/ui/api/peers/update",
+		"node_id="+id+"&name=west&endpoint=https://west.example.com&rate_limit_qps=2.5&inbound_qps=7&client_cert_sha256="+pin)
+	if w.Header().Get("HX-Redirect") != "/ui/federation" {
+		t.Fatalf("update: %s", w.Body.String())
+	}
+	peers, _ := pm.List(context.Background())
+	if p := peers[0]; p.RateLimitQPS != 2.5 || p.InboundQPS != 7 || p.ClientCertSHA256 != pin || !p.HasInboundKey || !p.HasAPIKey {
+		t.Fatalf("after an unchanged update = %+v, want limits, pin and keys kept", p)
+	}
+
+	for _, bad := range []string{"rate_limit_qps=-1", "inbound_qps=fast", "inbound_qps=Inf"} {
+		w = postForm(h.handlePeerUpdate, "/ui/api/peers/update", "node_id="+id+"&name=west&endpoint=https://west.example.com&"+bad)
+		if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "must be a non-negative number") {
+			t.Fatalf("%s: %s", bad, w.Body.String())
+		}
+	}
+}
+
+// TestPeerAdd_ExistingNodeIDRefused (#6350): the blank add form cannot
+// overwrite a stored peer.
+func TestPeerAdd_ExistingNodeIDRefused(t *testing.T) {
+	h := mustHandler(t)
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	w := postForm(h.handlePeerAdd, "/ui/api/peers/add", "node_id="+peers[0].NodeID+"&name=impostor&endpoint=https://west.example.com")
+	if w.Header().Get("HX-Redirect") != "" || !strings.Contains(w.Body.String(), "already exists") {
+		t.Fatalf("add over an existing peer: %s", w.Body.String())
+	}
+	if after, _ := pm.List(context.Background()); after[0].Name != "west" {
+		t.Fatalf("stored peer changed: %+v", after[0])
 	}
 }
 
 func TestPeerEditForm_NotFound(t *testing.T) {
 	h := mustHandler(t)
-	h.SetFederation(&FederationInfo{FederationID: "fed_1"})
+	h.SetPeers(realPeers(t))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id=nonexistent", nil)
-	h.partialPeerEditForm(w, r)
+	h.partialPeerEditForm(w, httptest.NewRequest("GET", "/ui/partials/peer-edit-form?id="+types.NewID(), nil))
 	if !strings.Contains(w.Body.String(), "Peer not found") {
 		t.Error("expected peer not found error")
 	}
@@ -2951,78 +3077,50 @@ func TestPeerEditForm_NotFound(t *testing.T) {
 
 func TestPeerRemoveForm(t *testing.T) {
 	h := mustHandler(t)
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/peer-remove-form?id=peer_1", nil)
-	h.partialPeerRemoveForm(w, r)
+	h.partialPeerRemoveForm(w, httptest.NewRequest("GET", "/ui/partials/peer-remove-form?id="+peers[0].NodeID, nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "Remove Peer") {
-		t.Error("missing Remove Peer heading")
-	}
-	if !strings.Contains(body, "west") {
-		t.Error("missing peer name in confirm")
+	if !strings.Contains(body, "Remove Peer") || !strings.Contains(body, "west") || !strings.Contains(body, peers[0].NodeID) {
+		t.Errorf("remove form = %s", body)
 	}
 }
 
-func TestPeerRemove_WrongConfirm(t *testing.T) {
+func TestPeerRemove(t *testing.T) {
 	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=wrong"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerRemove(w, r)
-	if !strings.Contains(w.Body.String(), "Type") {
-		t.Error("expected confirmation error")
+	pm := realPeers(t, "west")
+	h.SetPeers(pm)
+	peers, _ := pm.List(context.Background())
+	id := peers[0].NodeID
+	if w := postForm(h.handlePeerRemove, "/ui/api/peers/remove", "id="+id+"&confirm=wrong"); !strings.Contains(w.Body.String(), "Type") {
+		t.Errorf("wrong confirm: %s", w.Body.String())
 	}
-}
-
-func TestPeerRemove_Correct(t *testing.T) {
-	h := mustHandler(t)
-	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers:        []PeerInfo{{ID: "peer_1", Name: "west"}},
-	})
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/peers/remove", strings.NewReader("id=peer_1&confirm=west"))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.handlePeerRemove(w, r)
+	if peers, _ := pm.List(context.Background()); len(peers) != 1 {
+		t.Fatal("a wrong confirmation removed the peer")
+	}
+	w := postForm(h.handlePeerRemove, "/ui/api/peers/remove", "id="+id+"&confirm=west")
 	if w.Header().Get("HX-Redirect") != "/ui/federation" {
-		t.Errorf("expected redirect to /ui/federation, got %q", w.Header().Get("HX-Redirect"))
+		t.Fatalf("remove: %s", w.Body.String())
+	}
+	if peers, _ := pm.List(context.Background()); len(peers) != 0 {
+		t.Fatalf("after remove: %+v", peers)
 	}
 }
 
 func TestFederationStatusHasCRUDButtons(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
-	h.SetFederation(&FederationInfo{
-		FederationID: "fed_1",
-		Peers: []PeerInfo{
-			{ID: "peer_1", Name: "west", Endpoint: "https://west.example.com", TrustMode: "mtls"},
-		},
-	})
+	h.SetFederation(&FederationInfo{FederationID: "fed_1"})
+	h.SetPeers(realPeers(t, "west"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/federation-status", nil)
-	h.partialFederationStatus(w, r)
+	h.partialFederationStatus(w, httptest.NewRequest("GET", "/ui/partials/federation-status", nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "Add Peer") {
-		t.Error("missing Add Peer button")
-	}
-	if !strings.Contains(body, "Edit") {
-		t.Error("missing Edit button on peer row")
-	}
-	if !strings.Contains(body, "Remove") {
-		t.Error("missing Remove button on peer row")
-	}
-	if !strings.Contains(body, "fed-modal-container") {
-		t.Error("missing modal container")
+	for _, want := range []string{"Add Peer", "Edit", "Remove", "fed-modal-container", "active"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("federation status missing %q", want)
+		}
 	}
 }
 
@@ -3153,16 +3251,16 @@ func TestSettingsHasIDPSection(t *testing.T) {
 func TestTagAddForm(t *testing.T) {
 	h := mustHandler(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/tag-add-form?ws=ws_abc&id=mem_123", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/tag-add-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=c1c4b15b-b641-42b1-a4b2-e5302797669d", nil)
 	h.partialTagAddForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Add Tag") {
 		t.Error("missing Add Tag heading")
 	}
-	if !strings.Contains(body, "ws_abc") {
+	if !strings.Contains(body, "65727904-2abe-4a88-a7a5-853476162254") {
 		t.Error("missing workspace ID")
 	}
-	if !strings.Contains(body, "mem_123") {
+	if !strings.Contains(body, "c1c4b15b-b641-42b1-a4b2-e5302797669d") {
 		t.Error("missing memory ID")
 	}
 }
@@ -3171,11 +3269,11 @@ func TestTagUpsert(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=ws_abc&id=mem_123&key=source&value=upload"))
+	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=65727904-2abe-4a88-a7a5-853476162254&id=c1c4b15b-b641-42b1-a4b2-e5302797669d&key=source&value=upload"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleTagUpsert(w, r)
 	redir := w.Header().Get("HX-Redirect")
-	if !strings.Contains(redir, "/ui/workspaces/ws_abc/memories/mem_123") {
+	if !strings.Contains(redir, "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254/memories/c1c4b15b-b641-42b1-a4b2-e5302797669d") {
 		t.Errorf("expected redirect to memory detail, got %q", redir)
 	}
 }
@@ -3184,7 +3282,7 @@ func TestTagUpsert_MissingKey(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=ws_abc&id=mem_123&value=test"))
+	r := httptest.NewRequest("POST", "/ui/api/tags/upsert", strings.NewReader("ws=65727904-2abe-4a88-a7a5-853476162254&id=c1c4b15b-b641-42b1-a4b2-e5302797669d&value=test"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleTagUpsert(w, r)
 	if !strings.Contains(w.Body.String(), "key are required") {
@@ -3195,7 +3293,7 @@ func TestTagUpsert_MissingKey(t *testing.T) {
 func TestTagDeleteForm(t *testing.T) {
 	h := mustHandler(t)
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/tag-delete-form?ws=ws_abc&id=mem_123&key=source", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/tag-delete-form?ws=65727904-2abe-4a88-a7a5-853476162254&id=c1c4b15b-b641-42b1-a4b2-e5302797669d&key=source", nil)
 	h.partialTagDeleteForm(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Delete Tag") {
@@ -3210,11 +3308,11 @@ func TestTagDelete(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/tags/delete", strings.NewReader("ws=ws_abc&id=mem_123&key=source"))
+	r := httptest.NewRequest("POST", "/ui/api/tags/delete", strings.NewReader("ws=65727904-2abe-4a88-a7a5-853476162254&id=c1c4b15b-b641-42b1-a4b2-e5302797669d&key=source"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleTagDelete(w, r)
 	redir := w.Header().Get("HX-Redirect")
-	if !strings.Contains(redir, "/ui/workspaces/ws_abc/memories/mem_123") {
+	if !strings.Contains(redir, "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254/memories/c1c4b15b-b641-42b1-a4b2-e5302797669d") {
 		t.Errorf("expected redirect to memory detail, got %q", redir)
 	}
 }
@@ -3223,13 +3321,13 @@ func TestMemoryContentHasTagsCRUD(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		memory: &MemorySummary{
-			ID:      "mem_123",
+			ID:      "c1c4b15b-b641-42b1-a4b2-e5302797669d",
 			Content: "test",
 			Tags:    map[string]string{"source": "upload", "type": "doc"},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=mem_123&ws=ws_abc&tab=content", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/memory-detail?id=c1c4b15b-b641-42b1-a4b2-e5302797669d&ws=65727904-2abe-4a88-a7a5-853476162254&tab=content", nil)
 	mux := http.NewServeMux()
 	h.Register(mux)
 	mux.ServeHTTP(w, r)
@@ -3255,7 +3353,7 @@ func TestWorkspaceConfigTab(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary:          WorkspaceSummary{ID: "ws_abc", Name: "test"},
+			WorkspaceSummary:          WorkspaceSummary{ID: "65727904-2abe-4a88-a7a5-853476162254", Name: "test"},
 			AutoLinkEnabled:           true,
 			AutoLinkThreshold:         0.8,
 			AutoLinkMaxEdges:          15,
@@ -3266,7 +3364,7 @@ func TestWorkspaceConfigTab(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=ws_abc&tab=config", nil)
+	r := httptest.NewRequest("GET", "/ui/partials/workspace-detail?id=65727904-2abe-4a88-a7a5-853476162254&tab=config", nil)
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 	for _, want := range []string{"Auto-Link Configuration", "auto_link_enabled", "auto_link_threshold", "auto_link_max_edges", "auto_link_max_incoming", "0.80", "15", "200", "checked"} {
@@ -3280,11 +3378,11 @@ func TestWorkspaceConfigUpdate(t *testing.T) {
 	h := mustHandler(t)
 	h.SetDataSource(&mockDataSource{
 		workspace: &WorkspaceDetail{
-			WorkspaceSummary: WorkspaceSummary{ID: "ws_abc", Name: "test"},
+			WorkspaceSummary: WorkspaceSummary{ID: "65727904-2abe-4a88-a7a5-853476162254", Name: "test"},
 		},
 	})
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/ui/api/workspaces/config", strings.NewReader("id=ws_abc&auto_link_enabled=true&auto_link_threshold=0.75&auto_link_max_edges=20&auto_link_max_incoming=150"))
+	r := httptest.NewRequest("POST", "/ui/api/workspaces/config", strings.NewReader("id=65727904-2abe-4a88-a7a5-853476162254&auto_link_enabled=true&auto_link_threshold=0.75&auto_link_max_edges=20&auto_link_max_incoming=150"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.handleWorkspaceConfig(w, r)
 	body := w.Body.String()
@@ -3311,7 +3409,7 @@ func TestWorkspaceDetailHasConfigTab(t *testing.T) {
 	h.Register(mux)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/ui/workspaces/ws_abc", nil)
+	r := httptest.NewRequest("GET", "/ui/workspaces/65727904-2abe-4a88-a7a5-853476162254", nil)
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
 	if !strings.Contains(body, "Config") {
@@ -3547,7 +3645,7 @@ func TestPinList_Empty(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=ws_test", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=759dbbe1-9fcc-4069-90ec-f799ac861b95", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -3566,17 +3664,17 @@ func TestPinList_WithPins(t *testing.T) {
 	}
 	h.SetDataSource(&mockDataSource{
 		pins: []PinSummary{
-			{PinID: "pin_abc", Query: "test query", Mode: "hybrid", K: 10, Label: "my pin", CreatedAt: time.Now()},
+			{PinID: "43dbf603-78de-4f3a-b028-7b99858194a0", Query: "test query", Mode: "hybrid", K: 10, Label: "my pin", CreatedAt: time.Now()},
 		},
 	})
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=ws_test", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-list?ws=759dbbe1-9fcc-4069-90ec-f799ac861b95", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "pin_abc") {
+	if !strings.Contains(body, "43dbf603-78de-4f3a-b028-7b99858194a0") {
 		t.Error("expected pin ID in list")
 	}
 	if !strings.Contains(body, "my pin") {
@@ -3596,7 +3694,7 @@ func TestPinCreateForm(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-create-form?ws=ws_test&q=hello&mode=vector&k=5", nil)
+	r := httptest.NewRequest(http.MethodGet, "/ui/partials/pin-create-form?ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&q=hello&mode=vector&k=5", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	body := w.Body.String()
@@ -3617,14 +3715,14 @@ func TestPinCreate_Success(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=ws_test&query=hello+world&mode=hybrid&k=10"))
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&query=hello+world&mode=hybrid&k=10"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Errorf("want 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "pin_test") {
+	if !strings.Contains(w.Body.String(), "ac594a2e-78d9-4b5c-ae8c-3c3f81f73745") {
 		t.Error("expected pin ID in response")
 	}
 }
@@ -3638,7 +3736,7 @@ func TestPinCreate_MissingQuery(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=ws_test"))
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/create", strings.NewReader("ws=759dbbe1-9fcc-4069-90ec-f799ac861b95"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)
@@ -3656,7 +3754,7 @@ func TestPinDelete_Success(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
-	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/delete", strings.NewReader("ws=ws_test&id=pin_abc"))
+	r := httptest.NewRequest(http.MethodPost, "/ui/api/pins/delete", strings.NewReader("ws=759dbbe1-9fcc-4069-90ec-f799ac861b95&id=43dbf603-78de-4f3a-b028-7b99858194a0"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)

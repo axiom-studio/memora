@@ -24,7 +24,7 @@ In a project's `.mcp.json`:
 ```
 
 Claude Code spawns `memora-core mcp`, pipes JSON-RPC over its
-stdin/stdout, and presents the 25 OSS tools to the model.
+stdin/stdout, and presents the 26 OSS tools to the model.
 
 ## Available tools
 
@@ -32,8 +32,10 @@ stdin/stdout, and presents the 25 OSS tools to the model.
 |---|---|
 | `memora_imprint` | Create a Memory. |
 | `memora_lookup` | Fetch a Memory. |
+| `memora_fetch` | Fetch a full Memory from the node that holds it: pass a search hit's `memory_id` and `node_id`. |
 | `memora_update` / `memora_patch` / `memora_append` | Edit a Memory (CAS). |
 | `memora_forget` | Soft-delete + cascade edges. |
+| `memora_search` | Search every workspace on the node (keyword/vector/hybrid), and with `federated: true` the node's peers (`peers`, `per_peer_k`, `timeout_ms`, `rerank`). Every hit carries `node_id`, `node_name`, `workspace_id`, `memory_id` and `matched_text`, so an agent can cite its source; `include_content` adds the full content. Peers that did not answer are in `failed_peers`. |
 | `memora_recall` | Search (lookup/keyword/vector/hybrid + graph_expansion). |
 | `memora_pin` / `memora_unpin` | Bind a recall to a watermark. |
 | `memora_list_workspaces` + `_create_workspace` / `_get_workspace` / `_delete_workspace` | Workspace admin. |
@@ -64,7 +66,7 @@ memora-core mcp --data-dir=./data 2>/dev/null
 ) | memora-core mcp --data-dir=./data
 ```
 
-You'll see initialize → tools list (25 tools) → workspace created.
+You'll see initialize → tools list (27 tools) → workspace created.
 
 ## Auth
 
@@ -75,10 +77,18 @@ The WebSocket transport (v0.5) will require a Bearer token matching
 ## Agent identity
 
 Every write tool (memora_imprint / update / patch / append / forget /
-link / unlink) requires an `agent_id` argument. The default
-`opaque` provider accepts anything. To enforce verification, point
-the deployer's `MEMORA_IDENTITY_PROVIDER=anthropic_session` and have
-the client supply `identity_proof = {session_id, model, system_prompt}`.
+link / unlink) requires an `agent_id` argument, and every agent ID is a
+UUIDv4. The default `opaque` provider accepts any UUID the client
+chooses.
 
-See [`pkg/identity`](../../pkg/identity) for the derivation recipe used
-by `anthropic_session`.
+`anthropic_session`, `oauth_agent` and `oidc_agent` identify the agent
+from its proof instead. The client sends `identityProvider` and
+`identityProof` in `initialize` (for `anthropic_session`,
+`{session_id, model, system_prompt}`) and may omit `agentId`. The
+server verifies the proof, maps the identity it proves to a UUIDv4
+agent ID (minted the first time that identity is seen, the same ID
+every time after) and returns it as `agentId` in the `initialize`
+result. Every tool call in the session then writes as that agent. An
+`agentId` sent alongside the proof must be that same ID.
+
+See [`pkg/identity`](../../pkg/identity) for the identity-key recipes.

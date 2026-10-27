@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"strings"
@@ -103,5 +105,25 @@ func TestApplyServeFlags_AsyncEmbed(t *testing.T) {
 	applyServeFlags(fs, &cfg, "", "", "", "", "", "", "", "", "", "", "", false, false, false)
 	if !cfg.Embedding.Async {
 		t.Fatal("an unset --async-embed overrode embedding.async = true")
+	}
+}
+
+// TestNewPeerKey: the printed SHA-256 is the hash of the printed key, so
+// pasting it into inbound_key_sha256 authenticates exactly that key.
+func TestNewPeerKey(t *testing.T) {
+	k1, h1, err := newPeerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	k2, _, err := newPeerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(k1) != 43 || k1 == k2 {
+		t.Fatalf("keys %q, %q: want two distinct 43-char keys", k1, k2)
+	}
+	sum := sha256.Sum256([]byte(k1))
+	if h1 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("hash %s is not SHA-256 of the key", h1)
 	}
 }

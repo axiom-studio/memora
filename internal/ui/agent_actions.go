@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+
+	"github.com/axiom-studio/memora/pkg/types"
 )
 
 var identityProviders = []struct{ Value, Label string }{
@@ -38,8 +40,8 @@ func (h *Handler) partialAgentRegisterForm(w http.ResponseWriter, r *http.Reques
   <h3 id="agent-register-title">Register Agent</h3>
   <div id="agent-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
-  <label>Agent ID <span class="text-muted">(must start with agent_)</span>
-    <input type="text" name="agent_id" placeholder="agent_my_bot" required pattern="agent_.*">
+  <label>Agent ID <span class="text-muted">(UUID; leave empty to generate one)</span>
+    <input type="text" name="agent_id" placeholder="3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90">
   </label>
   <label>Display Name
     <input type="text" name="display_name" placeholder="My Bot">
@@ -78,12 +80,14 @@ func (h *Handler) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	agentType := strings.TrimSpace(r.FormValue("agent_type"))
 	model := strings.TrimSpace(r.FormValue("model"))
 
-	if wsID == "" || agentID == "" {
-		h.writeFormError(w, "Workspace ID and Agent ID are required")
+	if wsID == "" {
+		h.writeFormError(w, "Workspace ID is required")
 		return
 	}
-	if !strings.HasPrefix(agentID, "agent_") {
-		h.writeFormError(w, "Agent ID must start with agent_")
+	if agentID == "" {
+		agentID = types.NewID()
+	} else if _, err := types.ParseID("agent_id", agentID); err != nil {
+		h.writeFormError(w, "Agent ID must be a UUID")
 		return
 	}
 	if provider == "" {

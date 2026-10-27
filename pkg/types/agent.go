@@ -47,17 +47,31 @@ const (
 )
 
 // AgentLegacyVibeflowID is the reserved sentinel agent_id used by the
-// parent_context_id migration shim (F11). Auto-registered in every
-// workspace at server startup.
-const AgentLegacyVibeflowID = "agent_legacy_vibeflow"
+// parent_context_id migration shim (F11). Like every reserved agent it is
+// registered in every workspace (agents are keyed per workspace). The value is fixed and published so
+// clients can recognise shim-authored edges.
+const AgentLegacyVibeflowID = "6f1c3a2e-9b4d-4e7a-8c5f-0d2b1e3a4c50"
 
 // AgentSystemAutoLinkID is the reserved sentinel agent_id used by the
 // auto-link feature (F14) for system-generated vector_neighbor edges.
-const AgentSystemAutoLinkID = "agent_system_auto_link"
+const AgentSystemAutoLinkID = "2a7e5d1c-8f3b-4c6a-9e0d-4b1f2c3a5d61"
+
+// ConsoleAgentID is the agent the web console writes as: every imprint,
+// edit, forget, link and unlink made through the console is attributed
+// to it (display name "ui-admin").
+const ConsoleAgentID = "8d3b6e1f-4a2c-4f5d-b7e9-0c1a2b3d4e5f"
 
 // ReservedAgentIDs lists all sentinel agent_ids that cannot be
 // assigned to user-created agents.
-var ReservedAgentIDs = []string{AgentLegacyVibeflowID, AgentSystemAutoLinkID}
+var ReservedAgentIDs = []string{AgentLegacyVibeflowID, AgentSystemAutoLinkID, ConsoleAgentID}
+
+// ReservedAgentDisplayNames are the display names the sentinels are
+// registered with; agent IDs carry no meaning of their own.
+var ReservedAgentDisplayNames = map[string]string{
+	AgentLegacyVibeflowID: "legacy-vibeflow",
+	AgentSystemAutoLinkID: "system-auto-link",
+	ConsoleAgentID:        "ui-admin",
+}
 
 // IsReservedAgentID returns true if the given id is a system sentinel.
 func IsReservedAgentID(id string) bool {
@@ -96,13 +110,10 @@ type Agent struct {
 
 // Validate returns an error if the agent is malformed.
 func (a *Agent) Validate() error {
-	if a.AgentID == "" {
-		return errEmpty("agent.agent_id")
-	}
-	if err := MustHavePrefix(a.AgentID, AgentIDPrefix); err != nil {
+	if err := parseErr("agent_id", a.AgentID); err != nil {
 		return err
 	}
-	if err := MustHavePrefix(a.WorkspaceID, WorkspaceIDPrefix); err != nil {
+	if err := parseErr("workspace_id", a.WorkspaceID); err != nil {
 		return err
 	}
 	if a.IdentityProvider == "" {

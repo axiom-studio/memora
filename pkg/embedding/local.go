@@ -4,25 +4,17 @@ package embedding
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/kelindar/search"
 )
 
 const (
-	defaultModelName = "nomic-embed-text-v1.5.Q8_0.gguf"
-	defaultModelURL  = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf"
-	defaultModelSHA  = "" // populated once the canonical hash is published
-	localDim         = 768
-	localMaxTokens   = 8192
+	localDim       = 768
+	localMaxTokens = 8192
 )
 
 // LocalProvider runs a GGUF embedding model locally via kelindar/search
@@ -83,9 +75,11 @@ func (p *LocalProvider) ensureModel() (*search.Vectorizer, error) {
 
 	modelPath := filepath.Join(p.modelDir, defaultModelName)
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		if err := downloadModel(modelPath); err != nil {
+		if err := downloadModel(defaultModelURL, modelPath, defaultModelSHA); err != nil {
 			return nil, fmt.Errorf("download model: %w", err)
 		}
+	} else if err := verifyModel(modelPath, defaultModelSHA); err != nil {
+		return nil, err
 	}
 
 	v, err := search.NewVectorizer(modelPath, 0)
@@ -106,50 +100,6 @@ func (p *LocalProvider) Close() error {
 		return err
 	}
 	return nil
-}
-
-func downloadModel(dest string) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-
-	tmp := dest + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		f.Close()
-		os.Remove(tmp)
-	}()
-
-	client := &http.Client{Timeout: 30 * time.Minute}
-	resp, err := client.Get(defaultModelURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %d", defaultModelURL, resp.StatusCode)
-	}
-
-	h := sha256.New()
-	w := io.MultiWriter(f, h)
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	if defaultModelSHA != "" {
-		got := hex.EncodeToString(h.Sum(nil))
-		if got != defaultModelSHA {
-			return fmt.Errorf("sha256 mismatch: got %s, want %s", got, defaultModelSHA)
-		}
-	}
-
-	return os.Rename(tmp, dest)
 }
 
 func defaultModelDir() string {

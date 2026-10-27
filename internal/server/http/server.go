@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/axiom-studio/memora/internal/certgen"
+	"github.com/axiom-studio/memora/internal/federation"
+	"github.com/axiom-studio/memora/internal/reqctx"
 	"github.com/axiom-studio/memora/internal/service"
 	"github.com/axiom-studio/memora/internal/ui"
 	"github.com/axiom-studio/memora/pkg/adapter"
@@ -54,6 +56,19 @@ type Config struct {
 	TLS            TLSConfig
 	UISettings     *ui.SettingsInfo   // optional; nil = settings page shows empty state
 	UIFederation   *ui.FederationInfo // optional; nil = federation page shows disabled
+	// Federation authenticates the routes peers call (federation.IsPeerRoute),
+	// which take peer credentials instead of APIKey. nil = federation off.
+	Federation *federation.Registry
+	// FederationPeers edits the runtime peer registry behind
+	// /v1/federation/peers. nil = those routes answer federation_disabled.
+	FederationPeers *federation.Manager
+	// FederationInboundQPS caps each peer's calls to the peer routes
+	// (0 = federation.DefaultInboundQPS).
+	FederationInboundQPS float64
+	// FederationRejectWindow is how long unauthenticated peer-route
+	// refusals are counted before one summary ledger entry per caller
+	// is written (0 = one minute).
+	FederationRejectWindow time.Duration
 
 	allowedOriginSet map[string]bool // populated by New from AllowedOrigins
 }
@@ -63,6 +78,13 @@ type Server struct {
 	cfg Config
 	mux *http.ServeMux
 	srv *http.Server
+	// inbound rate-limits each calling peer on the peer routes.
+	inbound *federation.RateLimiterPool
+	// preauth rate-limits peer-route requests per client address before
+	// authentication; rejections aggregates the unauthenticated
+	// refusals for the ledger (#6178).
+	preauth    *federation.AddrLimiter
+	rejections *federation.RejectionAggregator
 }
 
 // DefaultMaxBodyBytes caps request bodies at 8 MiB. Memora's largest
@@ -112,7 +134,24 @@ func New(cfg Config) *Server {
 	}
 
 	mux := http.NewServeMux()
-	s := &Server{cfg: cfg, mux: mux}
+	s := &Server{cfg: cfg, mux: mux, inbound: federation.NewInboundPool(cfg.FederationInboundQPS)}
+	inboundQPS := cfg.FederationInboundQPS
+	if inboundQPS <= 0 {
+		inboundQPS = federation.DefaultInboundQPS
+	}
+	// Twice one peer's limit, and at least twice the default: room for
+	// a peer's own traffic, far below a flood. Peers behind one NAT or
+	// proxy share it.
+	s.preauth = federation.NewAddrLimiter(2 * max(inboundQPS, federation.DefaultInboundQPS))
+	window := cfg.FederationRejectWindow
+	if window <= 0 {
+		window = time.Minute
+	}
+	s.rejections = federation.NewRejectionAggregator(window, func(e api.LedgerEntry) {
+		if cfg.Service != nil {
+			cfg.Service.AppendLedger(context.Background(), e)
+		}
+	})
 	s.routes()
 
 	uiHandler, err := ui.NewHandler()
@@ -134,6 +173,13 @@ func New(cfg Config) *Server {
 				PatchFunc:   cfg.Service.Patch,
 				AppendFunc:  cfg.Service.Append,
 				ForgetFunc:  cfg.Service.Forget,
+				UnlinkFunc:  cfg.Service.GraphUnlink,
+
+				LinkFunc:            cfg.Service.GraphLink,
+				CreatePinFunc:       cfg.Service.CreatePin,
+				DeletePinFunc:       cfg.Service.DeletePin,
+				RegisterAgentFunc:   cfg.Service.RegisterAgent,
+				DeactivateAgentFunc: cfg.Service.DeactivateAgent,
 			}
 			uiHandler.SetDataSource(ds)
 		}
@@ -143,14 +189,26 @@ func New(cfg Config) *Server {
 		if cfg.UIFederation != nil {
 			uiHandler.SetFederation(cfg.UIFederation)
 		}
+		if cfg.FederationPeers != nil {
+			uiHandler.SetPeers(cfg.FederationPeers)
+		}
 		uiHandler.Register(mux)
 	}
 	s.srv = &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           s.middleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       cfg.Timeout,
-		WriteTimeout:      cfg.Timeout + 5*time.Second,
+		// The request line and headers; Go's default is 1 MiB.
+		MaxHeaderBytes: 64 << 10,
+		ReadTimeout:    cfg.Timeout,
+		WriteTimeout:   cfg.Timeout + 5*time.Second,
+	}
+	if cfg.TLS.Enabled && cfg.Federation != nil {
+		// Ask for, but do not chain-verify, client certificates: a peer's
+		// certificate is pinned by fingerprint in AuthenticatePeer, and
+		// clients without one (API callers, the console) still connect.
+		// Always on with federation, since pins can be added at runtime.
+		s.srv.TLSConfig = &tls.Config{ClientAuth: tls.RequestClientCert}
 	}
 	return s
 }
@@ -173,8 +231,23 @@ func (s *Server) ListenAndServe() error {
 	return s.srv.ListenAndServe()
 }
 
-// Shutdown drains the server gracefully.
-func (s *Server) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+// Shutdown drains the server, then writes the pending peer-route
+// rejection summaries, so a restart never drops a window of audit
+// (#6232).
+func (s *Server) Shutdown(ctx context.Context) error {
+	err := s.srv.Shutdown(ctx)
+	s.FlushAudit()
+	return err
+}
+
+// FlushAudit writes the pending peer-route rejection summaries now.
+// Shutdown calls it; a caller that serves Handler() itself (tests,
+// embedders) calls it before closing the ledger.
+func (s *Server) FlushAudit() {
+	if s.rejections != nil {
+		s.rejections.Flush()
+	}
+}
 
 func initTLS(cfg *Config) error {
 	if cfg.TLS.CertFile == "" && cfg.TLS.AutoSelfSigned {
@@ -237,13 +310,32 @@ func bindsToLoopback(addr string) bool {
 	return false
 }
 
+// maxRequestIDLen bounds a client-supplied X-Request-ID; anything longer
+// is replaced rather than carried into logs and the ledger.
+const maxRequestIDLen = 128
+
+// requestID returns the client's X-Request-ID when it is a safe token
+// (1–128 chars of [A-Za-z0-9._:-]) and a fresh UUIDv4 otherwise. A bad
+// value is replaced, not rejected: request IDs are a correlation aid,
+// and the response header tells the client which one was used.
+func requestID(clientID string) string {
+	if clientID == "" || len(clientID) > maxRequestIDLen {
+		return types.NewID()
+	}
+	for _, c := range clientID {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '.' || c == '_' || c == ':' || c == '-'
+		if !ok {
+			return types.NewID()
+		}
+	}
+	return clientID
+}
+
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
-			reqID = types.NewID("req_")
-		}
+		reqID := requestID(r.Header.Get("X-Request-ID"))
 		w.Header().Set("X-Request-ID", reqID)
 
 		// CORS (outermost — must run before auth so preflight succeeds).
@@ -266,9 +358,54 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 		}
 
-		// Auth: API key (skipped for /ui/ paths — UI has its own session auth;
-		// skipped when no key configured — local-dev mode).
-		if s.cfg.APIKey != "" && r.URL.Path != "/ui" && !strings.HasPrefix(r.URL.Path, "/ui/") {
+		// Auth: the routes peers call take peer credentials, never the API
+		// key, and are refused even in no-auth local-dev mode. Everything
+		// else takes the API key (skipped for /ui/ paths — UI has its own
+		// session auth; skipped when no key configured — local-dev mode).
+		var peer *federation.InboundAuthResult
+		routeChecked := false
+		if federation.IsPeerRoute(r.URL.Path) {
+			if s.cfg.Federation == nil {
+				s.writeError(w, http.StatusNotFound, "federation_disabled", "federation is not enabled on this node", nil)
+				return
+			}
+			// Peer routes are reachable without the API key, so a
+			// caller is limited per address before anything is checked
+			// or written (#6178), and a malformed path is refused before
+			// it can reach the audit.
+			if s.preauth != nil && !s.preauth.Allow(r.RemoteAddr) {
+				s.observeInbound("", federation.ReasonRateLimited)
+				w.Header().Set("Retry-After", retryAfter(s.preauth.QPS()))
+				s.writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests", nil)
+				return
+			}
+			if !s.checkRoute(w, r) {
+				return
+			}
+			routeChecked = true
+			res, err := federation.AuthenticatePeer(r, s.cfg.Federation)
+			if err != nil {
+				// Audit with the reason; the caller only sees the
+				// uniform error. A claimed node ID is recorded only
+				// when it is well-formed. A caller that proved nothing
+				// is counted into one summary entry per window instead
+				// of a row per request.
+				claimed := r.Header.Get(federation.HeaderLocalInstanceID)
+				if _, perr := types.ParseID("node_id", claimed); perr != nil {
+					claimed = ""
+				}
+				reason := federation.RejectReason(err)
+				if federation.Unauthenticated(reason) && s.rejections != nil {
+					s.rejections.Record(reason, claimed, r.RemoteAddr, federation.PeerRouteTemplate(r.URL.Path))
+				} else {
+					s.ledgerRejected(r, claimed, reason)
+				}
+				s.observeInbound(claimed, reason)
+				s.writeErrorFromService(w, err)
+				return
+			}
+			peer = res
+		} else if s.cfg.APIKey != "" && r.URL.Path != "/ui" && !strings.HasPrefix(r.URL.Path, "/ui/") {
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") {
 				s.writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
@@ -281,14 +418,27 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 		}
 
+		// Route table: unknown /v1 routes, wrong methods and malformed
+		// ID path parameters stop here (routetable.go).
+		if !routeChecked && strings.HasPrefix(r.URL.Path, "/v1/") && !s.checkRoute(w, r) {
+			return
+		}
+
 		// Per-request timeout from Config.Timeout.
 		ctx := r.Context()
 		ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 		defer cancel()
+		if peer != nil {
+			ctx = context.WithValue(ctx, ctxKeyPeer, peer)
+		}
 
 		// Multi-tenant: resolve workspace from header when in multi-tenant mode.
 		if s.cfg.Mode == "multi-tenant" {
 			if ws := r.Header.Get("X-Memora-Workspace"); ws != "" {
+				if _, err := types.ParseID("X-Memora-Workspace", ws); err != nil {
+					s.writeErrorFromService(w, err)
+					return
+				}
 				ctx = context.WithValue(ctx, ctxKeyWorkspace, ws)
 			}
 		}
@@ -298,6 +448,10 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			agentID := r.Header.Get("Memora-Agent-Id")
 			if agentID == "" {
 				s.writeError(w, http.StatusBadRequest, "missing_agent_id", "Memora-Agent-Id header required on writes", nil)
+				return
+			}
+			if _, err := types.ParseID("agent_id", agentID); err != nil {
+				s.writeErrorFromService(w, err)
 				return
 			}
 			provName := r.Header.Get("Memora-Identity-Provider")
@@ -311,19 +465,17 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			}
 			ctx = context.WithValue(ctx, ctxKeyAgent, agentID)
 
-			// Auto-register agent after successful verification.
+			// Record the agent in the workspace after verification:
+			// registered on first use, otherwise only last_seen_at moves.
+			// It never reactivates a deactivated agent; the service then
+			// refuses its writes (#6169).
 			if s.cfg.Service != nil && s.cfg.Service.Metadata != nil {
-				wsID := workspaceFromPath(r.URL.Path)
-				if wsID != "" {
-					_ = s.cfg.Service.Metadata.RegisterAgent(ctx, &types.Agent{
-						AgentID:          agentID,
-						WorkspaceID:      wsID,
-						IdentityProvider: provName,
-					})
+				if wsID := workspaceFromPath(r.URL.Path); wsID != "" {
+					_ = s.cfg.Service.TouchAgent(ctx, wsID, agentID, provName)
 				}
 			}
 		}
-		ctx = context.WithValue(ctx, ctxKeyRequestID, reqID)
+		ctx = reqctx.WithRequestID(ctx, reqID)
 
 		// Wrap response writer to capture status for logs.
 		rw := &recorder{ResponseWriter: w, status: 200}
@@ -343,10 +495,16 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 type ctxKey int
 
 const (
-	ctxKeyRequestID ctxKey = iota
-	ctxKeyAgent
+	ctxKeyAgent ctxKey = iota
 	ctxKeyWorkspace
+	ctxKeyPeer
 )
+
+// peerFrom returns the authenticated calling peer on a peer route, or nil.
+func peerFrom(ctx context.Context) *federation.InboundAuthResult {
+	v, _ := ctx.Value(ctxKeyPeer).(*federation.InboundAuthResult)
+	return v
+}
 
 func agentFrom(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyAgent).(string)
@@ -378,23 +536,33 @@ func (r *recorder) Flush() {
 	}
 }
 
-// Determine whether a request is a memory/edge write that must carry
-// Memora-Agent-Id. Workspace / Collection / Agent admin endpoints are
+// Determine whether a request is a REST memory/edge write that must
+// carry Memora-Agent-Id. Only /v1/workspaces/{ws}/... routes qualify: the
+// console (/ui/...) authenticates by session and attributes its writes
+// to types.ConsoleAgentID itself (#6183), and peer routes are reads made
+// by another node. Workspace / collection / agent admin endpoints are
 // deployer-controlled and don't require agent attribution.
 func isWriteVerb(method, path string) bool {
 	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
 		return false
 	}
-	if strings.HasPrefix(path, "/healthz") || strings.HasPrefix(path, "/readyz") || strings.HasPrefix(path, "/metrics") {
+	rest, ok := strings.CutPrefix(path, "/v1/workspaces/")
+	if !ok {
 		return false
 	}
-	// Workspace / collection / agent CRUD: no agent_id required.
-	// Agent writes: /memories*, /edges*, /graph/* and /recall/pins* (pin
-	// create/delete). Plain POST /recall is a query sent as POST, so it is
-	// not a write (#5984).
-	if strings.Contains(path, "/memories") || strings.Contains(path, "/edges") ||
-		strings.Contains(path, "/graph/") || strings.Contains(path, "/recall/pins") {
+	// rest is "{ws}/{resource}[/...]". Agent writes: memories (with
+	// :append and @watermark forms), edges, graph and recall/pins (pin
+	// create/delete). Plain POST /recall is a query sent as POST, so it
+	// is not a write (#5984).
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	switch parts[1] {
+	case "memories", "edges", "graph":
 		return true
+	case "recall":
+		return len(parts) == 3 && (parts[2] == "pins" || strings.HasPrefix(parts[2], "pins/"))
 	}
 	return false
 }

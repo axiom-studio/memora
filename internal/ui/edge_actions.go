@@ -36,10 +36,10 @@ func (h *Handler) partialEdgeLinkForm(w http.ResponseWriter, r *http.Request) {
   <div id="edge-result"></div>
   <input type="hidden" name="workspace_id" value="%s">
   <label>Source Memory ID
-    <input type="text" name="source_memory_id" value="%s" placeholder="mem_..." required>
+    <input type="text" name="source_memory_id" value="%s" placeholder="memory UUID, e.g. 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58" required>
   </label>
   <label>Target Memory ID
-    <input type="text" name="target_memory_id" placeholder="mem_..." required>
+    <input type="text" name="target_memory_id" placeholder="memory UUID, e.g. 7d4e2a91-5b3c-4f8e-a1d6-9c0b2e7f3a58" required>
   </label>
   <label>Edge Type
     <select name="edge_type" required>%s</select>

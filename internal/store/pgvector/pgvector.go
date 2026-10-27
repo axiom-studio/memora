@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,9 +23,17 @@ func init() {
 }
 
 type Store struct {
-	pool *pgxpool.Pool
-	dim  int
+	pool  *pgxpool.Pool
+	dim   int
+	model string // active embedder model ID; rows record theirs
+	// iterative is pgvector >= 0.8, whose HNSW scans can keep going until
+	// LIMIT rows pass the WHERE clause (hnsw.iterative_scan).
+	iterative bool
 }
+
+// ErrDimensionMismatch is Open refusing a vector column sized for
+// another embedding dimension.
+var ErrDimensionMismatch = errors.New("pgvector: vector column dimension differs from the embedder's")
 
 func (s *Store) Open(ctx context.Context, cfg adapter.VectorConfig) error {
 	if cfg.DSN == "" {
@@ -53,6 +62,16 @@ func (s *Store) Open(ctx context.Context, cfg adapter.VectorConfig) error {
 		return fmt.Errorf("pgvector: create extension: %w", err)
 	}
 
+	s.model = cfg.Model
+	var version string
+	if err := pool.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&version); err == nil {
+		s.iterative = versionAtLeast(version, 0, 8)
+	}
+	if err := s.checkDimension(ctx, cfg.Rebuild); err != nil {
+		pool.Close()
+		return err
+	}
+
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS memora_cell_vectors (
     workspace_id  TEXT NOT NULL,
@@ -78,7 +97,90 @@ CREATE TABLE IF NOT EXISTS memora_cell_vectors (
 		}
 	}
 
+	// Per-row model (S-7). Rows written before it are adopted as the
+	// active model's: the column's dimension already matches.
+	for _, stmt := range []string{
+		"ALTER TABLE memora_cell_vectors ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''",
+		// No index on model: nearly every row has the active model, and
+		// an index there can draw the planner away from the HNSW index.
+		"DROP INDEX IF EXISTS idx_cellvec_model",
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			pool.Close()
+			return fmt.Errorf("pgvector: migrate model column: %w", err)
+		}
+	}
+	if s.model != "" {
+		if _, err := pool.Exec(ctx, "UPDATE memora_cell_vectors SET model = $1 WHERE model = ''", s.model); err != nil {
+			pool.Close()
+			return fmt.Errorf("pgvector: adopt existing vectors: %w", err)
+		}
+	}
 	return nil
+}
+
+// checkDimension compares an existing vector column's width with the
+// embedder's. A mismatch refuses Open, since every query would fail; in
+// rebuild mode (memora-core reembed) the old vectors, which the new model
+// cannot use, are dropped with the table and re-created at the new width.
+func (s *Store) checkDimension(ctx context.Context, rebuild bool) error {
+	var typmod int
+	err := s.pool.QueryRow(ctx, `SELECT a.atttypmod FROM pg_attribute a
+WHERE a.attrelid = to_regclass('memora_cell_vectors') AND a.attname = 'embedding' AND NOT a.attisdropped`).Scan(&typmod)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // no table yet
+	}
+	if err != nil {
+		return fmt.Errorf("pgvector: read vector column: %w", err)
+	}
+	if typmod <= 0 || typmod == s.dim {
+		return nil
+	}
+	if !rebuild {
+		return fmt.Errorf("%w: memora_cell_vectors.embedding is vector(%d) but the embedding model produces %d dimensions; "+
+			"run `memora-core reembed` to rebuild the vectors for the new model (or switch back to the old model)",
+			ErrDimensionMismatch, typmod, s.dim)
+	}
+	if _, err := s.pool.Exec(ctx, "DROP TABLE memora_cell_vectors"); err != nil {
+		return fmt.Errorf("pgvector: drop vectors for rebuild: %w", err)
+	}
+	return nil
+}
+
+// StaleVectors implements adapter.ModelAwareVectorStore. The column has
+// one width, so a stale row is one from another model.
+func (s *Store) StaleVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, "SELECT count(*) FROM memora_cell_vectors WHERE model != $1", s.model).Scan(&n)
+	return n, err
+}
+
+// FreshVectors implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshVectors(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, "SELECT count(*) FROM memora_cell_vectors WHERE model = $1", s.model).Scan(&n)
+	return n, err
+}
+
+// FreshCells implements adapter.ModelAwareVectorStore.
+func (s *Store) FreshCells(ctx context.Context, cellIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cellIDs))
+	if len(cellIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, "SELECT cell_id FROM memora_cell_vectors WHERE model = $1 AND cell_id = ANY($2)", s.model, cellIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Close() error {
@@ -127,16 +229,17 @@ func (s *Store) PutVectorsBatch(ctx context.Context, puts []adapter.VectorPut) e
 			collID = p.Key.CollectionID
 		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, embedding, metadata_json, created_at)
-VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+INSERT INTO memora_cell_vectors (workspace_id, collection_id, memory_id, cell_id, embedding, metadata_json, created_at, model)
+VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8)
 ON CONFLICT(cell_id) DO UPDATE SET
     workspace_id=excluded.workspace_id,
     collection_id=excluded.collection_id,
     memory_id=excluded.memory_id,
     embedding=excluded.embedding,
+    model=excluded.model,
     metadata_json=excluded.metadata_json`,
 			p.Key.WorkspaceID, collID, p.Key.MemoryID, p.Key.CellID,
-			vecStr, nullableJSON(mdJSON), now); err != nil {
+			vecStr, nullableJSON(mdJSON), now, s.model); err != nil {
 			return fmt.Errorf("pgvector: put %s: %w", p.Key.CellID, err)
 		}
 	}
@@ -148,9 +251,19 @@ func (s *Store) Query(ctx context.Context, q adapter.VectorQuery) ([]adapter.Vec
 		q.K = 5
 	}
 
-	where := []string{"workspace_id = $1"}
-	args := []any{q.WorkspaceID}
+	workspaces, err := q.Scope()
+	if err != nil {
+		return nil, err
+	}
+	// Only rows from the active model share its vector space (S-7).
+	where := []string{"model = $1"}
+	args := []any{s.model}
 	argN := 2
+	if workspaces != nil {
+		where = append(where, fmt.Sprintf("workspace_id = ANY($%d)", argN))
+		args = append(args, workspaces)
+		argN++
+	}
 
 	if q.Filter.CollectionID != "" {
 		where = append(where, fmt.Sprintf("collection_id = $%d", argN))
@@ -171,7 +284,27 @@ ORDER BY embedding <=> $%d::vector
 LIMIT $%d`, argN, whereClause, argN, argN+1)
 	args = append(args, vecStr, q.K)
 
-	rows, err := s.pool.Query(ctx, query, args...)
+	// An HNSW index scan visits at most ef_search candidates (default
+	// 40), so a plain scan returns fewer than LIMIT rows once LIMIT is
+	// larger, or once the WHERE clause drops some. Widen it for this
+	// query, and on pgvector >= 0.8 let the scan continue until LIMIT
+	// rows pass the filter (#4359 QA). Settings are LOCAL to this
+	// transaction.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pgvector: query: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL hnsw.ef_search = %d", min(max(q.K, 40), 1000))); err != nil {
+		return nil, fmt.Errorf("pgvector: set ef_search: %w", err)
+	}
+	if s.iterative {
+		if _, err := tx.Exec(ctx, "SET LOCAL hnsw.iterative_scan = relaxed_order"); err != nil {
+			return nil, fmt.Errorf("pgvector: set iterative_scan: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("pgvector: query: %w", err)
 	}
@@ -194,20 +327,64 @@ LIMIT $%d`, argN, whereClause, argN, argN+1)
 		}
 		hits = append(hits, h)
 	}
-	return hits, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// relaxed_order may return rows slightly out of distance order.
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	return hits, nil
+}
+
+// versionAtLeast reports whether a "major.minor[.patch]" version is at
+// least major.minor.
+func versionAtLeast(v string, major, minor int) bool {
+	var ma, mi int
+	if _, err := fmt.Sscanf(v, "%d.%d", &ma, &mi); err != nil {
+		return false
+	}
+	return ma > major || ma == major && mi >= minor
 }
 
 func (s *Store) DeleteVectors(ctx context.Context, keys []adapter.VectorKey) error {
-	if len(keys) == 0 {
-		return nil
+	cellIDs, memories, err := adapter.SplitVectorKeys(keys)
+	if err != nil || len(keys) == 0 {
+		return err
 	}
-	ids := make([]string, len(keys))
-	for i, k := range keys {
-		ids[i] = k.CellID
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := s.pool.Exec(ctx,
-		"DELETE FROM memora_cell_vectors WHERE cell_id = ANY($1)", ids)
-	return err
+	defer func() { _ = tx.Rollback(ctx) }()
+	if len(cellIDs) > 0 {
+		if _, err := tx.Exec(ctx, "DELETE FROM memora_cell_vectors WHERE cell_id = ANY($1)", cellIDs); err != nil {
+			return err
+		}
+	}
+	for _, k := range memories {
+		if _, err := tx.Exec(ctx, "DELETE FROM memora_cell_vectors WHERE workspace_id = $1 AND memory_id = $2", k.WorkspaceID, k.MemoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// VectorMemories implements adapter.ModelAwareVectorStore.
+func (s *Store) VectorMemories(ctx context.Context, workspaceID, after string, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT memory_id FROM memora_cell_vectors
+WHERE workspace_id = $1 AND memory_id > $2 ORDER BY memory_id LIMIT $3`, workspaceID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func floatsToVectorLiteral(v []float32) string {

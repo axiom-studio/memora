@@ -1,50 +1,98 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/axiom-studio/memora/internal/federation"
+	"github.com/axiom-studio/memora/pkg/types/api"
 )
+
+// PeerManager is the runtime federation peer registry the console edits
+// (federation.Manager). Keys are write-only: List never returns them.
+type PeerManager interface {
+	List(ctx context.Context) ([]api.PeerView, error)
+	Upsert(ctx context.Context, req api.PeerRequest) (api.PeerView, error)
+	Delete(ctx context.Context, nodeID string) error
+}
+
+// SetPeers wires the console's peer pages to the runtime registry.
+func (h *Handler) SetPeers(m PeerManager) { h.peers = m }
+
+// listPeers returns the registry's peers, or nil when there is none.
+func (h *Handler) listPeers(ctx context.Context) []api.PeerView {
+	if h.peers == nil {
+		return nil
+	}
+	peers, _ := h.peers.List(ctx)
+	return peers
+}
+
+func (h *Handler) findPeer(ctx context.Context, nodeID string) *api.PeerView {
+	for _, p := range h.listPeers(ctx) {
+		if p.NodeID == nodeID {
+			return &p
+		}
+	}
+	return nil
+}
 
 func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if h.federation == nil {
+	if h.federation == nil || h.peers == nil {
 		fmt.Fprint(w, `<div class="empty-state"><h3>Federation Disabled</h3><p>Federation is not configured for this instance.</p></div>`)
 		return
 	}
-	f := h.federation
+	peers := h.listPeers(r.Context())
 
 	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">Federation Overview</h3><table>`)
-	fmt.Fprintf(w, `<tr><td><strong>Federation ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(f.FederationID))
-	fmt.Fprintf(w, `<tr><td><strong>Configured Peers</strong></td><td>%d</td></tr>`, len(f.Peers))
+	fmt.Fprintf(w, `<tr><td><strong>Federation ID</strong></td><td class="mono">%s</td></tr>`, template.HTMLEscapeString(h.federation.FederationID))
+	fmt.Fprintf(w, `<tr><td><strong>Peers</strong></td><td>%d</td></tr>`, len(peers))
 	fmt.Fprint(w, `</table></div>`)
 
-	if len(f.Peers) == 0 {
-		fmt.Fprint(w, `<div class="empty-state"><h3>No Peers</h3><p>No federation peers are configured.</p><button class="btn btn-primary" hx-get="/ui/partials/peer-add-form" hx-target="#modal-host" hx-swap="innerHTML" onclick="setTimeout(function(){var d=document.querySelector('#modal-host dialog');if(d)d.showModal()},100)">Add Peer</button></div>`)
+	if len(peers) == 0 {
+		fmt.Fprint(w, `<div class="empty-state"><h3>No Peers</h3><p>No federation peers are registered.</p><button class="btn btn-primary" hx-get="/ui/partials/peer-add-form" hx-target="#fed-modal-container" hx-swap="innerHTML">Add Peer</button></div><div id="fed-modal-container"></div>`)
 		return
 	}
 
 	fmt.Fprint(w, `<div class="card mb-2"><h3 class="card-title">Peers</h3>`)
-	fmt.Fprint(w, `<table><thead><tr><th>ID</th><th>Name</th><th>Endpoint</th><th>Trust Mode</th><th>Workspaces</th><th>Actions</th></tr></thead><tbody>`)
-	for _, p := range f.Peers {
-		wsLabel := "all"
-		if len(p.Workspaces) > 0 {
-			wsLabel = strings.Join(p.Workspaces, ", ")
+	fmt.Fprint(w, `<table><thead><tr><th>Node ID</th><th>Name</th><th>Endpoint</th><th>Trust Mode</th><th>Keys</th><th>Status</th><th>Actions</th></tr></thead><tbody>`)
+	for _, p := range peers {
+		var keys []string
+		if p.HasInboundKey {
+			keys = append(keys, "inbound")
 		}
-		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td>%s</td><td class="mono">%s</td>`,
-			template.HTMLEscapeString(truncateStr(p.ID, 20)),
+		if p.HasAPIKey {
+			keys = append(keys, "outbound")
+		} else if p.APIKeyStatus == "unreadable" {
+			keys = append(keys, "outbound (unreadable: set it again)")
+		}
+		if len(keys) == 0 {
+			keys = []string{"none"}
+		}
+		status := `<span class="badge badge-ok">active</span>`
+		if p.Revoked {
+			status = `<span class="badge badge-err">revoked</span>`
+		}
+		fmt.Fprintf(w, `<tr><td class="mono">%s</td><td>%s</td><td class="mono">%s</td><td>%s</td><td>%s</td><td>%s</td>`,
+			template.HTMLEscapeString(p.NodeID),
 			template.HTMLEscapeString(p.Name),
-			template.HTMLEscapeString(p.Endpoint),
+			template.HTMLEscapeString(p.URL),
 			template.HTMLEscapeString(p.TrustMode),
-			template.HTMLEscapeString(truncateStr(wsLabel, 40)),
+			template.HTMLEscapeString(strings.Join(keys, ", ")),
+			status,
 		)
 		fmt.Fprintf(w, `<td><button class="btn btn-sm" hx-get="/ui/partials/peer-edit-form?id=%s" hx-target="#fed-modal-container" hx-swap="innerHTML">Edit</button> `,
-			template.HTMLEscapeString(p.ID))
+			template.HTMLEscapeString(p.NodeID))
 		fmt.Fprintf(w, `<button class="btn btn-sm btn-danger" hx-get="/ui/partials/peer-remove-form?id=%s" hx-target="#fed-modal-container" hx-swap="innerHTML">Remove</button></td></tr>`,
-			template.HTMLEscapeString(p.ID))
+			template.HTMLEscapeString(p.NodeID))
 	}
 	fmt.Fprint(w, `</tbody></table></div>`)
 
@@ -54,7 +102,7 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 	fmt.Fprint(w, `<div id="fed-modal-container"></div>`)
 
 	if h.data != nil {
-		entries, err := h.data.LedgerEntriesSince(r.Context(), time.Time{}, []string{"federation_recall", "federation_inbound"}, 100)
+		entries, err := h.data.LedgerEntriesSince(r.Context(), time.Time{}, federation.Ops, 100)
 		if err == nil && len(entries) > 0 {
 			fmt.Fprint(w, `<div class="card"><h3 class="card-title">Recent Federation Activity</h3>`)
 			fmt.Fprint(w, `<table><thead><tr><th>Time</th><th>Op</th><th>Target</th><th>Agent</th></tr></thead><tbody>`)
@@ -71,227 +119,155 @@ func (h *Handler) partialFederationStatus(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	var wsOptions string
-	if h.data != nil {
-		wss, _ := h.data.ListWorkspaces(r.Context())
-		for _, ws := range wss {
-			wsOptions += fmt.Sprintf(`<label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal"><input type="checkbox" name="workspaces" value="%s"> %s</label>`,
-				template.HTMLEscapeString(ws.ID), template.HTMLEscapeString(ws.Name))
+// peerForm renders the add (p == nil) or edit form. Key inputs are
+// password fields that are never pre-filled; blank keeps the stored key,
+// except that a changed endpoint needs the outbound key again.
+func peerForm(w http.ResponseWriter, p *api.PeerView) {
+	title, action, submit, idField := "Add Federation Peer", "/ui/api/peers/add", "Add Peer",
+		`<label>Node ID <input type="text" name="node_id" required placeholder="the peer's memora-core node id"></label>`
+	name, url, timeout, keyHint, outHint, revoked := "", "", "", "", "", ""
+	outQPS, inQPS, certPin := "", "", ""
+	if p != nil {
+		title, action, submit = "Edit Peer: "+p.Name, "/ui/api/peers/update", "Update Peer"
+		idField = fmt.Sprintf(`<input type="hidden" name="node_id" value="%s"><p class="mono">%s</p>`,
+			template.HTMLEscapeString(p.NodeID), template.HTMLEscapeString(p.NodeID))
+		name, url = p.Name, p.URL
+		if p.TimeoutMS > 0 {
+			timeout = strconv.Itoa(p.TimeoutMS)
+		}
+		if p.RateLimitQPS > 0 {
+			outQPS = strconv.FormatFloat(p.RateLimitQPS, 'g', -1, 64)
+		}
+		if p.InboundQPS > 0 {
+			inQPS = strconv.FormatFloat(p.InboundQPS, 'g', -1, 64)
+		}
+		certPin = p.ClientCertSHA256
+		keyHint = " (blank keeps the stored key)"
+		outHint = " (blank keeps the stored key; required when the endpoint changes)"
+		if p.Revoked {
+			revoked = " checked"
 		}
 	}
-
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title" open>
 <div class="modal-form">
-  <h3 id="peer-title">Add Federation Peer</h3>
-  <div id="peer-add-result"></div>
-  <form hx-post="/ui/api/peers/add" hx-target="#peer-add-result" hx-swap="innerHTML">
-    <label>Name <input type="text" name="name" required placeholder="production-west"></label>
-    <label>Endpoint <input type="url" name="endpoint" required placeholder="https://peer.example.com"></label>
-    <label>Trust Mode
-      <select name="trust_mode">
-        <option value="mtls">mTLS</option>
-        <option value="api_key">API Key</option>
-      </select>
-    </label>
-    <details style="margin-bottom:0.75rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Workspace Opt-In</summary>
-      <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0">Leave all unchecked for full access.</p>
-      %s
-    </details>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-      <button type="submit" class="btn btn-primary">Add Peer</button>
-    </div>
-  </form>
-</div>
-</dialog>`, wsOptions)
-}
-
-func (h *Handler) handlePeerAdd(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if h.data == nil {
-		h.writeFormError(w, "Data source not configured")
-		return
-	}
-
-	name := strings.TrimSpace(r.FormValue("name"))
-	endpoint := strings.TrimSpace(r.FormValue("endpoint"))
-	trustMode := strings.TrimSpace(r.FormValue("trust_mode"))
-
-	if name == "" || endpoint == "" {
-		h.writeFormError(w, "Name and endpoint are required")
-		return
-	}
-
-	_ = r.ParseForm()
-	workspaces := r.Form["workspaces"]
-
-	peer := PeerInfo{
-		Name:       name,
-		Endpoint:   endpoint,
-		TrustMode:  trustMode,
-		Workspaces: workspaces,
-	}
-
-	if err := h.data.AddPeer(r.Context(), peer); err != nil {
-		h.writeFormError(w, err.Error())
-		return
-	}
-
-	w.Header().Set("HX-Redirect", "/ui/federation")
-	w.WriteHeader(http.StatusOK)
-}
-
-func (h *Handler) partialPeerEditForm(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	peerID := r.URL.Query().Get("id")
-	if peerID == "" {
-		h.writeFormError(w, "Peer ID required")
-		return
-	}
-
-	var peer *PeerInfo
-	if h.federation != nil {
-		for _, p := range h.federation.Peers {
-			if p.ID == peerID {
-				peer = &p
-				break
-			}
-		}
-	}
-	if peer == nil {
-		h.writeFormError(w, "Peer not found")
-		return
-	}
-
-	peerWSSet := map[string]bool{}
-	for _, ws := range peer.Workspaces {
-		peerWSSet[ws] = true
-	}
-
-	var wsOptions string
-	if h.data != nil {
-		wss, _ := h.data.ListWorkspaces(r.Context())
-		for _, ws := range wss {
-			checked := ""
-			if peerWSSet[ws.ID] {
-				checked = " checked"
-			}
-			wsOptions += fmt.Sprintf(`<label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal"><input type="checkbox" name="workspaces" value="%s"%s> %s</label>`,
-				template.HTMLEscapeString(ws.ID), checked, template.HTMLEscapeString(ws.Name))
-		}
-	}
-
-	mtlsSel := ""
-	apiKeySel := ""
-	if peer.TrustMode == "api_key" {
-		apiKeySel = " selected"
-	} else {
-		mtlsSel = " selected"
-	}
-
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
-<div class="modal-form">
-  <h3 id="peer-title">Edit Peer: %s</h3>
-  <div id="peer-edit-result"></div>
-  <form hx-post="/ui/api/peers/update" hx-target="#peer-edit-result" hx-swap="innerHTML">
-    <input type="hidden" name="id" value="%s">
+  <h3 id="peer-title">%s</h3>
+  <div id="peer-form-result"></div>
+  <form hx-post="%s" hx-target="#peer-form-result" hx-swap="innerHTML">
+    %s
     <label>Name <input type="text" name="name" required value="%s"></label>
-    <label>Endpoint <input type="url" name="endpoint" required value="%s"></label>
-    <label>Trust Mode
-      <select name="trust_mode">
-        <option value="mtls"%s>mTLS</option>
-        <option value="api_key"%s>API Key</option>
-      </select>
-    </label>
-    <details style="margin-bottom:0.75rem"><summary class="text-muted" style="cursor:pointer;font-size:0.85rem">Workspace Opt-In</summary>
-      <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0">Leave all unchecked for full access.</p>
-      %s
-    </details>
+    <label>Endpoint <input type="url" name="endpoint" required value="%s" placeholder="https://peer.example.com"></label>
+    <label>Inbound key%s <input type="password" name="inbound_key" autocomplete="off" placeholder="the key this peer presents to us"></label>
+    <label>Outbound key%s <input type="password" name="api_key" autocomplete="off" placeholder="the key we present to this peer"></label>
+    <label>Timeout (ms) <input type="number" name="timeout_ms" min="0" value="%s" placeholder="default"></label>
+    <label>Outbound QPS <input type="number" name="rate_limit_qps" min="0" step="any" value="%s" placeholder="default"></label>
+    <label>Inbound QPS <input type="number" name="inbound_qps" min="0" step="any" value="%s" placeholder="default"></label>
+    <label>Client certificate SHA-256 <input type="text" name="client_cert_sha256" autocomplete="off" value="%s" placeholder="pin this peer's mTLS certificate (needs server.tls)"></label>
+    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal"><input type="checkbox" name="revoked" value="true"%s> Revoked</label>
     <div class="modal-actions">
       <button type="button" class="btn btn-secondary" onclick="this.closest('dialog').close()">Cancel</button>
-      <button type="submit" class="btn btn-primary">Update Peer</button>
+      <button type="submit" class="btn btn-primary">%s</button>
     </div>
   </form>
 </div>
 </dialog>`,
-		template.HTMLEscapeString(peer.Name),
-		template.HTMLEscapeString(peer.ID),
-		template.HTMLEscapeString(peer.Name),
-		template.HTMLEscapeString(peer.Endpoint),
-		mtlsSel, apiKeySel,
-		wsOptions)
+		template.HTMLEscapeString(title), action, idField,
+		template.HTMLEscapeString(name), template.HTMLEscapeString(url),
+		keyHint, outHint, timeout, outQPS, inQPS, template.HTMLEscapeString(certPin), revoked, submit)
 }
 
-func (h *Handler) handlePeerUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) partialPeerAddForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	peerForm(w, nil)
+}
+
+func (h *Handler) partialPeerEditForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	p := h.findPeer(r.Context(), r.URL.Query().Get("id"))
+	if p == nil {
+		h.writeFormError(w, "Peer not found")
+		return
+	}
+	peerForm(w, p)
+}
+
+// handlePeerAdd never replaces an existing peer: the add form is blank,
+// so saving it over a stored peer would reset that peer's settings.
+func (h *Handler) handlePeerAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && h.findPeer(r.Context(), strings.TrimSpace(r.FormValue("node_id"))) != nil {
+		h.writeFormError(w, "A peer with this node ID already exists; use Edit to change it")
+		return
+	}
+	h.savePeer(w, r)
+}
+
+func (h *Handler) handlePeerUpdate(w http.ResponseWriter, r *http.Request) { h.savePeer(w, r) }
+
+// savePeer upserts the peer the add or edit form describes.
+func (h *Handler) savePeer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.data == nil {
-		h.writeFormError(w, "Data source not configured")
+	if h.peers == nil {
+		h.writeFormError(w, "Federation is not enabled")
 		return
 	}
+	req := api.PeerRequest{
+		NodeID:     strings.TrimSpace(r.FormValue("node_id")),
+		Name:       strings.TrimSpace(r.FormValue("name")),
+		URL:        strings.TrimSpace(r.FormValue("endpoint")),
+		InboundKey: r.FormValue("inbound_key"),
+		APIKey:     r.FormValue("api_key"),
+		Revoked:    r.FormValue("revoked") == "true",
 
-	peerID := strings.TrimSpace(r.FormValue("id"))
-	name := strings.TrimSpace(r.FormValue("name"))
-	endpoint := strings.TrimSpace(r.FormValue("endpoint"))
-	trustMode := strings.TrimSpace(r.FormValue("trust_mode"))
-
-	if peerID == "" || name == "" || endpoint == "" {
-		h.writeFormError(w, "All fields are required")
+		ClientCertSHA256: strings.TrimSpace(r.FormValue("client_cert_sha256")),
+	}
+	if req.NodeID == "" || req.Name == "" || req.URL == "" {
+		h.writeFormError(w, "Node ID, name and endpoint are required")
 		return
 	}
-
-	_ = r.ParseForm()
-	workspaces := r.Form["workspaces"]
-
-	peer := PeerInfo{
-		ID:         peerID,
-		Name:       name,
-		Endpoint:   endpoint,
-		TrustMode:  trustMode,
-		Workspaces: workspaces,
+	if t := strings.TrimSpace(r.FormValue("timeout_ms")); t != "" {
+		n, err := strconv.Atoi(t)
+		if err != nil || n < 0 {
+			h.writeFormError(w, "Timeout must be a non-negative number of milliseconds")
+			return
+		}
+		req.TimeoutMS = n
 	}
-
-	if err := h.data.UpdatePeer(r.Context(), peerID, peer); err != nil {
+	for _, f := range []struct {
+		field, label string
+		dst          *float64
+	}{{"rate_limit_qps", "Outbound QPS", &req.RateLimitQPS}, {"inbound_qps", "Inbound QPS", &req.InboundQPS}} {
+		if v := strings.TrimSpace(r.FormValue(f.field)); v != "" {
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil || n < 0 || math.IsInf(n, 0) || math.IsNaN(n) {
+				h.writeFormError(w, f.label+" must be a non-negative number")
+				return
+			}
+			*f.dst = n
+		}
+	}
+	if _, err := h.peers.Upsert(r.Context(), req); err != nil {
 		h.writeFormError(w, err.Error())
 		return
 	}
-
 	w.Header().Set("HX-Redirect", "/ui/federation")
 	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) partialPeerRemoveForm(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	peerID := r.URL.Query().Get("id")
-	if peerID == "" {
-		h.writeFormError(w, "Peer ID required")
+	p := h.findPeer(r.Context(), r.URL.Query().Get("id"))
+	if p == nil {
+		h.writeFormError(w, "Peer not found")
 		return
 	}
-
-	var peerName string
-	if h.federation != nil {
-		for _, p := range h.federation.Peers {
-			if p.ID == peerID {
-				peerName = p.Name
-				break
-			}
-		}
-	}
-
-	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title">
+	fmt.Fprintf(w, `<dialog id="peer-modal" class="modal" aria-labelledby="peer-title" open>
 <div class="modal-form">
   <h3 id="peer-title">Remove Peer</h3>
   <div id="peer-remove-result"></div>
   <p>Are you sure you want to remove peer <strong>%s</strong> (%s)?</p>
-  <p class="text-muted" style="font-size:0.85rem">This will stop all federation traffic with this peer. Memories already received will not be deleted.</p>
+  <p class="text-muted" style="font-size:0.85rem">This node stops searching it and refuses its calls at once. Memories already received are not deleted.</p>
   <form hx-post="/ui/api/peers/remove" hx-target="#peer-remove-result" hx-swap="innerHTML">
     <input type="hidden" name="id" value="%s">
     <label>Type <code>%s</code> to confirm <input type="text" name="confirm" required></label>
@@ -302,10 +278,10 @@ func (h *Handler) partialPeerRemoveForm(w http.ResponseWriter, r *http.Request) 
   </form>
 </div>
 </dialog>`,
-		template.HTMLEscapeString(peerName),
-		template.HTMLEscapeString(peerID),
-		template.HTMLEscapeString(peerID),
-		template.HTMLEscapeString(peerName))
+		template.HTMLEscapeString(p.Name),
+		template.HTMLEscapeString(p.NodeID),
+		template.HTMLEscapeString(p.NodeID),
+		template.HTMLEscapeString(p.Name))
 }
 
 func (h *Handler) handlePeerRemove(w http.ResponseWriter, r *http.Request) {
@@ -313,39 +289,23 @@ func (h *Handler) handlePeerRemove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.data == nil {
-		h.writeFormError(w, "Data source not configured")
+	if h.peers == nil {
+		h.writeFormError(w, "Federation is not enabled")
 		return
 	}
-
-	peerID := strings.TrimSpace(r.FormValue("id"))
-	confirm := strings.TrimSpace(r.FormValue("confirm"))
-
-	if peerID == "" {
-		h.writeFormError(w, "Peer ID required")
+	p := h.findPeer(r.Context(), strings.TrimSpace(r.FormValue("id")))
+	if p == nil {
+		h.writeFormError(w, "Peer not found")
 		return
 	}
-
-	var expectedName string
-	if h.federation != nil {
-		for _, p := range h.federation.Peers {
-			if p.ID == peerID {
-				expectedName = p.Name
-				break
-			}
-		}
-	}
-
-	if confirm != expectedName {
-		h.writeFormError(w, fmt.Sprintf("Type %q to confirm", expectedName))
+	if strings.TrimSpace(r.FormValue("confirm")) != p.Name {
+		h.writeFormError(w, fmt.Sprintf("Type %q to confirm", p.Name))
 		return
 	}
-
-	if err := h.data.RemovePeer(r.Context(), peerID); err != nil {
+	if err := h.peers.Delete(r.Context(), p.NodeID); err != nil {
 		h.writeFormError(w, err.Error())
 		return
 	}
-
 	w.Header().Set("HX-Redirect", "/ui/federation")
 	w.WriteHeader(http.StatusOK)
 }

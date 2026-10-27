@@ -12,24 +12,36 @@ import (
 )
 
 type ServiceDataSource struct {
-	Metadata        adapter.MetadataStore
-	Vector          adapter.VectorStore
-	Ledger          adapter.LedgerStore
-	Content         adapter.ContentStore
-	Graph           adapter.GraphStore
-	RecallFunc      func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
-	ImprintFunc     func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
-	UpdateFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
-	PatchFunc       func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
-	AppendFunc      func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
-	ForgetFunc      func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
+	Metadata    adapter.MetadataStore
+	Vector      adapter.VectorStore
+	Ledger      adapter.LedgerStore
+	Content     adapter.ContentStore
+	Graph       adapter.GraphStore
+	RecallFunc  func(ctx context.Context, wsID string, req api.RecallRequest) (*api.RecallResponse, error)
+	ImprintFunc func(ctx context.Context, wsID, agentID string, req api.ImprintRequest) (*api.ImprintResponse, error)
+	UpdateFunc  func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.UpdateRequest) (*api.UpdateResponse, error)
+	PatchFunc   func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.PatchRequest) (*api.PatchResponse, error)
+	AppendFunc  func(ctx context.Context, wsID, memID, agentID, ifMatch string, req api.AppendRequest) (*api.AppendResponse, error)
+	ForgetFunc  func(ctx context.Context, wsID, memID, agentID string) (*api.ForgetResponse, error)
+	// RegisterAgentFunc and DeactivateAgentFunc register and deactivate
+	// agents with a ledger entry (Service.RegisterAgent and
+	// DeactivateAgent); nil falls back to the metadata store.
+	RegisterAgentFunc   func(ctx context.Context, a *types.Agent, byAgent string) error
+	DeactivateAgentFunc func(ctx context.Context, wsID, agentID, byAgent string) error
+	// LinkFunc, CreatePinFunc and DeletePinFunc go through the service,
+	// which ledgers them (#6171); nil falls back to the stores.
+	LinkFunc      func(ctx context.Context, e types.Edge) (types.Edge, error)
+	CreatePinFunc func(ctx context.Context, p *types.Pin) error
+	DeletePinFunc func(ctx context.Context, wsID, pinID, byAgent string) error
+	// UnlinkFunc removes an edge as an agent (Service.GraphUnlink).
+	UnlinkFunc      func(ctx context.Context, wsID, edgeID, agentID string) error
 	EmbedQueueDepth func() int
 }
 
 func (s *ServiceDataSource) DashboardStats(ctx context.Context) (DashboardStats, error) {
 	stats := DashboardStats{}
 
-	ws, err := s.Metadata.ListWorkspaces(ctx, 1000)
+	ws, _, err := s.Metadata.ListWorkspaces(ctx, "", 1000)
 	if err != nil {
 		return stats, err
 	}
@@ -37,7 +49,7 @@ func (s *ServiceDataSource) DashboardStats(ctx context.Context) (DashboardStats,
 
 	var totalMem, readyMem int
 	for _, w := range ws {
-		mems, err := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+		mems, _, err := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 		if err != nil {
 			continue
 		}
@@ -81,14 +93,14 @@ func (s *ServiceDataSource) LedgerEntriesSince(ctx context.Context, since time.T
 }
 
 func (s *ServiceDataSource) ListWorkspaces(ctx context.Context) ([]WorkspaceSummary, error) {
-	ws, err := s.Metadata.ListWorkspaces(ctx, 1000)
+	ws, _, err := s.Metadata.ListWorkspaces(ctx, "", 1000)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]WorkspaceSummary, len(ws))
 	for i, w := range ws {
 		agents, _ := s.Metadata.ListAgents(ctx, w.ID, 0)
-		mems, _ := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+		mems, _, _ := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 		out[i] = WorkspaceSummary{
 			ID:             w.ID,
 			Name:           w.Name,
@@ -107,7 +119,7 @@ func (s *ServiceDataSource) GetWorkspace(ctx context.Context, id string) (*Works
 		return nil, err
 	}
 	agents, _ := s.Metadata.ListAgents(ctx, w.ID, 0)
-	mems, _ := s.Metadata.ListMemories(ctx, w.ID, "", 10000)
+	mems, _, _ := s.Metadata.ListMemories(ctx, w.ID, "", "", 10000)
 	return &WorkspaceDetail{
 		WorkspaceSummary: WorkspaceSummary{
 			ID:             w.ID,
@@ -189,10 +201,16 @@ func (s *ServiceDataSource) RegisterAgent(ctx context.Context, wsID string, req 
 		Model:            req.Model,
 		Active:           true,
 	}
+	if s.RegisterAgentFunc != nil {
+		return s.RegisterAgentFunc(ctx, a, types.ConsoleAgentID)
+	}
 	return s.Metadata.RegisterAgent(ctx, a)
 }
 
 func (s *ServiceDataSource) DeactivateAgent(ctx context.Context, wsID, agentID string) error {
+	if s.DeactivateAgentFunc != nil {
+		return s.DeactivateAgentFunc(ctx, wsID, agentID, types.ConsoleAgentID)
+	}
 	return s.Metadata.DeactivateAgent(ctx, wsID, agentID)
 }
 
@@ -203,7 +221,7 @@ func (s *ServiceDataSource) ListCollections(ctx context.Context, wsID string) ([
 	}
 	out := make([]CollectionSummary, len(colls))
 	for i, c := range colls {
-		mems, _ := s.Metadata.ListMemories(ctx, wsID, c.ID, 10000)
+		mems, _, _ := s.Metadata.ListMemories(ctx, wsID, c.ID, "", 10000)
 		out[i] = CollectionSummary{
 			ID:          c.ID,
 			Name:        c.Name,
@@ -233,39 +251,39 @@ func (s *ServiceDataSource) ImprintMemory(ctx context.Context, wsID string, req 
 	if s.ImprintFunc == nil {
 		return nil, fmt.Errorf("imprint not configured")
 	}
-	return s.ImprintFunc(ctx, wsID, "ui-admin", req)
+	return s.ImprintFunc(ctx, wsID, types.ConsoleAgentID, req)
 }
 
 func (s *ServiceDataSource) UpdateMemory(ctx context.Context, wsID, memID string, req api.UpdateRequest) (*api.UpdateResponse, error) {
 	if s.UpdateFunc == nil {
 		return nil, fmt.Errorf("update not configured")
 	}
-	return s.UpdateFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.UpdateFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) PatchMemory(ctx context.Context, wsID, memID string, req api.PatchRequest) (*api.PatchResponse, error) {
 	if s.PatchFunc == nil {
 		return nil, fmt.Errorf("patch not configured")
 	}
-	return s.PatchFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.PatchFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) AppendMemory(ctx context.Context, wsID, memID string, req api.AppendRequest) (*api.AppendResponse, error) {
 	if s.AppendFunc == nil {
 		return nil, fmt.Errorf("append not configured")
 	}
-	return s.AppendFunc(ctx, wsID, memID, "ui-admin", "", req)
+	return s.AppendFunc(ctx, wsID, memID, types.ConsoleAgentID, "", req)
 }
 
 func (s *ServiceDataSource) ForgetMemory(ctx context.Context, wsID, memID string) (*api.ForgetResponse, error) {
 	if s.ForgetFunc == nil {
 		return nil, fmt.Errorf("forget not configured")
 	}
-	return s.ForgetFunc(ctx, wsID, memID, "ui-admin")
+	return s.ForgetFunc(ctx, wsID, memID, types.ConsoleAgentID)
 }
 
 func (s *ServiceDataSource) ListMemories(ctx context.Context, wsID string, limit int) ([]MemorySummary, error) {
-	mems, err := s.Metadata.ListMemories(ctx, wsID, "", limit)
+	mems, _, err := s.Metadata.ListMemories(ctx, wsID, "", "", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +445,7 @@ func (s *ServiceDataSource) GraphData(ctx context.Context, wsID string, seedMemI
 		}, nil
 	}
 
-	mems, err := s.Metadata.ListMemories(ctx, wsID, "", 200)
+	mems, _, err := s.Metadata.ListMemories(ctx, wsID, "", "", 200)
 	if err != nil {
 		return nil, err
 	}
@@ -615,9 +633,13 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 		SourceMemoryID:   sourceMemID,
 		TargetMemoryID:   targetMemID,
 		EdgeType:         types.EdgeType(edgeType),
-		CreatedByAgentID: "ui-admin",
+		CreatedByAgentID: types.ConsoleAgentID,
 	}
-	out, err := s.Graph.Link(ctx, e)
+	link := s.Graph.Link
+	if s.LinkFunc != nil {
+		link = s.LinkFunc
+	}
+	out, err := link(ctx, e)
 	if err != nil {
 		return "", err
 	}
@@ -625,10 +647,10 @@ func (s *ServiceDataSource) LinkEdge(ctx context.Context, wsID, sourceMemID, tar
 }
 
 func (s *ServiceDataSource) UnlinkEdge(ctx context.Context, wsID, edgeID string) error {
-	if s.Graph == nil {
-		return fmt.Errorf("graph store not configured")
+	if s.UnlinkFunc == nil {
+		return fmt.Errorf("unlink not configured")
 	}
-	return s.Graph.Unlink(ctx, wsID, edgeID, "ui-admin")
+	return s.UnlinkFunc(ctx, wsID, edgeID, types.ConsoleAgentID)
 }
 
 func (s *ServiceDataSource) GetWatermarkHistory(ctx context.Context, wsID, memID string, since time.Time) ([]types.WatermarkHistoryEntry, error) {
@@ -641,18 +663,6 @@ func (s *ServiceDataSource) UpsertTag(ctx context.Context, wsID, memID, key, val
 
 func (s *ServiceDataSource) DeleteTag(ctx context.Context, wsID, memID, key string) error {
 	return s.Metadata.DeleteTag(ctx, wsID, memID, key)
-}
-
-func (s *ServiceDataSource) AddPeer(_ context.Context, _ PeerInfo) error {
-	return fmt.Errorf("federation peer management requires config file changes")
-}
-
-func (s *ServiceDataSource) UpdatePeer(_ context.Context, _ string, _ PeerInfo) error {
-	return fmt.Errorf("federation peer management requires config file changes")
-}
-
-func (s *ServiceDataSource) RemovePeer(_ context.Context, _ string) error {
-	return fmt.Errorf("federation peer management requires config file changes")
 }
 
 func (s *ServiceDataSource) AuditQuery(ctx context.Context, wsID, agentID string, ops []string, since, until *time.Time, cursor string, limit int) ([]api.LedgerEntry, string, error) {
@@ -698,14 +708,22 @@ func (s *ServiceDataSource) CreatePin(ctx context.Context, wsID string, query, m
 		K:           k,
 		Watermark:   watermark,
 		Label:       label,
+		CreatedBy:   types.ConsoleAgentID,
 	}
-	if err := s.Metadata.CreatePin(ctx, p); err != nil {
+	create := s.Metadata.CreatePin
+	if s.CreatePinFunc != nil {
+		create = s.CreatePinFunc
+	}
+	if err := create(ctx, p); err != nil {
 		return "", err
 	}
 	return p.PinID, nil
 }
 
 func (s *ServiceDataSource) DeletePin(ctx context.Context, wsID, pinID string) error {
+	if s.DeletePinFunc != nil {
+		return s.DeletePinFunc(ctx, wsID, pinID, types.ConsoleAgentID)
+	}
 	return s.Metadata.DeletePin(ctx, wsID, pinID)
 }
 

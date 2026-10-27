@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	stdlog "log"
 	"path/filepath"
@@ -42,7 +43,7 @@ func newTestService(t *testing.T) *service.Service {
 	}
 	t.Cleanup(func() { _ = vec.Close() })
 
-	embedProvider, err := embedding.Open("noop:default")
+	embedProvider, err := embedding.Open("hash:default")
 	if err != nil {
 		t.Fatalf("open embedding: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestDispatch_AgentIDFlowsToService(t *testing.T) {
 	// Set up: create a workspace, then imprint a memory through the
 	// MCP tools. Read the resulting Memory back from the primary and
 	// confirm the agent_id round-tripped through the dispatch path.
-	const agentID = "agent_opaque_dispatch_test"
+	const agentID = "dccc75db-d856-4353-8a71-c748fe2bc81f"
 	resps := roundtrip(t, s,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"dispatch-test"}}}`,
@@ -351,7 +352,7 @@ func TestInitialize_OpaqueProvider_Accepts(t *testing.T) {
 	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
 
 	resps := roundtrip(t, s,
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"agent_a","identityProvider":"opaque"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"88b4bd22-90ad-4364-badb-bf03e8a490a9","identityProvider":"opaque"}}`,
 	)
 	if len(resps) != 1 {
 		t.Fatalf("want 1 response, got %d", len(resps))
@@ -359,52 +360,89 @@ func TestInitialize_OpaqueProvider_Accepts(t *testing.T) {
 	if resps[0].Error != nil {
 		t.Fatalf("opaque provider should accept: %+v", resps[0].Error)
 	}
-	if s.pinnedAgent != "agent_a" {
-		t.Fatalf("pinnedAgent = %q, want %q", s.pinnedAgent, "agent_a")
+	if s.pinnedAgent != "88b4bd22-90ad-4364-badb-bf03e8a490a9" {
+		t.Fatalf("pinnedAgent = %q, want %q", s.pinnedAgent, "88b4bd22-90ad-4364-badb-bf03e8a490a9")
 	}
 }
 
-func TestInitialize_AnthropicSession_ValidProof(t *testing.T) {
-	svc := newTestService(t)
-	svc.Identity[string(types.IdentityProviderAnthropicSession)] = identity.AnthropicSession{}
-	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
-
-	agentID := identity.DeriveAnthropicSessionID("sess-1", "claude-3", "my prompt")
-	proof := map[string]any{
-		"session_id":    "sess-1",
-		"model":         "claude-3",
-		"system_prompt": "my prompt",
-	}
-	proofJSON, _ := json.Marshal(proof)
-	frame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"` + agentID + `","identityProvider":"anthropic_session","identityProof":` + string(proofJSON) + `}}`
-
-	resps := roundtrip(t, s, frame)
+// initializeAgent runs initialize and returns the agentId the server
+// reports, or the error response.
+func initializeAgent(t *testing.T, s *Server, params string) (string, *rpcError) {
+	t.Helper()
+	resps := roundtrip(t, s, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":`+params+`}`)
 	if len(resps) != 1 {
 		t.Fatalf("want 1 response, got %d", len(resps))
 	}
 	if resps[0].Error != nil {
-		t.Fatalf("valid anthropic_session proof should accept: %+v", resps[0].Error)
+		return "", resps[0].Error
 	}
-	if s.pinnedAgent != agentID {
-		t.Fatalf("pinnedAgent = %q, want %q", s.pinnedAgent, agentID)
+	var result struct {
+		AgentID string `json:"agentId"`
+	}
+	b, _ := json.Marshal(resps[0].Result)
+	_ = json.Unmarshal(b, &result)
+	return result.AgentID, nil
+}
+
+// TestInitialize_AnthropicSession_MintsStableUUID: a proof-identified
+// agent gets a server-minted UUIDv4 agent_id, reported by initialize,
+// pinned for the session, and the same for every later session with
+// the same proof.
+func TestInitialize_AnthropicSession_MintsStableUUID(t *testing.T) {
+	svc := newTestService(t)
+	svc.Identity[string(types.IdentityProviderAnthropicSession)] = identity.AnthropicSession{}
+	params := `{"apiKey":"key","identityProvider":"anthropic_session","identityProof":{"session_id":"sess-1","model":"claude-3","system_prompt":"my prompt"}}`
+
+	s1 := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+	first, rpcErr := initializeAgent(t, s1, params)
+	if rpcErr != nil {
+		t.Fatalf("valid anthropic_session proof should accept: %+v", rpcErr)
+	}
+	if _, err := types.ParseID("agentId", first); err != nil {
+		t.Fatalf("minted agent_id: %v", err)
+	}
+	if s1.pinnedAgent != first {
+		t.Fatalf("pinnedAgent = %q, want %q", s1.pinnedAgent, first)
+	}
+
+	s2 := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+	second, rpcErr := initializeAgent(t, s2, params)
+	if rpcErr != nil || second != first {
+		t.Fatalf("second session resolved to %q (%+v), want %q", second, rpcErr, first)
+	}
+
+	// Claiming the resolved agent_id explicitly is accepted.
+	s3 := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+	claimed := `{"apiKey":"key","agentId":"` + first + `","identityProvider":"anthropic_session","identityProof":{"session_id":"sess-1","model":"claude-3","system_prompt":"my prompt"}}`
+	if got, rpcErr := initializeAgent(t, s3, claimed); rpcErr != nil || got != first {
+		t.Fatalf("claiming the resolved agent_id: got %q (%+v)", got, rpcErr)
 	}
 }
 
-func TestInitialize_AnthropicSession_BadProof(t *testing.T) {
+func TestInitialize_AnthropicSession_RejectsOtherAgentAndBadProof(t *testing.T) {
 	svc := newTestService(t)
 	svc.Identity[string(types.IdentityProviderAnthropicSession)] = identity.AnthropicSession{}
-	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+	cases := map[string]string{
+		"claims another agent": `{"apiKey":"key","agentId":"` + types.NewID() + `","identityProvider":"anthropic_session","identityProof":{"session_id":"s","model":"m"}}`,
+		"proof lacks model":    `{"apiKey":"key","identityProvider":"anthropic_session","identityProof":{"session_id":"s"}}`,
+	}
+	for name, params := range cases {
+		s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
+		_, rpcErr := initializeAgent(t, s, params)
+		if rpcErr == nil || rpcErr.Code != ErrCodeUnauthorized {
+			t.Errorf("%s: want ErrCodeUnauthorized, got %+v", name, rpcErr)
+		}
+		if s.pinnedAgent != "" {
+			t.Errorf("%s: pinnedAgent should be empty after failed verify, got %q", name, s.pinnedAgent)
+		}
+	}
+}
 
-	frame := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"wrong_agent","identityProvider":"anthropic_session","identityProof":{"session_id":"s","model":"m"}}}`
-	resps := roundtrip(t, s, frame)
-	if len(resps) != 1 {
-		t.Fatalf("want 1 response, got %d", len(resps))
-	}
-	if resps[0].Error == nil || resps[0].Error.Code != ErrCodeUnauthorized {
-		t.Fatalf("bad proof should produce ErrCodeUnauthorized, got %+v", resps[0].Error)
-	}
-	if s.pinnedAgent != "" {
-		t.Fatalf("pinnedAgent should be empty after failed verify, got %q", s.pinnedAgent)
+func TestInitialize_OpaqueProvider_RejectsNonUUIDAgentID(t *testing.T) {
+	s := NewServerWithConfig(newTestService(t), testLogger(), Config{APIKey: "key"})
+	_, rpcErr := initializeAgent(t, s, `{"apiKey":"key","agentId":"agent_my_bot","identityProvider":"opaque"}`)
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "agent_id must be a UUID") {
+		t.Fatalf("want agent_id UUID rejection, got %+v", rpcErr)
 	}
 }
 
@@ -412,9 +450,9 @@ func TestDispatch_PinnedAgentIDOverridesClientParam(t *testing.T) {
 	svc := newTestService(t)
 	s := NewServerWithConfig(svc, testLogger(), Config{APIKey: "key"})
 
-	// Initialize with pinned agent_X.
+	// Initialize with pinned 4c1e2f3a-5b6d-4e7f-8a9b-0c1d2e3f4a5b.
 	resps := roundtrip(t, s,
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"agent_X","identityProvider":"opaque"}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"apiKey":"key","agentId":"4c1e2f3a-5b6d-4e7f-8a9b-0c1d2e3f4a5b","identityProvider":"opaque"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"pin-test"}}}`,
 	)
 	if len(resps) != 2 || resps[1].Error != nil {
@@ -422,10 +460,10 @@ func TestDispatch_PinnedAgentIDOverridesClientParam(t *testing.T) {
 	}
 	wsID := extractToolWorkspaceID(t, resps[1])
 
-	// Imprint with agent_id=agent_Y — pinned agent_X should override.
+	// Imprint with agent_id=9e8d7c6b-5a4f-4e3d-ac2b-1a0f9e8d7c6b — pinned 4c1e2f3a-5b6d-4e7f-8a9b-0c1d2e3f4a5b should override.
 	imprintArgs, _ := json.Marshal(map[string]any{
 		"workspace_id": wsID,
-		"agent_id":     "agent_Y",
+		"agent_id":     "9e8d7c6b-5a4f-4e3d-ac2b-1a0f9e8d7c6b",
 		"content":      "pinned override test",
 	})
 	frame := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":` + string(imprintArgs) + `}}`
@@ -439,8 +477,8 @@ func TestDispatch_PinnedAgentIDOverridesClientParam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}
-	if mem.WrittenByAgentID != "agent_X" {
-		t.Fatalf("WrittenByAgentID = %q, want %q (pinned override)", mem.WrittenByAgentID, "agent_X")
+	if mem.WrittenByAgentID != "4c1e2f3a-5b6d-4e7f-8a9b-0c1d2e3f4a5b" {
+		t.Fatalf("WrittenByAgentID = %q, want %q (pinned override)", mem.WrittenByAgentID, "4c1e2f3a-5b6d-4e7f-8a9b-0c1d2e3f4a5b")
 	}
 }
 
@@ -459,7 +497,7 @@ func TestDispatch_NoAuthMode_ClientAgentIDFlows(t *testing.T) {
 
 	imprintArgs, _ := json.Marshal(map[string]any{
 		"workspace_id": wsID,
-		"agent_id":     "client_supplied",
+		"agent_id":     "f269ac4f-2488-4f87-bcb0-84fe098ea039",
 		"content":      "no auth mode test",
 	})
 	frame := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":` + string(imprintArgs) + `}}`
@@ -473,7 +511,62 @@ func TestDispatch_NoAuthMode_ClientAgentIDFlows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMemory: %v", err)
 	}
-	if mem.WrittenByAgentID != "client_supplied" {
-		t.Fatalf("WrittenByAgentID = %q, want %q (client pass-through)", mem.WrittenByAgentID, "client_supplied")
+	if mem.WrittenByAgentID != "f269ac4f-2488-4f87-bcb0-84fe098ea039" {
+		t.Fatalf("WrittenByAgentID = %q, want %q (client pass-through)", mem.WrittenByAgentID, "f269ac4f-2488-4f87-bcb0-84fe098ea039")
+	}
+}
+
+// TestToolCall_NonUUIDID_ReturnsInvalidParams pins R1 at the MCP
+// boundary: an ID argument that is not a UUIDv4 is -32602 (invalid
+// params) naming the argument, for every ID argument the catalog uses.
+func TestToolCall_NonUUIDID_ReturnsInvalidParams(t *testing.T) {
+	s := NewServer(newTestService(t), testLogger())
+	cases := []struct{ tool, arg string }{
+		{"memora_lookup", "workspace_id"},
+		{"memora_lookup", "memory_id"},
+		{"memora_imprint", "collection_id"},
+		{"memora_unpin", "pin_id"},
+		{"memora_link", "source_memory_id"},
+		{"memora_link", "target_memory_id"},
+		{"memora_traverse", "seed_memory_id"},
+		{"memora_unlink", "edge_id"},
+	}
+	for i, tc := range cases {
+		args := map[string]any{"workspace_id": types.NewID(), "agent_id": "2b4224a8-95b4-4171-9e6b-689847d53ac7"}
+		args[tc.arg] = "mem_01HXYZABCDEFGHJKMNPQRSTVWX"
+		argsJSON, _ := json.Marshal(args)
+		frame := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":%s}}`, i+2, tc.tool, argsJSON)
+		resps := roundtrip(t, s, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`, frame)
+		if len(resps) != 2 || resps[1].Error == nil {
+			t.Fatalf("%s/%s: want an error response, got %+v", tc.tool, tc.arg, resps)
+		}
+		if resps[1].Error.Code != -32602 || !strings.Contains(resps[1].Error.Message, tc.arg+" must be a UUID") {
+			t.Errorf("%s/%s: error = %+v, want -32602 naming %s", tc.tool, tc.arg, resps[1].Error, tc.arg)
+		}
+	}
+}
+
+// TestDispatch_DeactivatedAgentRefused (#6169): an MCP write by an agent
+// deactivated in the workspace fails with the unauthorized code.
+func TestDispatch_DeactivatedAgentRefused(t *testing.T) {
+	svc := newTestService(t)
+	s := NewServer(svc, testLogger())
+	const agentID = "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6"
+	resps := roundtrip(t, s,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memora_create_workspace","arguments":{"name":"deactivated"}}}`,
+	)
+	wsID := extractToolWorkspaceID(t, resps[1])
+	ctx := context.Background()
+	if err := svc.RegisterAgent(ctx, &types.Agent{AgentID: agentID, WorkspaceID: wsID, IdentityProvider: "opaque"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeactivateAgent(ctx, wsID, agentID, ""); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"workspace_id": wsID, "agent_id": agentID, "content": "refused"})
+	r := roundtrip(t, s, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memora_imprint","arguments":`+string(args)+`}}`)
+	if len(r) != 1 || r[0].Error == nil || r[0].Error.Code != ErrCodeUnauthorized {
+		t.Fatalf("imprint by a deactivated agent: %+v, want error %d", r, ErrCodeUnauthorized)
 	}
 }

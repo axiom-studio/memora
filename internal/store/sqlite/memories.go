@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/axiom-studio/memora/pkg/adapter"
 	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
@@ -16,7 +17,7 @@ import (
 // ImprintMemory inserts a fresh Memory and returns its head watermark.
 func (s *Store) ImprintMemory(ctx context.Context, m *types.Memory) (string, error) {
 	if m.ID == "" {
-		m.ID = types.NewID(types.MemoryIDPrefix)
+		m.ID = types.NewID()
 	}
 	if err := m.Validate(); err != nil {
 		return "", err
@@ -46,7 +47,7 @@ INSERT INTO memora_memories (id, workspace_id, collection_id, content, content_m
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.WorkspaceID, nullableStr(m.CollectionID), m.Content, m.ContentMD5,
 		m.HeadWatermark, m.CreatedWatermark, m.WrittenByAgentID, m.LastModifiedByAgentID,
-		nullableStr(string(tagsJSON)), boolToInt(m.RecallReady), m.CreatedAt, m.UpdatedAt); err != nil {
+		nullableStr(string(tagsJSON)), boolToInt(m.RecallReady), formatTS(m.CreatedAt), m.UpdatedAt); err != nil {
 		return "", fmt.Errorf("insert memory: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO memora_memories_fts(memory_id, workspace_id, content) VALUES (?, ?, ?)`,
@@ -83,6 +84,31 @@ FROM memora_memories WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanMemory(row)
 }
 
+// GetMemories implements adapter.MetadataStore in one query.
+func (s *Store) GetMemories(ctx context.Context, ids []string) ([]types.Memory, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	//nolint:gosec // G202: only "?" placeholders are concatenated; values stay parameterized
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, workspace_id, collection_id, content, content_md5, head_watermark, created_watermark,
+       written_by_agent_id, last_modified_by_agent_id, tags_json, recall_ready, created_at, updated_at, deleted_at
+FROM memora_memories WHERE deleted_at IS NULL AND id IN (`+placeholders(len(ids))+`)`, anyArgs(ids)...)
+	if err != nil {
+		return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+	}
+	defer rows.Close()
+	out := make([]types.Memory, 0, len(ids))
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("load %d memories: %w", len(ids), err)
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
 // GetMemoryAtWatermark returns the Memory body at a historical watermark.
 func (s *Store) GetMemoryAtWatermark(ctx context.Context, id, watermark string) (*types.Memory, error) {
 	// History only stores md5; for v0 we return current row if watermark
@@ -97,9 +123,9 @@ func (s *Store) GetMemoryAtWatermark(ctx context.Context, id, watermark string) 
 	return nil, fmt.Errorf("%w: at-watermark read for historical wmk %s requires Snapshot (v0.5+)", types.ErrCapability, watermark)
 }
 
-// ListMemories returns up to `limit` memories, filtered by workspace
-// and optionally collection.
-func (s *Store) ListMemories(ctx context.Context, workspaceID, collectionID string, limit int) ([]types.Memory, error) {
+// ListMemories lists live memories newest first by (created_at, id);
+// see adapter.MetadataStore.
+func (s *Store) ListMemories(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -111,22 +137,39 @@ FROM memora_memories WHERE workspace_id = ? AND deleted_at IS NULL`
 		q += " AND collection_id = ?"
 		args = append(args, collectionID)
 	}
-	q += " ORDER BY created_at DESC LIMIT ?"
-	args = append(args, limit)
+	if cursor != "" {
+		ts, id, err := adapter.DecodeListCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		q += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+		args = append(args, formatTS(ts), formatTS(ts), id)
+	}
+	q += " ORDER BY created_at DESC, id DESC LIMIT ?"
+	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var out []types.Memory
 	for rows.Next() {
 		m, err := scanMemoryFromRows(rows)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, *m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[limit-1]
+		next = adapter.EncodeListCursor(last.CreatedAt, last.ID)
+	}
+	return out, next, nil
 }
 
 func (s *Store) ListMemoriesPaged(ctx context.Context, workspaceID, collectionID, cursor string, limit int) ([]types.Memory, string, error) {

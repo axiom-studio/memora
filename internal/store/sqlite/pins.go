@@ -9,7 +9,10 @@ import (
 
 func (s *Store) CreatePin(ctx context.Context, p *types.Pin) error {
 	if p.PinID == "" {
-		p.PinID = types.NewID("pin")
+		p.PinID = types.NewID()
+	}
+	if err := p.Validate(); err != nil {
+		return err
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()

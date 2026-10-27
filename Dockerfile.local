@@ -1,0 +1,106 @@
+# Memora Core with a local semantic embedder (#4380, option A).
+#
+# The image tag is memora-core:<version>-local. It carries memora-core
+# built with -tags local_embed, the llama.cpp shared library that
+# kelindar/search loads at runtime, and the nomic-embed-text-v1.5 GGUF
+# model, so a node embeds offline with no API key. linux/amd64 only
+# for now.
+#
+# Every downloaded file is pinned to an immutable URL and checked against
+# its SHA-256, and source is fetched by commit; the build fails on any
+# mismatch. The model is verified again by memora-core each time it
+# loads it. The CPU needs AVX2, FMA and F16C.
+#
+#   docker build -f Dockerfile.local -t memora-core:dev-local .
+
+# Base images are pinned by digest (#6244); bump them deliberately.
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+# purego loads the library at runtime, so the binary needs no cgo.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags local_embed \
+    -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${BUILD_DATE}'" \
+    -o /out/memora-core ./cmd/memora-core && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags "-s -w -X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.buildDate=${BUILD_DATE}'" \
+    -o /out/memora-cli ./cmd/memora-cli
+
+# libllama_go.so is built from source, pinned by commit: kelindar/search
+# v0.4.1 and the llama.cpp commit its submodule points at. The prebuilt
+# library upstream ships was compiled for the build machine's CPU and
+# uses AVX-VNNI (vpdpbusd), so it dies with SIGILL on most x86-64 CPUs,
+# AMD Zen 4 EPYC included (#6245). GGML_NATIVE=OFF targets portable
+# x86-64: AVX, AVX2, FMA and F16C; no AVX-VNNI, no AVX-512.
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS llama
+
+ARG SEARCH_COMMIT=b4c4ef13f5e24271167b5e1248abc4161e47dbaa
+ARG LLAMA_CPP_COMMIT=90e4dba461b07e635fd1daf3b491c978c7dd0013
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git cmake make g++ libgomp1 && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN git init -q search && cd search && \
+    git fetch -q --depth 1 https://github.com/kelindar/search.git "$SEARCH_COMMIT" && git checkout -q FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$SEARCH_COMMIT" && \
+    rm -rf llama.cpp && git init -q llama.cpp && cd llama.cpp && \
+    git fetch -q --depth 1 https://github.com/ggerganov/llama.cpp.git "$LLAMA_CPP_COMMIT" && git checkout -q FETCH_HEAD && \
+    test "$(git rev-parse HEAD)" = "$LLAMA_CPP_COMMIT"
+RUN cmake -S search -B out -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON \
+        -DGGML_AVX_VNNI=OFF -DGGML_AVX512=OFF -DLLAMA_CURL=OFF && \
+    cmake --build out --target llama_go -j"$(nproc)" && \
+    find out -name libllama_go.so -exec cp {} /build/libllama_go.so \;
+# Refuse a build that slipped in instructions outside the target.
+RUN apt-get update && apt-get install -y --no-install-recommends binutils && rm -rf /var/lib/apt/lists/* && \
+    objdump -d --no-show-raw-insn /build/libllama_go.so > /tmp/asm && \
+    ! grep -qE 'vpdpbusd|vpdpwssd|%zmm|\{k[0-7]\}' /tmp/asm
+# What the image carries and where it came from, for consumers and the
+# release attestation (#6244).
+RUN printf '{"libllama_go.so":{"source":"https://github.com/kelindar/search","commit":"%s","llama_cpp":"https://github.com/ggerganov/llama.cpp","llama_cpp_commit":"%s","build":"cmake Release GGML_NATIVE=OFF AVX AVX2 FMA F16C, no AVX-VNNI/AVX-512","sha256":"%s"}}\n' \
+    "$SEARCH_COMMIT" "$LLAMA_CPP_COMMIT" "$(sha256sum /build/libllama_go.so | cut -d' ' -f1)" > /build/llama.json
+
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS assets
+
+# Must match defaultModelRevision / defaultModelSHA in pkg/embedding/modelfile.go.
+ARG MODEL_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.Q8_0.gguf
+ARG MODEL_SHA256=3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /out/models && \
+    curl -fsSL -o /out/models/nomic-embed-text-v1.5.Q8_0.gguf "$MODEL_URL" && \
+    echo "$MODEL_SHA256  /out/models/nomic-embed-text-v1.5.Q8_0.gguf" | sha256sum -c -
+COPY --from=llama /build/llama.json /tmp/llama.json
+RUN apt-get update && apt-get install -y --no-install-recommends jq && rm -rf /var/lib/apt/lists/* && \
+    jq --arg url "$MODEL_URL" --arg sha "$MODEL_SHA256" \
+        '. + {"nomic-embed-text-v1.5.Q8_0.gguf": {"source": $url, "sha256": $sha, "license": "Apache-2.0"}}' \
+        /tmp/llama.json > /out/local-components.json
+
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS final
+
+# libllama_go.so needs libstdc++, libgcc_s and libgomp.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libstdc++6 && rm -rf /var/lib/apt/lists/* && \
+    useradd --system --uid 65532 --home /data --shell /usr/sbin/nologin nonroot && \
+    mkdir -p /data && chown nonroot:nonroot /data
+
+COPY --from=builder /out/memora-core /usr/local/bin/memora-core
+COPY --from=builder /out/memora-cli /usr/local/bin/memora-cli
+COPY --from=llama /build/libllama_go.so /usr/local/lib/libllama_go.so
+COPY --from=assets /out/models /models
+COPY --from=assets /out/local-components.json /usr/share/memora/local-components.json
+
+ENV MEMORA_DATA_DIR=/data
+ENV MEMORA_ADDR=:7777
+ENV MEMORA_MODEL_DIR=/models
+ENV MEMORA_EMBEDDING_MODEL=local:nomic-embed-text-v1.5
+EXPOSE 7777
+
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/memora-core"]
+CMD ["serve"]

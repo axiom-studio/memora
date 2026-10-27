@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axiom-studio/memora/internal/reqctx"
+	"github.com/axiom-studio/memora/pkg/types"
 	"github.com/axiom-studio/memora/pkg/types/api"
 )
 
@@ -268,11 +270,12 @@ func TestMultiTenantWorkspaceHeader(t *testing.T) {
 	h := s.middleware(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	req.Header.Set("X-Memora-Workspace", "ws_tenant42")
+	tenant := types.NewID()
+	req.Header.Set("X-Memora-Workspace", tenant)
 	gotWS = ""
 	h.ServeHTTP(httptest.NewRecorder(), req)
-	if gotWS != "ws_tenant42" {
-		t.Errorf("workspace = %q, want ws_tenant42", gotWS)
+	if gotWS != tenant {
+		t.Errorf("workspace = %q, want %s", gotWS, tenant)
 	}
 }
 
@@ -300,5 +303,52 @@ func TestErrorEnvelopeShape(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q", ct)
+	}
+}
+
+// TestMiddleware_RequestID: a missing or unsafe X-Request-ID is replaced
+// with a fresh UUIDv4; a safe client value is echoed unchanged. Either
+// way the ID in the response header is the one in the request context.
+func TestMiddleware_RequestID(t *testing.T) {
+	s := testServer("")
+	var seen string
+	h := s.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = reqctx.RequestID(r.Context())
+	}))
+	cases := []struct {
+		name, header string
+		keep         bool
+	}{
+		{"missing", "", false},
+		{"client uuid", "3f2b8c1e-6d4a-4f0b-9a7e-2c5d8e1f4a90", true},
+		{"client token", "trace:abc_123.Z-9", true},
+		{"max length", strings.Repeat("a", 128), true},
+		{"too long", strings.Repeat("a", 129), false},
+		{"space", "abc def", false},
+		{"log injection", "abc\" level=ERROR msg=forged", false},
+		{"non-ascii", "abcé", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+			if tc.header != "" {
+				req.Header.Set("X-Request-ID", tc.header)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			got := rec.Header().Get("X-Request-ID")
+			if got != seen {
+				t.Fatalf("response header %q != context request ID %q", got, seen)
+			}
+			if tc.keep {
+				if got != tc.header {
+					t.Fatalf("X-Request-ID = %q, want the client's %q", got, tc.header)
+				}
+				return
+			}
+			if _, err := types.ParseID("request_id", got); err != nil {
+				t.Fatalf("replacement X-Request-ID %q: %v", got, err)
+			}
+		})
 	}
 }
