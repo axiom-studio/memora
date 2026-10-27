@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"mime"
@@ -85,12 +86,17 @@ func checkIDs(r *http.Request) error {
 	// read them with FormValue, so a malformed form must not skip the
 	// checks below (#6366). ParseForm reads no multipart body, so a
 	// multipart form is parsed in full here and its fields merge into
-	// r.Form; handlers then read the parsed form (#6407).
+	// r.Form; handlers then read the parsed form (#6407). maxMemory is
+	// the body bound, so every value (a bulk "records" field included)
+	// fits and nothing spills to a temp file.
 	parse := r.ParseForm
 	if isMultipart(r) {
-		parse = func() error { return r.ParseMultipartForm(maxUploadBytes) }
+		parse = func() error { return r.ParseMultipartForm(multipartLimit(r.URL.Path)) }
 	}
 	if err := parse(); err != nil {
+		if tooBig := (*http.MaxBytesError)(nil); errors.As(err, &tooBig) {
+			return fmt.Errorf("%w: form too large (limit %d MiB)", types.ErrInvalidInput, tooBig.Limit>>20)
+		}
 		return fmt.Errorf("%w: malformed form", types.ErrInvalidInput)
 	}
 	for name, field := range idParams {
@@ -110,6 +116,16 @@ func checkIDs(r *http.Request) error {
 	return nil
 }
 
+// multipartLimit bounds a console multipart body at its handler's own
+// limit, so the middleware never refuses what the handler accepts: the
+// bulk seed, import and replay routes take 64 MiB, the rest an upload.
+func multipartLimit(path string) int64 {
+	if strings.HasPrefix(path, "/ui/api/bulk/") {
+		return maxBulkUploadBytes
+	}
+	return maxUploadBytes + 4096
+}
+
 func isMultipart(r *http.Request) bool {
 	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	return mt == "multipart/form-data"
@@ -121,9 +137,8 @@ func isMultipart(r *http.Request) bool {
 func (h *Handler) validateIDs(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isMultipart(r) {
-			// checkIDs parses multipart bodies before any handler bounds
-			// them; the largest console multipart is an upload.
-			r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+4096)
+			// checkIDs parses multipart bodies before any handler bounds them.
+			r.Body = http.MaxBytesReader(w, r.Body, multipartLimit(r.URL.Path))
 		}
 		if err := checkIDs(r); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")

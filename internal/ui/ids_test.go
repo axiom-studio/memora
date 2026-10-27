@@ -170,8 +170,32 @@ func TestUI_MultipartBodyIDsChecked(t *testing.T) {
 			t.Fatalf("%s: status %d body %q, want 400 naming %s", name, w.Code, w.Body.String(), c.field)
 		}
 	}
-	// The middleware bounds the body it parses.
-	if w := upload("", map[string]string{"workspace_id": ws, "pad": strings.Repeat("x", maxUploadBytes+8192)}); w.Code != 400 || !strings.Contains(w.Body.String(), "malformed form") {
-		t.Fatalf("oversized multipart: status %d, want 400 malformed form", w.Code)
+	// The middleware bounds the body it parses, at the handler's limit.
+	if w := upload("", map[string]string{"workspace_id": ws, "pad": strings.Repeat("x", maxUploadBytes+8192)}); w.Code != 400 || !strings.Contains(w.Body.String(), "form too large (limit 8 MiB)") {
+		t.Fatalf("oversized multipart: status %d body %q, want 400 form too large", w.Code, w.Body.String())
+	}
+}
+
+// TestUI_MultipartBulkImportOver8MiB (#6407 QA rework): the console posts
+// bulk import as FormData with a 64 MiB handler limit; the ID middleware
+// must parse it at that limit, not the 8 MiB upload one.
+func TestUI_MultipartBulkImportOver8MiB(t *testing.T) {
+	h := mustHandler(t)
+	h.SetDataSource(&mockDataSource{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+	records := `[{"content":"` + strings.Repeat("x", 12<<20) + `","content_md5":"big"}]` // ~12 MiB
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("workspace_id", types.NewID())
+	_ = mw.WriteField("conflict", "skip")
+	_ = mw.WriteField("records", records)
+	_ = mw.Close()
+	r := httptest.NewRequest("POST", "/ui/api/bulk/import", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if body := w.Body.String(); !strings.Contains(body, `"type":"complete"`) || !strings.Contains(body, `"succeeded":1`) {
+		t.Fatalf("12 MiB multipart bulk import: status %d body %.300q, want a completed import", w.Code, body)
 	}
 }
